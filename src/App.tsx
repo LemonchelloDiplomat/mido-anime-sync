@@ -1,0 +1,1295 @@
+import { useEffect, useMemo, useState } from "react";
+import type { ChangeEvent, FormEvent } from "react";
+
+import type {
+  AnimeIdentity,
+  AnimeListEntry,
+  AnimeSnapshot,
+  AnimeStatus,
+} from "./core/types.js";
+
+import { BrowserAnimeRepository } from "./storage/browser-repository.js";
+import { validateSnapshot } from "./storage/snapshot-validation.js";
+
+import {
+  createImportPreview,
+  type ImportPreview,
+} from "./core/import-preview.js";
+
+type LibraryItem = {
+  anime: AnimeIdentity;
+  entry: AnimeListEntry | undefined;
+};
+
+type AnimeForm = {
+  title: string;
+  subtitle: string;
+  episodes: string;
+  progress: string;
+  status: AnimeStatus;
+  score: string;
+  favorite: boolean;
+};
+
+const emptyForm: AnimeForm = {
+  title: "",
+  subtitle: "",
+  episodes: "",
+  progress: "0",
+  status: "PLANNING",
+  score: "",
+  favorite: false,
+};
+
+const KEEP_SEPARATE = "__KEEP_SEPARATE__";
+
+type ImportSelections = Record<string, string>;
+
+function createInitialImportSelections(
+  analysis: ImportPreview,
+): ImportSelections {
+  return Object.fromEntries(
+    analysis.items.map((item) => {
+      if (item.status === "new") {
+        return [item.imported.id, KEEP_SEPARATE];
+      }
+
+      if (item.status === "matched") {
+        return [item.imported.id, item.selectedMatch?.id ?? item.imported.id];
+      }
+
+      return [item.imported.id, ""];
+    }),
+  );
+}
+
+const statusLabels: Record<AnimeStatus, string> = {
+  PLANNING: "В планах",
+  WATCHING: "Смотрю",
+  COMPLETED: "Просмотрено",
+  ON_HOLD: "Отложено",
+  DROPPED: "Брошено",
+  REWATCHING: "Пересматриваю",
+};
+
+function App() {
+  const [repository, setRepository] = useState<BrowserAnimeRepository | null>(
+    null,
+  );
+
+  const [library, setLibrary] = useState<LibraryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("ALL");
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<AnimeForm>(emptyForm);
+  const [saving, setSaving] = useState(false);
+
+  const [importSnapshot, setImportSnapshot] = useState<AnimeSnapshot | null>(
+    null,
+  );
+
+  const [importAnalysis, setImportAnalysis] = useState<ImportPreview | null>(
+    null,
+  );
+
+  const [importSelections, setImportSelections] = useState<ImportSelections>(
+    {},
+  );
+
+  const [importing, setImporting] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let openedRepository: BrowserAnimeRepository | null = null;
+
+    async function initialize() {
+      try {
+        const db = await BrowserAnimeRepository.open();
+
+        if (cancelled) {
+          db.close();
+          return;
+        }
+
+        openedRepository = db;
+        setRepository(db);
+
+        const items = await db.getAll();
+
+        if (!cancelled) {
+          setLibrary(items);
+          setLoading(false);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Не удалось открыть библиотеку.",
+          );
+          setLoading(false);
+        }
+      }
+    }
+
+    void initialize();
+
+    return () => {
+      cancelled = true;
+      openedRepository?.close();
+    };
+  }, []);
+
+  async function refreshLibrary() {
+    if (!repository) return;
+    setLibrary(await repository.getAll());
+  }
+
+  function downloadSnapshot(snapshot: AnimeSnapshot) {
+    const json = JSON.stringify(snapshot, null, 2);
+
+    const blob = new Blob([json], {
+      type: "application/json",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+
+    link.href = url;
+    link.download = `midahoshi-backup-${timestamp}.json`;
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    window.setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 1000);
+  }
+
+  async function handleExport() {
+    if (!repository) return;
+
+    try {
+      const snapshot = await repository.snapshot();
+
+      downloadSnapshot(snapshot);
+
+      setError("");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Не удалось создать резервную копию.",
+      );
+    }
+  }
+
+  async function handleImportFile(event: ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+
+    if (!file) return;
+
+    try {
+      if (file.size > 25 * 1024 * 1024) {
+        throw new Error("Файл слишком большой. Максимальный размер: 25 МБ.");
+      }
+
+      const text = await file.text();
+      const parsed: unknown = JSON.parse(text);
+      const validated = validateSnapshot(parsed);
+
+      const analysis = createImportPreview(
+        validated.anime,
+        library.map((item) => item.anime),
+      );
+
+      setImportSnapshot(validated);
+      setImportAnalysis(analysis);
+      setImportSelections(createInitialImportSelections(analysis));
+      setError("");
+    } catch (err) {
+      setImportSnapshot(null);
+      setImportAnalysis(null);
+      setImportSelections({});
+
+      setError(
+        err instanceof Error ? err.message : "Не удалось прочитать файл.",
+      );
+    } finally {
+      input.value = "";
+    }
+  }
+
+  async function handleConfirmImport() {
+    if (!repository || !importSnapshot || importing) return;
+
+    setImporting(true);
+    setError("");
+
+    try {
+      const currentLibrary = await repository.getAll();
+      const currentIds = new Set(currentLibrary.map((item) => item.anime.id));
+
+      const freshAnalysis = createImportPreview(
+        importSnapshot.anime,
+        currentLibrary.map((item) => item.anime),
+      );
+
+      setImportAnalysis(freshAnalysis);
+
+      const mappings: Record<string, string> = {};
+      const targetOwners = new Map<string, string>();
+
+      for (const item of freshAnalysis.items) {
+        if (item.duplicateInImport) {
+          throw new Error(
+            `Импорт заблокирован: обнаружен дубликат внутри файла (${
+              item.imported.titles.english ??
+              item.imported.titles.romaji ??
+              item.imported.id
+            }).`,
+          );
+        }
+
+        const importedId = item.imported.id;
+        const selected = importSelections[importedId] ?? "";
+
+        if (!selected) {
+          throw new Error(
+            `Не выбрано соответствие для аниме: ${
+              item.imported.titles.english ??
+              item.imported.titles.romaji ??
+              importedId
+            }`,
+          );
+        }
+
+        if (selected === KEEP_SEPARATE) {
+          if (currentIds.has(importedId)) {
+            throw new Error(
+              `Нельзя оставить отдельной записью аниме с уже существующим ID: ${importedId}`,
+            );
+          }
+
+          continue;
+        }
+
+        if (!currentIds.has(selected)) {
+          throw new Error(
+            `Выбранная запись больше не существует в библиотеке: ${selected}`,
+          );
+        }
+
+        const isSameId = selected === importedId;
+
+        const isAvailableMatch =
+          isSameId || item.matches.some((match) => match.anime.id === selected);
+
+        if (!isAvailableMatch) {
+          throw new Error(
+            `Выбранное соответствие больше не подтверждается: ${importedId}`,
+          );
+        }
+
+        const previousOwner = targetOwners.get(selected);
+
+        if (previousOwner && previousOwner !== importedId) {
+          throw new Error(
+            `Несколько импортируемых аниме выбраны для одной записи: ${selected}`,
+          );
+        }
+
+        targetOwners.set(selected, importedId);
+
+        if (!isSameId) {
+          mappings[importedId] = selected;
+        }
+      }
+
+      const confirmed = window.confirm(
+        `Объединить ${importSnapshot.anime.length} аниме и ${importSnapshot.entries.length} записей с текущей библиотекой? Новые тайтлы будут добавлены, выбранные совпадения объединены. Отсутствующие в файле тайтлы сохранятся. Перед этим будет скачана резервная копия.`,
+      );
+
+      if (!confirmed) return;
+
+      const backup = await repository.snapshot();
+
+      downloadSnapshot(backup);
+
+      await repository.mergeSnapshotWithMappings(importSnapshot, mappings);
+
+      await refreshLibrary();
+
+      setImportSnapshot(null);
+      setImportAnalysis(null);
+      setImportSelections({});
+
+      window.alert("Слияние библиотек завершено! Резервная копия скачана.");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Не удалось импортировать библиотеку.",
+      );
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function openAddModal() {
+    setEditingId(null);
+    setForm(emptyForm);
+    setModalOpen(true);
+  }
+
+  function openEditModal(item: LibraryItem) {
+    if (!item.entry) return;
+
+    setEditingId(item.anime.id);
+
+    setForm({
+      title:
+        item.anime.titles.english ??
+        item.anime.titles.romaji ??
+        item.anime.titles.native ??
+        "",
+      subtitle: item.anime.titles.romaji ?? "",
+      episodes: item.anime.episodes?.toString() ?? "",
+      progress: item.entry.progress.toString(),
+      status: item.entry.status,
+      score: item.entry.score?.toString() ?? "",
+      favorite: item.entry.favorite,
+    });
+
+    setModalOpen(true);
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!repository || saving) return;
+
+    const title = form.title.trim();
+    const progress = Number(form.progress);
+    const episodes = form.episodes.trim() === "" ? null : Number(form.episodes);
+    const score = form.score.trim() === "" ? null : Number(form.score);
+
+    if (!title) {
+      setError("Укажи название аниме.");
+      return;
+    }
+
+    if (
+      !Number.isInteger(progress) ||
+      progress < 0 ||
+      (episodes !== null && (!Number.isInteger(episodes) || episodes < 0)) ||
+      (episodes !== null && progress > episodes) ||
+      (score !== null && (!Number.isFinite(score) || score < 0 || score > 100))
+    ) {
+      setError("Проверь количество серий и оценку.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+
+    try {
+      const id = editingId ?? crypto.randomUUID();
+
+      const previous = editingId
+        ? library.find((item) => item.anime.id === editingId)
+        : undefined;
+
+      const anime: AnimeIdentity = {
+        id,
+        titles: {
+          english: title,
+          ...(form.subtitle.trim() ? { romaji: form.subtitle.trim() } : {}),
+          synonyms: previous?.anime.titles.synonyms ?? [],
+        },
+        externalIds: previous?.anime.externalIds ?? {},
+        episodes,
+      };
+
+      const entry: AnimeListEntry = {
+        animeId: id,
+        status: form.status,
+        progress,
+        score,
+        favorite: form.favorite,
+        updatedAt: new Date().toISOString(),
+        source: "local",
+        ...(previous?.entry?.sourceMetadata
+          ? { sourceMetadata: previous.entry.sourceMetadata }
+          : {}),
+      };
+
+      await repository.saveAnime(anime);
+      await repository.saveEntry(entry);
+
+      await refreshLibrary();
+
+      setModalOpen(false);
+      setForm(emptyForm);
+      setEditingId(null);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Не удалось сохранить аниме.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!repository) return;
+
+    const confirmed = window.confirm("Удалить это аниме из библиотеки?");
+
+    if (!confirmed) return;
+
+    try {
+      await repository.deleteAnime(id);
+      await refreshLibrary();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Не удалось удалить аниме.",
+      );
+    }
+  }
+
+  const importSelectionValidation = useMemo(() => {
+    if (!importAnalysis) {
+      return {
+        valid: false,
+        mappings: {} as Record<string, string>,
+        unresolved: 0,
+        duplicateTargets: [] as string[],
+        duplicateImports: 0,
+      };
+    }
+
+    const existingIds = new Set(library.map((item) => item.anime.id));
+    const mappings: Record<string, string> = {};
+    const targetOwners = new Map<string, string>();
+    const duplicateTargets = new Set<string>();
+
+    let unresolved = 0;
+    let duplicateImports = 0;
+
+    for (const item of importAnalysis.items) {
+      if (item.duplicateInImport) {
+        duplicateImports++;
+        continue;
+      }
+
+      const importedId = item.imported.id;
+      const selected = importSelections[importedId] ?? "";
+
+      if (!selected) {
+        unresolved++;
+        continue;
+      }
+
+      if (selected === KEEP_SEPARATE) {
+        if (existingIds.has(importedId)) {
+          unresolved++;
+        }
+
+        continue;
+      }
+
+      if (!existingIds.has(selected)) {
+        unresolved++;
+        continue;
+      }
+
+      const isSameId = selected === importedId;
+
+      const isAvailableMatch =
+        isSameId || item.matches.some((match) => match.anime.id === selected);
+
+      if (!isAvailableMatch) {
+        unresolved++;
+        continue;
+      }
+
+      const previousOwner = targetOwners.get(selected);
+
+      if (previousOwner && previousOwner !== importedId) {
+        duplicateTargets.add(selected);
+      } else {
+        targetOwners.set(selected, importedId);
+      }
+
+      if (!isSameId) {
+        mappings[importedId] = selected;
+      }
+    }
+
+    return {
+      valid:
+        unresolved === 0 &&
+        duplicateTargets.size === 0 &&
+        duplicateImports === 0,
+      mappings,
+      unresolved,
+      duplicateTargets: [...duplicateTargets],
+      duplicateImports,
+    };
+  }, [importAnalysis, importSelections, library]);
+
+  const canConfirmImport = importSelectionValidation.valid;
+
+  const filteredLibrary = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    return library
+      .filter(({ anime, entry }) => {
+        const title = [
+          anime.titles.english,
+          anime.titles.romaji,
+          anime.titles.native,
+          ...anime.titles.synonyms,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        const matchesSearch = !query || title.includes(query);
+        const matchesFilter = filter === "ALL" || entry?.status === filter;
+
+        return matchesSearch && matchesFilter;
+      })
+      .sort((a, b) => {
+        const titleA = a.anime.titles.english ?? a.anime.titles.romaji ?? "";
+        const titleB = b.anime.titles.english ?? b.anime.titles.romaji ?? "";
+
+        return titleA.localeCompare(titleB);
+      });
+  }, [library, search, filter]);
+
+  const watching = library.filter((item) => item.entry?.status === "WATCHING");
+
+  const completed = library.filter(
+    (item) => item.entry?.status === "COMPLETED",
+  );
+
+  const favorites = library.filter((item) => item.entry?.favorite);
+
+  return (
+    <div className="app">
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="brand-logo">M</div>
+          <div>
+            <h2>MidaHoshi</h2>
+            <span>ANIME SYNC</span>
+          </div>
+        </div>
+
+        <div className="menu-label">МЕНЮ</div>
+
+        <nav className="navigation">
+          <button className="nav-item active">
+            ▦ <span>Главная</span>
+          </button>
+          <button className="nav-item" onClick={() => setFilter("ALL")}>
+            ▤ <span>Моя библиотека</span>
+          </button>
+          <button className="nav-item" disabled>
+            ⇄ <span>Синхронизация</span>
+          </button>
+          <button className="nav-item" disabled>
+            ◷ <span>История</span>
+          </button>
+        </nav>
+
+        <div className="menu-label services-label">СЕРВИСЫ</div>
+
+        <nav className="navigation">
+          {["MyAnimeList", "AniList", "Shikimori", "Другие сервисы"].map(
+            (service) => (
+              <button className="nav-item" key={service} disabled>
+                ◉ <span>{service}</span>
+                <i />
+              </button>
+            ),
+          )}
+        </nav>
+
+        <div className="sidebar-bottom">
+          <button className="nav-item" disabled>
+            ⚙ <span>Настройки</span>
+          </button>
+          <div className="version">MidaHoshi Anime Sync v0.4</div>
+        </div>
+      </aside>
+
+      <main className="main">
+        <header className="topbar">
+          <div className="breadcrumb">
+            Рабочее пространство <span>/</span> Главная
+          </div>
+          <div className="profile">
+            <div className="avatar">M</div>
+            <span>Моя библиотека</span>
+          </div>
+        </header>
+
+        <div className="content">
+          <section className="welcome">
+            <div>
+              <div className="eyebrow">ТВОЯ АНИМЕ-ВСЕЛЕННАЯ</div>
+              <h1>
+                Добро пожаловать! <span>✦</span>
+              </h1>
+              <p>Всё твоё аниме. В одном месте. Без хаоса.</p>
+            </div>
+
+            <button className="add-button" onClick={openAddModal}>
+              ＋ Добавить аниме
+            </button>
+          </section>
+
+          {error && (
+            <div className="error-message">
+              {error}
+              <button onClick={() => setError("")}>×</button>
+            </div>
+          )}
+
+          <section className="stats">
+            <div className="stat-card">
+              <div className="stat-icon purple-bg">▤</div>
+              <div className="stat-name">Всего в библиотеке</div>
+              <div className="stat-number">
+                {loading ? "..." : library.length}
+              </div>
+              <div className="stat-note">Записей аниме</div>
+            </div>
+
+            <div className="stat-card">
+              <div className="stat-icon green-bg">✓</div>
+              <div className="stat-name">Просмотрено</div>
+              <div className="stat-number">{completed.length}</div>
+              <div className="stat-note">Завершённых тайтлов</div>
+            </div>
+
+            <div className="stat-card">
+              <div className="stat-icon blue-bg">◷</div>
+              <div className="stat-name">Смотрю сейчас</div>
+              <div className="stat-number">{watching.length}</div>
+              <div className="stat-note">Активных тайтлов</div>
+            </div>
+
+            <div className="stat-card">
+              <div className="stat-icon orange-bg">★</div>
+              <div className="stat-name">Избранное</div>
+              <div className="stat-number">{favorites.length}</div>
+              <div className="stat-note">Любимые произведения</div>
+            </div>
+          </section>
+
+          <section className="sync-card">
+            <div className="sync-symbol">⇄</div>
+            <div className="sync-info">
+              <h3>Синхронизация библиотек</h3>
+              <p>Подключение внешних сервисов появится на следующем этапе.</p>
+            </div>
+            <div className="sync-status">
+              <span className="status-dot" />
+              Локальная библиотека
+            </div>
+            <button className="secondary-button" disabled>
+              Скоро →
+            </button>
+          </section>
+
+          <section className="sync-card">
+            <div className="sync-symbol">💾</div>
+
+            <div className="sync-info">
+              <h3>Резервная копия и перенос</h3>
+              <p>
+                Сохраняй библиотеку в файл или восстанавливай её из резервной
+                копии.
+              </p>
+            </div>
+
+            <button
+              className="secondary-button"
+              onClick={() => void handleExport()}
+              disabled={loading || !repository}
+            >
+              ↓ Экспорт JSON
+            </button>
+
+            <label className="secondary-button">
+              ↑ Импорт JSON
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={handleImportFile}
+                disabled={loading || !repository || importing}
+                style={{ display: "none" }}
+              />
+            </label>
+          </section>
+
+          {importSnapshot && importAnalysis && (
+            <section className="import-preview">
+              <div className="import-preview-heading">
+                <div>
+                  <div className="eyebrow">IMPORT CENTER</div>
+                  <h2>Предварительный просмотр импорта</h2>
+                  <p>
+                    Проверь результаты сопоставления перед изменением
+                    библиотеки.
+                  </p>
+                </div>
+
+                <button
+                  className="small-action"
+                  onClick={() => {
+                    setImportSnapshot(null);
+                    setImportAnalysis(null);
+                    setImportSelections({});
+                  }}
+                  disabled={importing}
+                >
+                  Отменить импорт
+                </button>
+              </div>
+
+              <div className="import-summary">
+                <div className="import-summary-card">
+                  <span>Всего</span>
+                  <strong>{importAnalysis.summary.total}</strong>
+                </div>
+
+                <div className="import-summary-card new">
+                  <span>Новые</span>
+                  <strong>{importAnalysis.summary.new}</strong>
+                </div>
+
+                <div className="import-summary-card matched">
+                  <span>Совпадения</span>
+                  <strong>{importAnalysis.summary.matched}</strong>
+                </div>
+
+                <div className="import-summary-card review">
+                  <span>Проверить</span>
+                  <strong>{importAnalysis.summary.review}</strong>
+                </div>
+              </div>
+
+              <div className="import-file-info">
+                <span>Формат: JSON v{importSnapshot.schemaVersion}</span>
+                <span>Записей библиотеки: {importSnapshot.entries.length}</span>
+              </div>
+
+              <div className="import-results">
+                {importAnalysis.items.map((item, index) => {
+                  const title =
+                    item.imported.titles.english ??
+                    item.imported.titles.romaji ??
+                    item.imported.titles.native ??
+                    "Без названия";
+
+                  const statusLabel = {
+                    new: "Новый",
+                    matched: "Совпадение",
+                    review: "Проверить",
+                  }[item.status];
+
+                  const matchedTitle = item.selectedMatch
+                    ? (item.selectedMatch.titles.english ??
+                      item.selectedMatch.titles.romaji ??
+                      item.selectedMatch.titles.native ??
+                      "Без названия")
+                    : null;
+
+                  return (
+                    <article
+                      className="import-result-item"
+                      key={`${item.imported.id}-${index}`}
+                    >
+                      <div className="import-result-main">
+                        <strong>{title}</strong>
+                        <span>{item.reason}</span>
+
+                        {item.duplicateInImport && (
+                          <strong className="import-duplicate-warning">
+                            ⚠ Эта запись заблокирована из-за возможного
+                            дубликата внутри файла.
+                          </strong>
+                        )}
+
+                        {item.matches.length > 0 && (
+                          <div className="import-match-list">
+                            {item.matches.map((match) => (
+                              <div
+                                className="import-match"
+                                key={match.anime.id}
+                              >
+                                <span>
+                                  Возможное совпадение:{" "}
+                                  {match.anime.titles.english ??
+                                    match.anime.titles.romaji ??
+                                    match.anime.titles.native ??
+                                    "Без названия"}
+                                </span>
+
+                                <span>{match.score}/100</span>
+
+                                <small>{match.reasons.join(" · ")}</small>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {!item.duplicateInImport &&
+                          (item.status === "review" ||
+                            item.matches.length > 0 ||
+                            (item.selectedMatch !== null &&
+                              item.selectedMatch.id !== item.imported.id)) && (
+                            <label className="import-selection-control">
+                              <span>Как поступить с этой записью?</span>
+
+                              <select
+                                className="filter-select"
+                                value={importSelections[item.imported.id] ?? ""}
+                                onChange={(event) =>
+                                  setImportSelections((previous) => ({
+                                    ...previous,
+                                    [item.imported.id]: event.target.value,
+                                  }))
+                                }
+                                disabled={importing}
+                              >
+                                <option value="">Выбери действие...</option>
+
+                                {!library.some(
+                                  (existing) =>
+                                    existing.anime.id === item.imported.id,
+                                ) && (
+                                  <option value={KEEP_SEPARATE}>
+                                    Оставить отдельным аниме
+                                  </option>
+                                )}
+
+                                {item.matches.map((match) => {
+                                  const matchTitle =
+                                    match.anime.titles.english ??
+                                    match.anime.titles.romaji ??
+                                    match.anime.titles.native ??
+                                    "Без названия";
+
+                                  return (
+                                    <option
+                                      value={match.anime.id}
+                                      key={match.anime.id}
+                                    >
+                                      Объединить с: {matchTitle} ({match.score}
+                                      /100)
+                                    </option>
+                                  );
+                                })}
+
+                                {item.selectedMatch &&
+                                  item.selectedMatch.id ===
+                                    item.imported.id && (
+                                    <option value={item.imported.id}>
+                                      Использовать существующую запись
+                                    </option>
+                                  )}
+                              </select>
+                            </label>
+                          )}
+
+                        {matchedTitle && (
+                          <small className="import-selected-match">
+                            Автоматически найдено: {matchedTitle}
+                          </small>
+                        )}
+                      </div>
+
+                      <span className={`import-status ${item.status}`}>
+                        {statusLabel}
+                      </span>
+                    </article>
+                  );
+                })}
+              </div>
+
+              <div className="import-safety-note">
+                {canConfirmImport ? (
+                  <>
+                    <strong>Можно продолжить.</strong>
+                    <p>
+                      Все соответствия проверены. Новые тайтлы будут добавлены,
+                      выбранные совпадения объединены, остальные записи
+                      сохранены.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <strong>Импорт пока заблокирован.</strong>
+                    <p>
+                      Осталось разрешить неоднозначные совпадения:
+                      {` ${importSelectionValidation.unresolved}`}.
+                      {importSelectionValidation.duplicateTargets.length > 0 &&
+                        " Несколько аниме выбраны для одной существующей записи."}
+                      {importSelectionValidation.duplicateImports > 0 &&
+                        ` Обнаружено дубликатов внутри файла: ${importSelectionValidation.duplicateImports}. Удали или исправь их в исходном JSON и загрузи файл заново.`}
+                    </p>
+                  </>
+                )}
+              </div>
+
+              <div className="import-actions">
+                <button
+                  className="secondary-button"
+                  onClick={() => {
+                    setImportSnapshot(null);
+                    setImportAnalysis(null);
+                    setImportSelections({});
+                  }}
+                  disabled={importing}
+                >
+                  Отмена
+                </button>
+
+                <button
+                  className="add-button"
+                  onClick={() => void handleConfirmImport()}
+                  disabled={importing || !canConfirmImport}
+                >
+                  {importing ? "Импорт..." : "Подтвердить слияние"}
+                </button>
+              </div>
+            </section>
+          )}
+
+          <section className="anime-section">
+            <div className="section-heading">
+              <div>
+                <h2>Моя библиотека</h2>
+                <p>
+                  {loading
+                    ? "Загружаем данные..."
+                    : `Найдено: ${filteredLibrary.length} из ${library.length}`}
+                </p>
+              </div>
+            </div>
+
+            <div className="library-toolbar">
+              <input
+                className="search-input"
+                type="search"
+                placeholder="Поиск по названию аниме..."
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+
+              <select
+                className="filter-select"
+                value={filter}
+                onChange={(event) => setFilter(event.target.value)}
+              >
+                <option value="ALL">Все статусы</option>
+                {Object.entries(statusLabels).map(([value, label]) => (
+                  <option value={value} key={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {loading ? (
+              <div className="empty-state">Загружаем библиотеку...</div>
+            ) : filteredLibrary.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-icon">✦</div>
+                <h3>
+                  {library.length === 0
+                    ? "Твоя библиотека пока пуста"
+                    : "Ничего не найдено"}
+                </h3>
+                <p>
+                  {library.length === 0
+                    ? "Добавь первое аниме или позже импортируй свою коллекцию."
+                    : "Попробуй изменить запрос или фильтр."}
+                </p>
+                {library.length === 0 && (
+                  <button className="add-button" onClick={openAddModal}>
+                    ＋ Добавить первое аниме
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="anime-list">
+                {filteredLibrary.map(({ anime, entry }) => {
+                  const title =
+                    anime.titles.english ??
+                    anime.titles.romaji ??
+                    anime.titles.native ??
+                    "Без названия";
+
+                  const totalEpisodes = anime.episodes;
+                  const progress = entry?.progress ?? 0;
+
+                  const percent =
+                    typeof totalEpisodes === "number" && totalEpisodes > 0
+                      ? Math.min(
+                          100,
+                          Math.round((progress / totalEpisodes) * 100),
+                        )
+                      : 0;
+
+                  return (
+                    <article className="anime-card" key={anime.id}>
+                      <div className="anime-cover purple">
+                        <span>✦</span>
+                        <small>ANIME</small>
+                      </div>
+
+                      <div className="anime-details">
+                        <h3>{title}</h3>
+                        <p className="anime-subtitle">
+                          {anime.titles.romaji ?? " "}
+                        </p>
+
+                        {entry && (
+                          <>
+                            <div className="anime-meta">
+                              <span className="status-label">
+                                {statusLabels[entry.status]}
+                              </span>
+
+                              {entry.favorite && (
+                                <span className="favorite-label">★</span>
+                              )}
+
+                              {entry.score !== null && (
+                                <span className="score-label">
+                                  Оценка: {entry.score}/100
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="progress-info">
+                              <span>
+                                {typeof totalEpisodes === "number" &&
+                                totalEpisodes > 0
+                                  ? `Эпизод ${progress} из ${totalEpisodes}`
+                                  : `Просмотрено ${progress} эпизодов`}
+                              </span>
+
+                              <span>
+                                {typeof totalEpisodes === "number" &&
+                                totalEpisodes > 0
+                                  ? `${percent}%`
+                                  : ""}
+                              </span>
+                            </div>
+
+                            {typeof totalEpisodes === "number" &&
+                              totalEpisodes > 0 && (
+                                <div className="progress-track">
+                                  <div
+                                    className="progress-fill purple"
+                                    style={{ width: `${percent}%` }}
+                                  />
+                                </div>
+                              )}
+                          </>
+                        )}
+                      </div>
+
+                      <div className="card-actions">
+                        <button
+                          className="small-action"
+                          onClick={() =>
+                            entry ? openEditModal({ anime, entry }) : undefined
+                          }
+                          disabled={!entry}
+                        >
+                          Изменить
+                        </button>
+
+                        <button
+                          className="small-action delete-action"
+                          onClick={() => void handleDelete(anime.id)}
+                        >
+                          Удалить
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          <footer>
+            <span>MidaHoshi Anime Sync</span>
+            <span>Твоя библиотека. Твои правила.</span>
+          </footer>
+        </div>
+      </main>
+
+      {modalOpen && (
+        <div
+          className="modal-overlay"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !saving) {
+              setModalOpen(false);
+            }
+          }}
+        >
+          <form className="anime-modal" onSubmit={handleSubmit}>
+            <div className="modal-heading">
+              <div>
+                <h2>{editingId ? "Редактировать аниме" : "Новое аниме"}</h2>
+                <p>Заполни информацию о тайтле</p>
+              </div>
+
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setModalOpen(false)}
+                disabled={saving}
+              >
+                ×
+              </button>
+            </div>
+
+            <label>
+              Название *
+              <input
+                required
+                value={form.title}
+                onChange={(event) =>
+                  setForm({ ...form, title: event.target.value })
+                }
+                placeholder="Например, Frieren"
+              />
+            </label>
+
+            <label>
+              Альтернативное название
+              <input
+                value={form.subtitle}
+                onChange={(event) =>
+                  setForm({ ...form, subtitle: event.target.value })
+                }
+                placeholder="Например, Sousou no Frieren"
+              />
+            </label>
+
+            <div className="form-grid">
+              <label>
+                Всего эпизодов
+                <input
+                  type="number"
+                  min="0"
+                  value={form.episodes}
+                  onChange={(event) =>
+                    setForm({ ...form, episodes: event.target.value })
+                  }
+                  placeholder="28"
+                />
+              </label>
+
+              <label>
+                Просмотрено
+                <input
+                  type="number"
+                  min="0"
+                  value={form.progress}
+                  onChange={(event) =>
+                    setForm({ ...form, progress: event.target.value })
+                  }
+                />
+              </label>
+            </div>
+
+            <div className="form-grid">
+              <label>
+                Статус
+                <select
+                  value={form.status}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      status: event.target.value as AnimeStatus,
+                    })
+                  }
+                >
+                  {Object.entries(statusLabels).map(([value, label]) => (
+                    <option value={value} key={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Оценка (0–100)
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={form.score}
+                  onChange={(event) =>
+                    setForm({ ...form, score: event.target.value })
+                  }
+                  placeholder="Не оценено"
+                />
+              </label>
+            </div>
+
+            <label className="favorite-checkbox">
+              <input
+                type="checkbox"
+                checked={form.favorite}
+                onChange={(event) =>
+                  setForm({ ...form, favorite: event.target.checked })
+                }
+              />
+              Добавить в избранное ★
+            </label>
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="cancel-button"
+                onClick={() => setModalOpen(false)}
+                disabled={saving}
+              >
+                Отмена
+              </button>
+
+              <button type="submit" className="add-button" disabled={saving}>
+                {saving ? "Сохранение..." : "Сохранить"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;
