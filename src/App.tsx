@@ -1055,16 +1055,14 @@ function App() {
       }
     } finally {
       setAccountSyncing(null);
-      if (historyOpen && activeRepository) {
-        void Promise.all([activeRepository.getSyncOperations(), activeRepository.getSyncSessions()])
-          .then(([operations, sessions]) => {
-            setHistoryOperations(operations);
-            setHistorySessionRecords(sessions);
-          })
-          .catch((err: unknown) => {
-            setHistoryError(err instanceof Error ? err.message : "Не удалось обновить историю после синхронизации.");
-          });
-      }
+      void Promise.all([activeRepository.getSyncOperations(), activeRepository.getSyncSessions()])
+        .then(([operations, sessions]) => {
+          setHistoryOperations(operations);
+          setHistorySessionRecords(sessions);
+        })
+        .catch((err: unknown) => {
+          setHistoryError(err instanceof Error ? err.message : "Не удалось обновить историю после синхронизации.");
+        });
     }
   }
 
