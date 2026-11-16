@@ -112,6 +112,34 @@ describe("bidirectional sync planner", () => {
     expect(plan.remoteUpdates[0]?.entry.favorite).toBe(true);
   });
 
+  it("merges independent local and remote field changes against a baseline", () => {
+    const localAnime = anime("local:10");
+    const baseline = entry(localAnime.id, "myanimelist", "2026-11-15T10:00:00.000Z");
+    const plan = createBidirectionalSyncPlan(
+      [{ anime: localAnime, entry: entry(localAnime.id, "local", "2026-11-17T10:00:00.000Z", { status: "COMPLETED", progress: 3 }), baseline }],
+      remoteSnapshot([anime("mal:10")], [entry("mal:10", "myanimelist", "2026-11-16T10:00:00.000Z", { progress: 9 })]),
+      "mal",
+    );
+    expect(plan.conflicts).toHaveLength(0);
+    expect(plan.remoteUpdates[0]?.entry.status).toBe("COMPLETED");
+    expect(plan.remoteUpdates[0]?.entry.progress).toBe(9);
+    expect(plan.localUpdates[0]?.entry.progress).toBe(9);
+  });
+
+  it("detects concurrent edits to the same field even when timestamps differ", () => {
+    const localAnime = anime("local:10");
+    const baseline = entry(localAnime.id, "myanimelist", "2026-11-15T10:00:00.000Z", { progress: 3 });
+    const plan = createBidirectionalSyncPlan(
+      [{ anime: localAnime, entry: entry(localAnime.id, "local", "2026-11-17T10:00:00.000Z", { progress: 5 }), baseline }],
+      remoteSnapshot([anime("mal:10")], [entry("mal:10", "myanimelist", "2026-11-16T10:00:00.000Z", { progress: 7 })]),
+      "mal",
+    );
+    expect(plan.conflicts).toHaveLength(1);
+    expect(plan.conflicts[0]).toMatchObject({ field: "progress", reason: "both_changed", baselineValue: 3 });
+    expect(plan.remoteUpdates).toHaveLength(0);
+    expect(plan.localUpdates).toHaveLength(0);
+  });
+
   it("rejects duplicate external IDs instead of choosing an arbitrary match", () => {
     const first = anime("local:1");
     const second = anime("local:2");
@@ -122,3 +150,4 @@ describe("bidirectional sync planner", () => {
     )).toThrow(/несколько аниме имеют один внешний ID/);
   });
 });
+
