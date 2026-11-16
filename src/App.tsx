@@ -1166,7 +1166,7 @@ function App() {
 
                   return (
                     <article className="anime-card" key={anime.id}>
-                      <AnimeCover url={anime.posterUrl} score={anime.averageScore} />
+                      <AnimeCover url={anime.posterUrl ?? null} score={anime.averageScore ?? null} />
 
                       <div className="anime-details">
                         <h3>{title}</h3>
