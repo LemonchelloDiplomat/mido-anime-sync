@@ -361,7 +361,7 @@ async function fetchAniListMetadataQuery(
     if (!response.ok) {
       const responseBody = (await response.text()).slice(0, 500).trim();
       const detail = responseBody
-        ? ` Ответ сервера: ${responseBody.replace(/\\s+/g, " ")}`
+        ? ` Ответ сервера: ${responseBody.replace(/\s+/g, " ")}`
         : "";
       throw new AniListMetadataHttpError(
         response.status,
