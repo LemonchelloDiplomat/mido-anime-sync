@@ -15,7 +15,7 @@ import { BrowserAnimeRepository } from "./storage/browser-repository.js";
 import { validateSnapshot } from "./storage/snapshot-validation.js";
 import { DEFAULT_LIBRARY_FILTERS, filterLibrary, type LibraryFilters } from "./core/library-filter.js";
 import { fetchAniListAnimeDetails, searchAniListAnime, type AniListAnimeDetails } from "./services/anilist.js";
-import { parseMyAnimeListXml } from "./services/myanimelist-import.js";
+import { parseMyAnimeListXml, readMyAnimeListExport } from "./services/myanimelist-import.js";
 
 import {
   createImportPreview,
@@ -407,8 +407,10 @@ function App() {
         throw new Error("Файл слишком большой. Максимальный размер: 25 МБ.");
       }
 
-      const text = await file.text();
-      const isMyAnimeListXml = file.name.toLowerCase().endsWith(".xml");
+      const isMyAnimeListXml = /\\.xml(?:\\.gz)?$/i.test(file.name);
+      const text = isMyAnimeListXml
+        ? await readMyAnimeListExport(file)
+        : await file.text();
       const parsed: unknown = isMyAnimeListXml
         ? parseMyAnimeListXml(text)
         : JSON.parse(text);
@@ -996,7 +998,7 @@ function App() {
               ↑ Импорт JSON / MAL XML
               <input
                 type="file"
-                accept=".json,.xml,application/json,text/xml,application/xml"
+                accept=".json,.xml,.xml.gz,.gz,application/json,text/xml,application/xml,application/gzip,application/x-gzip"
                 onChange={handleImportFile}
                 disabled={loading || !repository || importing}
                 style={{ display: "none" }}
