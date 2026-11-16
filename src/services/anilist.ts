@@ -308,7 +308,17 @@ function waitForRetry(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-async function fetchAniListMetadataBatch(
+class AniListMetadataHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "AniListMetadataHttpError";
+  }
+}
+
+async function fetchAniListMetadataQuery(
   malIds: string[],
   signal?: AbortSignal,
 ): Promise<AniListMetadataResponse> {
@@ -353,7 +363,8 @@ async function fetchAniListMetadataBatch(
       const detail = responseBody
         ? ` Ответ сервера: ${responseBody.replace(/\\s+/g, " ")}`
         : "";
-      throw new Error(
+      throw new AniListMetadataHttpError(
+        response.status,
         `AniList вернул HTTP ${response.status} для пакета MAL ID ${malIds[0]}–${malIds[malIds.length - 1]}.${detail}`,
       );
     }
@@ -370,6 +381,39 @@ async function fetchAniListMetadataBatch(
   }
 
   throw new Error("Не удалось получить данные из AniList.");
+}
+
+/**
+ * A single unknown MAL ID can make AniList return HTTP 404 for the whole
+ * aliased GraphQL operation. Split only those failed batches until the
+ * missing ID is isolated, so valid IDs in the same batch are still enriched.
+ */
+async function fetchAniListMetadataBatch(
+  malIds: string[],
+  signal?: AbortSignal,
+): Promise<Map<string, AniListMedia | null>> {
+  try {
+    const payload = await fetchAniListMetadataQuery(malIds, signal);
+    return new Map(
+      malIds.map((malId, index) => [
+        malId,
+        payload.data?.[`anime${index}`] ?? null,
+      ]),
+    );
+  } catch (error) {
+    if (!(error instanceof AniListMetadataHttpError) || error.status !== 404) {
+      throw error;
+    }
+
+    if (malIds.length === 1) {
+      return new Map([[malIds[0]!, null]]);
+    }
+
+    const midpoint = Math.floor(malIds.length / 2);
+    const firstHalf = await fetchAniListMetadataBatch(malIds.slice(0, midpoint), signal);
+    const secondHalf = await fetchAniListMetadataBatch(malIds.slice(midpoint), signal);
+    return new Map([...firstHalf, ...secondHalf]);
+  }
 }
 
 /**
@@ -398,12 +442,12 @@ export const aniListMetadataProvider: CatalogMetadataProvider = {
       }
 
       const batchIds = malIds.slice(offset, offset + MAL_METADATA_BATCH_SIZE);
-      const payload = await fetchAniListMetadataBatch(batchIds, options.signal);
+      const metadataByMalId = await fetchAniListMetadataBatch(batchIds, options.signal);
       const matches: Array<{ animeId: string; metadata: AnimeIdentity }> = [];
       const missingIds: string[] = [];
 
-      batchIds.forEach((malId, index) => {
-        const media = payload.data?.[`anime${index}`];
+      batchIds.forEach((malId) => {
+        const media = metadataByMalId.get(malId);
         if (!media || String(media.idMal ?? "") !== malId) {
           missingIds.push(malId);
           return;
