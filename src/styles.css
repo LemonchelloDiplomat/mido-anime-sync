@@ -1003,6 +1003,12 @@ button:disabled {
   margin-top: 18px;
 }
 
+@media (max-width: 900px) {
+  .history-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 700px) {
   .import-preview {
     padding: 16px;
@@ -1480,7 +1486,7 @@ button:disabled {
 }
 .history-overview {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
 }
 .history-overview article {
@@ -1558,6 +1564,19 @@ button:disabled {
   font-size: 9px;
   overflow-wrap: anywhere;
 }
+.history-session-status {
+  display: inline-flex;
+  margin-top: 8px;
+  padding: 4px 7px;
+  border: 1px solid #343342;
+  border-radius: 6px;
+  color: #aaa9b9;
+  font-size: 9px;
+}
+.history-session-status.running { color: #ffc078; }
+.history-session-status.succeeded { color: #6fdaa7; }
+.history-session-status.failed { color: #f08d99; }
+.history-session-status.cancelled { color: #9291a1; }
 .history-session-summary {
   display: flex;
   align-items: center;
