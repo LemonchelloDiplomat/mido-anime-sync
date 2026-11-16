@@ -16,7 +16,7 @@ const sampleMedia = {
   seasonYear: 2023,
   startDate: { year: 2023, month: 9, day: 29 },
   averageScore: 91,
-  genres: ["Adventure", "Drama", "Fantasy"],
+  genres: ["Приключения", "Драма", "Фэнтези"],
   coverImage: {
     extraLarge: "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx154587-abc.jpg",
     large: "https://s4.anilist.co/file/anilistcdn/media/anime/cover/medium/bx154587-abc.jpg",
