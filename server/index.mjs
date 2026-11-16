@@ -212,7 +212,7 @@ async function handleRequest(request, response) {
         username: tokens.mal?.username || null,
       },
       anilist: {
-        configured: Boolean(process.env.ANILIST_CLIENT_ID),
+        configured: Boolean(process.env.ANILIST_CLIENT_ID && process.env.ANILIST_CLIENT_SECRET),
         connected: Boolean(tokens.anilist?.accessToken && tokens.anilist.expiresAt > Date.now()),
         username: tokens.anilist?.username || null,
         expiresAt: tokens.anilist?.expiresAt || null,
