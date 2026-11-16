@@ -47,6 +47,12 @@ function readInteger(value: string): number | null {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+function readDecimal(value: string): number | null {
+  if (!value.trim()) return null;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
 function mapFormat(value: string): AnimeFormat | undefined {
   switch (value.trim().toLowerCase()) {
     case "1":
@@ -177,7 +183,7 @@ export function parseMyAnimeListXml(
       "series_start_date",
       "series_aired",
     ]));
-    const globalScore = readInteger(readTag(block, "series_score"));
+    const globalScore = readDecimal(readTag(block, "series_score"));
     const personalScore = readInteger(readTag(block, "my_score"));
     const progress = readInteger(readTag(block, "my_watched_episodes")) ?? 0;
     const status = mapStatus(readTag(block, "my_status"));
