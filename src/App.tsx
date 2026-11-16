@@ -890,6 +890,13 @@ function App() {
         ...remoteJournalOperations,
         ...localJournalOperations,
       ]);
+      await activeRepository.updateSyncSession(sessionId, {
+        operationCount: remoteJournalOperations.length + localJournalOperations.length,
+        pendingCount: remoteJournalOperations.length + localJournalOperations.length,
+        unchangedCount: plan.unchanged,
+        conflictCount: plan.conflicts.length,
+        recoveredCount: recoveredOperations,
+      });
 
       let remoteSucceeded = 0;
       let localSucceeded = 0;
@@ -1542,7 +1549,7 @@ function App() {
                     type="button"
                     onClick={() => downloadSyncHistory(historySessionRecords, historyOperations)}
                     disabled={historyOperations.length === 0 && historySessionRecords.length === 0}
-                    title="Экспортировать все операции, включая скрытые текущими фильтрами"
+                    title="Экспортировать все сеансы и операции, включая скрытые текущими фильтрами"
                   >
                     ↓ Экспорт JSON
                   </button>
