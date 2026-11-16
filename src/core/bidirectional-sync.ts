@@ -147,9 +147,9 @@ export function createBidirectionalSyncPlan(
         changed = true;
         if (remoteChanged) {
           (desired as unknown as Record<string, unknown>)[field] = remoteValue;
-          newestChangedTime = Math.max(newestChangedTime ?? 0, remoteTime ?? 0);
+          if (remoteTime !== null) newestChangedTime = Math.max(newestChangedTime ?? remoteTime, remoteTime);
         } else if (localChanged) {
-          newestChangedTime = Math.max(newestChangedTime ?? 0, localTime ?? 0);
+          if (localTime !== null) newestChangedTime = Math.max(newestChangedTime ?? localTime, localTime);
         }
         continue;
       }
