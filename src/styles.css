@@ -623,6 +623,35 @@ button:disabled {
   font-size: 20px;
 }
 
+.sync-conflict-modal {
+  max-width: 620px;
+}
+
+.sync-conflict-fields {
+  margin: 0;
+  padding: 14px;
+  border: 1px solid #393747;
+  border-radius: 9px;
+  background: #11111a;
+  color: #d7d5e2;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sync-conflict-help {
+  margin: 0;
+  color: #aaa8b8;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.sync-conflict-actions {
+  flex-wrap: wrap;
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;
