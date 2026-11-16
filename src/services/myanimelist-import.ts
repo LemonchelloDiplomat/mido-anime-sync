@@ -120,6 +120,58 @@ function parseYear(value: string): number | null {
   return match ? Number(match[0]) : null;
 }
 
+
+/**
+ * Reads a plain XML export or MyAnimeList's default .xml.gz download.
+ * Gzip expansion is capped to protect the browser from oversized archives.
+ */
+export async function readMyAnimeListExport(
+  file: Blob & { name: string },
+): Promise<string> {
+  if (!file.name.toLowerCase().endsWith(".gz")) {
+    return file.text();
+  }
+
+  if (typeof DecompressionStream === "undefined") {
+    throw new Error("Этот браузер не поддерживает распаковку XML.GZ. Распакуй архив вручную и выбери файл .xml.");
+  }
+
+  try {
+    const decompressed = file.stream().pipeThrough(new DecompressionStream("gzip"));
+    const reader = decompressed.getReader();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+
+      totalBytes += value.byteLength;
+      if (totalBytes > 100 * 1024 * 1024) {
+        await reader.cancel();
+        throw new Error("Распакованный XML слишком большой. Максимальный размер: 100 МБ.");
+      }
+
+      chunks.push(value);
+    }
+
+    const bytes = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+
+    return new TextDecoder("utf-8").decode(bytes);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("слишком большой")) {
+      throw error;
+    }
+    throw new Error("Не удалось распаковать MyAnimeList XML.GZ. Проверь, что файл не повреждён.");
+  }
+}
+
 /**
  * Converts a MyAnimeList XML list export into the app's normalized snapshot.
  * The importer is read-only and never calls MyAnimeList.
