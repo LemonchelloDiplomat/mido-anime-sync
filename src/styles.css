@@ -1135,3 +1135,50 @@ button:disabled {
   .search-result-poster { width: 68px; height: 96px; }
   .search-result-details h3 { font-size: 12px; }
 }
+
+
+/* ===== External anime catalogue search ===== */
+.catalog-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 34px;
+}
+.catalog-heading-row .search-results-heading { margin-bottom: 14px; }
+.catalog-hide-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #aaa9b9;
+  font-size: 11px;
+}
+.catalog-hide-toggle input { accent-color: #9872ee; }
+.catalog-hint {
+  margin: 10px 0 20px;
+  color: #9291a1;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.catalog-error, .catalog-success {
+  padding: 11px 13px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.catalog-error { color: #ffb1b8; background: #39232a; border: 1px solid #75414b; }
+.catalog-success { color: #9de4bd; background: #203b32; border: 1px solid #35664f; }
+.catalog-add-button {
+  margin-top: 5px;
+  padding: 8px 12px;
+  border: 1px solid #634c91;
+  border-radius: 7px;
+  background: #302443;
+  color: #ddceff;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.catalog-add-button:hover:not(:disabled) { background: #42315f; }
+.catalog-add-button:disabled { opacity: .65; cursor: default; }
