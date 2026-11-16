@@ -9,6 +9,8 @@ export type SyncProvider = "mal" | "anilist";
 export interface LocalSyncItem {
   anime: AnimeIdentity;
   entry?: AnimeListEntry;
+  /** Last known copy of this provider's entry, persisted after a successful sync/import. */
+  baseline?: AnimeListEntry;
 }
 
 export interface SyncFieldConflict {
@@ -17,9 +19,10 @@ export interface SyncFieldConflict {
   field: "status" | "progress" | "score" | "favorite";
   localValue: unknown;
   remoteValue: unknown;
+  baselineValue?: unknown;
   localUpdatedAt: string;
   remoteUpdatedAt: string;
-  reason: "same_timestamp" | "unknown_order";
+  reason: "same_timestamp" | "unknown_order" | "both_changed";
 }
 
 export interface SyncPlan {
@@ -51,7 +54,11 @@ function cloneEntry(entry: AnimeListEntry, animeId = entry.animeId): AnimeListEn
 
 /**
  * Builds a conservative, bidirectional plan. It never writes anything.
- * A single unresolved field conflict blocks the whole entry because both
+ * With a stored baseline it performs a three-way, field-by-field merge.
+ * Without a baseline it falls back to timestamps, treating provider timestamp
+ * precision (one second) as ambiguous.
+ *
+ * A single unresolved field conflict blocks the whole entry because the
  * provider write APIs update multiple fields in one operation.
  */
 export function createBidirectionalSyncPlan(
@@ -91,14 +98,11 @@ export function createBidirectionalSyncPlan(
     localUpdates: [],
     conflicts: [],
     unchanged: 0,
-    skippedWithoutExternalId: 0,
+    skippedWithoutExternalId: localItems.filter((item) => Boolean(item.entry) && !item.anime.externalIds[service]).length,
   };
 
   for (const [externalId, local] of localByExternalId) {
-    if (!local.entry) {
-      plan.skippedWithoutExternalId += 1;
-      continue;
-    }
+    if (!local.entry) continue;
     const remote = remoteByExternalId.get(externalId);
     if (!remote) {
       plan.remoteCreates.push({ externalId, entry: cloneEntry(local.entry) });
@@ -113,12 +117,45 @@ export function createBidirectionalSyncPlan(
     const conflicts: SyncFieldConflict[] = [];
     const desired = cloneEntry(local.entry);
     let changed = false;
+    let newestChangedTime: number | null = null;
 
     for (const field of fields) {
       const localValue = local.entry[field];
       const remoteValue = remote.entry[field];
       if (localValue === remoteValue) continue;
 
+      if (local.baseline) {
+        const baselineValue = local.baseline[field];
+        const localChanged = localValue !== baselineValue;
+        const remoteChanged = remoteValue !== baselineValue;
+
+        if (localChanged && remoteChanged) {
+          conflicts.push({
+            animeId: local.anime.id,
+            title: titleOf(local.anime),
+            field,
+            localValue,
+            remoteValue,
+            baselineValue,
+            localUpdatedAt: local.entry.updatedAt,
+            remoteUpdatedAt: remote.entry.updatedAt,
+            reason: "both_changed",
+          });
+          continue;
+        }
+
+        changed = true;
+        if (remoteChanged) {
+          (desired as unknown as Record<string, unknown>)[field] = remoteValue;
+          newestChangedTime = Math.max(newestChangedTime ?? 0, remoteTime ?? 0);
+        } else if (localChanged) {
+          newestChangedTime = Math.max(newestChangedTime ?? 0, localTime ?? 0);
+        }
+        continue;
+      }
+
+      // First sync or legacy data without a baseline: timestamps are the only
+      // available ordering signal, so never guess when ordering is uncertain.
       if (localTime === null || remoteTime === null || Math.abs(localTime - remoteTime) <= 1000) {
         conflicts.push({
           animeId: local.anime.id,
@@ -128,20 +165,7 @@ export function createBidirectionalSyncPlan(
           remoteValue,
           localUpdatedAt: local.entry.updatedAt,
           remoteUpdatedAt: remote.entry.updatedAt,
-          reason: "unknown_order",
-        });
-        continue;
-      }
-      if (localTime === remoteTime) {
-        conflicts.push({
-          animeId: local.anime.id,
-          title: titleOf(local.anime),
-          field,
-          localValue,
-          remoteValue,
-          localUpdatedAt: local.entry.updatedAt,
-          remoteUpdatedAt: remote.entry.updatedAt,
-          reason: "same_timestamp",
+          reason: localTime === null || remoteTime === null ? "unknown_order" : "same_timestamp",
         });
         continue;
       }
@@ -149,6 +173,9 @@ export function createBidirectionalSyncPlan(
       changed = true;
       if (remoteTime > localTime) {
         (desired as unknown as Record<string, unknown>)[field] = remoteValue;
+        newestChangedTime = Math.max(newestChangedTime ?? 0, remoteTime);
+      } else {
+        newestChangedTime = Math.max(newestChangedTime ?? 0, localTime);
       }
     }
 
@@ -162,16 +189,18 @@ export function createBidirectionalSyncPlan(
       continue;
     }
 
-    const newestTimestamp = (remoteTime ?? 0) > (localTime ?? 0)
-      ? remote.entry.updatedAt
-      : local.entry.updatedAt;
-    desired.updatedAt = newestTimestamp;
+    if (newestChangedTime !== null) {
+      desired.updatedAt = new Date(newestChangedTime).toISOString();
+    }
 
     const localDiffers = fields.some((field) => local.entry?.[field] !== desired[field]);
     const remoteDiffers = fields.some((field) => remote.entry[field] !== desired[field]);
 
     if (localDiffers) {
-      plan.localUpdates.push({ animeId: local.anime.id, entry: { ...cloneEntry(desired, local.anime.id), source: provider === "mal" ? "myanimelist" : "anilist" } });
+      plan.localUpdates.push({
+        animeId: local.anime.id,
+        entry: { ...cloneEntry(desired, local.anime.id), source: provider === "mal" ? "myanimelist" : "anilist" },
+      });
     }
     if (remoteDiffers) {
       plan.remoteUpdates.push({ externalId, entry: cloneEntry(desired, local.anime.id) });
