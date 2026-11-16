@@ -682,6 +682,13 @@ function App() {
         if (matchesTarget) {
           await activeRepository.updateSyncOperation(operation.id, { status: "succeeded" });
           recoveredOperations += 1;
+        } else {
+          // Do not leave stale pending/in-progress records looking active forever.
+          // The fresh sync plan below will reconcile the actual current state.
+          await activeRepository.updateSyncOperation(operation.id, {
+            status: "failed",
+            error: "Восстановление: текущее состояние не совпадает с целевым. Повторная синхронизация построит новый план.",
+          });
         }
       }
 
