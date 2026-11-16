@@ -91,6 +91,28 @@ describe("AniList metadata provider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+
+  it("skips entries already resolved to AniList so a retry resumes remaining records", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ data: { anime0: frieren } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const alreadyEnriched = {
+      ...makeAnime("mal:52991", "52991"),
+      externalIds: { myanimelist: "52991", anilist: "154587" },
+      posterUrl: "https://example.com/frieren.jpg",
+    };
+    const pending = makeAnime("mal:99999", "99999");
+
+    await aniListMetadataProvider.enrich([alreadyEnriched, pending]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(request.variables).toEqual({ malId0: 99999 });
+  });
+
   it("splits large libraries into batches of twenty", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(
       async (_input, init) => {
