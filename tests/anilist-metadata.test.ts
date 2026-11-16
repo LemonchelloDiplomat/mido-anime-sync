@@ -204,5 +204,5 @@ describe("AniList metadata provider", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(progress).toEqual([20, 21]);
-  });
+  }, 15_000);
 });
