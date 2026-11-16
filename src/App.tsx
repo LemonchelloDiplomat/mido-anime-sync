@@ -10,6 +10,7 @@ import type {
   AnimeSnapshot,
   AnimeStatus,
   SyncOperation,
+  SyncSession,
 } from "./core/types.js";
 
 import { BrowserAnimeRepository } from "./storage/browser-repository.js";
@@ -162,6 +163,7 @@ function App() {
   const [accountSyncing, setAccountSyncing] = useState<"mal" | "anilist" | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyOperations, setHistoryOperations] = useState<SyncOperation[]>([]);
+  const [historySessionRecords, setHistorySessionRecords] = useState<SyncSession[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
   const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | "mal" | "anilist">("all");
@@ -214,9 +216,12 @@ function App() {
     let active = true;
     setHistoryLoading(true);
     setHistoryError("");
-    void repository.getSyncOperations()
-      .then((operations) => {
-        if (active) setHistoryOperations(operations);
+    void Promise.all([repository.getSyncOperations(), repository.getSyncSessions()])
+      .then(([operations, sessions]) => {
+        if (active) {
+          setHistoryOperations(operations);
+          setHistorySessionRecords(sessions);
+        }
       })
       .catch((err: unknown) => {
         if (active) setHistoryError(err instanceof Error ? err.message : "Не удалось загрузить историю синхронизации.");
@@ -619,9 +624,24 @@ function App() {
   async function handleSyncToAccount(provider: "mal" | "anilist") {
     if (!repository || accountSyncing) return;
     const activeRepository = repository;
+    const sessionId = `sync-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const sessionStartedAt = new Date().toISOString();
     setAccountSyncing(provider);
     setIntegrationStatusError("");
     try {
+      await activeRepository.saveSyncSession({
+        sessionId,
+        provider,
+        status: "running",
+        startedAt: sessionStartedAt,
+        operationCount: 0,
+        succeededCount: 0,
+        failedCount: 0,
+        pendingCount: 0,
+        unchangedCount: 0,
+        conflictCount: 0,
+        recoveredCount: 0,
+      });
       const payload = await fetchAccountList(provider);
       const remoteSnapshot = provider === "mal"
         ? parseMyAnimeListApiList(payload.data)
@@ -769,6 +789,13 @@ function App() {
         } else {
           baselineMessage = "\nБазовый снимок не обновлён: остались пропущенные конфликты.";
         }
+        await activeRepository.updateSyncSession(sessionId, {
+          status: "succeeded",
+          finishedAt: new Date().toISOString(),
+          unchangedCount: plan.unchanged,
+          conflictCount: plan.conflicts.length,
+          recoveredCount: recoveredOperations,
+        });
         window.alert(
           "Синхронизация завершена без изменений.\n" +
           "Без изменений: " + plan.unchanged +
@@ -795,12 +822,20 @@ function App() {
           : "") +
         "\n\nПеред изменениями будет скачана резервная копия. Продолжить?"
       );
-      if (!confirmed) return;
+      if (!confirmed) {
+        await activeRepository.updateSyncSession(sessionId, {
+          status: "cancelled",
+          finishedAt: new Date().toISOString(),
+          unchangedCount: plan.unchanged,
+          conflictCount: plan.conflicts.length,
+          recoveredCount: recoveredOperations,
+        });
+        return;
+      }
 
       // Backup is created before the first write to either side.
       downloadSnapshot(await activeRepository.snapshot());
 
-      const sessionId = `sync-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const journalCreatedAt = new Date().toISOString();
       const remoteChangesToApply = [...remoteCreates, ...remoteUpdates];
       const localChangesToApply = [
@@ -948,6 +983,20 @@ function App() {
       }
 
       await refreshLibrary();
+      const completedOperations = await activeRepository.getSyncOperations();
+      const currentSessionOperations = completedOperations.filter((operation) => operation.sessionId === sessionId);
+      await activeRepository.updateSyncSession(sessionId, {
+        status: failures.length > 0 ? "failed" : "succeeded",
+        finishedAt: new Date().toISOString(),
+        operationCount: currentSessionOperations.length,
+        succeededCount: currentSessionOperations.filter((operation) => operation.status === "succeeded").length,
+        failedCount: currentSessionOperations.filter((operation) => operation.status === "failed").length,
+        pendingCount: currentSessionOperations.filter((operation) => operation.status === "pending" || operation.status === "in_progress").length,
+        unchangedCount: plan.unchanged,
+        conflictCount: plan.conflicts.length,
+        recoveredCount: recoveredOperations,
+        ...(failures.length > 0 ? { error: failures.slice(0, 8).join("; ") } : {}),
+      });
       window.alert(
         "Двусторонняя синхронизация с " + serviceName + " завершена." +
         "\nУспешно записано на сервис: " + remoteSucceeded +
@@ -961,12 +1010,25 @@ function App() {
         "\n\nРезервная копия скачана."
       );
     } catch (err) {
-      setIntegrationStatusError(err instanceof Error ? err.message : "Не удалось выполнить двустороннюю синхронизацию.");
+      const message = err instanceof Error ? err.message : "Не удалось выполнить двустороннюю синхронизацию.";
+      setIntegrationStatusError(message);
+      try {
+        await activeRepository.updateSyncSession(sessionId, {
+          status: "failed",
+          finishedAt: new Date().toISOString(),
+          error: message,
+        });
+      } catch {
+        // Preserve the original sync error if the session journal cannot be updated.
+      }
     } finally {
       setAccountSyncing(null);
       if (historyOpen && activeRepository) {
-        void activeRepository.getSyncOperations()
-          .then(setHistoryOperations)
+        void Promise.all([activeRepository.getSyncOperations(), activeRepository.getSyncSessions()])
+          .then(([operations, sessions]) => {
+            setHistoryOperations(operations);
+            setHistorySessionRecords(sessions);
+          })
           .catch((err: unknown) => {
             setHistoryError(err instanceof Error ? err.message : "Не удалось обновить историю после синхронизации.");
           });
@@ -1286,8 +1348,11 @@ function App() {
     if (!repository) return;
     setHistoryLoading(true);
     setHistoryError("");
-    void repository.getSyncOperations()
-      .then(setHistoryOperations)
+    void Promise.all([repository.getSyncOperations(), repository.getSyncSessions()])
+      .then(([operations, sessions]) => {
+        setHistoryOperations(operations);
+        setHistorySessionRecords(sessions);
+      })
       .catch((err: unknown) => setHistoryError(err instanceof Error ? err.message : "Не удалось обновить историю."))
       .finally(() => setHistoryLoading(false));
   }
