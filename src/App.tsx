@@ -409,9 +409,10 @@ function App() {
 
       const text = await file.text();
       const isMyAnimeListXml = file.name.toLowerCase().endsWith(".xml");
-      const validated = isMyAnimeListXml
+      const parsed: unknown = isMyAnimeListXml
         ? parseMyAnimeListXml(text)
-        : validateSnapshot(JSON.parse(text) as unknown);
+        : JSON.parse(text);
+      const validated = validateSnapshot(parsed);
 
       const analysis = createImportPreview(
         validated.anime,
