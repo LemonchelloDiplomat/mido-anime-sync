@@ -1016,7 +1016,7 @@ function App() {
                           : !integrationStatus
                             ? "Локальный API-сервер не отвечает."
                             : !status?.configured
-                              ? "Нужно добавить Client ID в .env.local."
+                              ? (routeProvider === "anilist" ? "Нужно добавить Client ID и Client Secret в .env.local." : "Нужно добавить Client ID в .env.local.")
                               : status.connected
                                 ? "Подключён аккаунт: " + (status.username || "пользователь")
                                 : "Приложение настроено, аккаунт ещё не подключён."}
