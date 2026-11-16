@@ -115,6 +115,27 @@ function mapStartDate(value: AniListMedia["startDate"]): string | null {
   return `${value.year}-${month}-${day}`;
 }
 
+const GENRE_TRANSLATIONS: Record<string, string> = {
+  Action: "Экшен",
+  Adventure: "Приключения",
+  Comedy: "Комедия",
+  Drama: "Драма",
+  Ecchi: "Этти",
+  Fantasy: "Фэнтези",
+  Hentai: "Хентай",
+  Horror: "Ужасы",
+  Mecha: "Меха",
+  Music: "Музыка",
+  Mystery: "Тайна",
+  Psychological: "Психологическое",
+  Romance: "Романтика",
+  "Sci-Fi": "Фантастика",
+  "Slice of Life": "Повседневность",
+  Sports: "Спорт",
+  Supernatural: "Сверхъестественное",
+  Thriller: "Триллер",
+};
+
 function mapMedia(media: AniListMedia): AnimeIdentity {
   const startDate = mapStartDate(media.startDate);
   const synonyms = [...new Set(
@@ -140,7 +161,7 @@ function mapMedia(media: AniListMedia): AnimeIdentity {
       : media.startDate.year ?? media.seasonYear,
     ...(mapFormat(media.format) ? { format: mapFormat(media.format)! } : {}),
     episodes: media.episodes,
-    genres: [...new Set(media.genres ?? [])],
+    genres: [...new Set((media.genres ?? []).map((genre) => GENRE_TRANSLATIONS[genre] ?? genre))],
     posterUrl: media.coverImage.extraLarge ?? media.coverImage.large,
     averageScore:
       media.averageScore == null ? null : media.averageScore / 10,
