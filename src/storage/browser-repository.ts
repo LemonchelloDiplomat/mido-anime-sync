@@ -494,50 +494,66 @@ export class BrowserAnimeRepository {
   }
 
   async saveSourceEntry(entry: AnimeSourceEntry): Promise<void> {
-    validateEntry(entry);
+    await this.saveSourceEntries([entry]);
+  }
+
+  /**
+   * Atomically stores a batch of provider baselines/source entries and rebuilds
+   * the affected aggregate library entries in the same IndexedDB transaction.
+   */
+  async saveSourceEntries(entries: AnimeSourceEntry[]): Promise<void> {
+    for (const entry of entries) validateEntry(entry);
+    if (entries.length === 0) return;
 
     const transaction = this.db.transaction(
       ["anime", "entries", "sourceEntries", "conflictResolutions"],
       "readwrite",
     );
+    const transactionDone = transaction.done;
+    void transactionDone.catch(() => undefined);
 
-    const animeStore = transaction.objectStore("anime");
-    const entriesStore = transaction.objectStore("entries");
-    const sourceStore = transaction.objectStore("sourceEntries");
-    const resolutionStore = transaction.objectStore("conflictResolutions");
+    try {
+      const animeStore = transaction.objectStore("anime");
+      const entriesStore = transaction.objectStore("entries");
+      const sourceStore = transaction.objectStore("sourceEntries");
+      const resolutionStore = transaction.objectStore("conflictResolutions");
+      const affectedAnimeIds = new Set<string>();
 
-    const anime = await animeStore.get(entry.animeId);
+      for (const entry of entries) {
+        const anime = await animeStore.get(entry.animeId);
+        if (!anime) throw new Error(`Unknown animeId: ${entry.animeId}`);
 
-    if (!anime) {
-      transaction.abort();
-      throw new Error(`Unknown animeId: ${entry.animeId}`);
+        await sourceStore.put(structuredClone(entry));
+        affectedAnimeIds.add(entry.animeId);
+      }
+
+      for (const animeId of affectedAnimeIds) {
+        const sourceEntries = await sourceStore.getAll(
+          IDBKeyRange.bound([animeId, ""], [animeId, "\uffff"]),
+        );
+        const resolution = await resolutionStore.get(animeId);
+        const validResolutions = mergeConflictResolutions(
+          sourceEntries,
+          resolution ? [resolution] : [],
+        );
+        const mergedEntry = buildMergedEntries(sourceEntries, validResolutions)[0];
+
+        if (mergedEntry) await entriesStore.put(mergedEntry);
+        if (resolution && validResolutions.length === 0) {
+          await resolutionStore.delete(animeId);
+        }
+      }
+
+      await transactionDone;
+    } catch (error) {
+      try {
+        transaction.abort();
+      } catch {
+        // The transaction may already have completed or aborted.
+      }
+      await transactionDone.catch(() => undefined);
+      throw error;
     }
-
-    await sourceStore.put(structuredClone(entry));
-
-    const sourceEntries = await sourceStore.getAll(
-      IDBKeyRange.bound([entry.animeId, ""], [entry.animeId, "\uffff"]),
-    );
-
-    const resolution = await resolutionStore.get(entry.animeId);
-
-    const validResolutions = mergeConflictResolutions(
-      sourceEntries,
-      resolution ? [resolution] : [],
-    );
-
-    const merged = buildMergedEntries(sourceEntries, validResolutions);
-    const mergedEntry = merged[0];
-
-    if (mergedEntry) {
-      await entriesStore.put(mergedEntry);
-    }
-
-    if (resolution && validResolutions.length === 0) {
-      await resolutionStore.delete(entry.animeId);
-    }
-
-    await transaction.done;
   }
 
   async saveAnimeRelation(relation: AnimeRelation): Promise<void> {
