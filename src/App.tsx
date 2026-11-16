@@ -513,12 +513,13 @@ function App() {
     }, 1000);
   }
 
-  function downloadSyncHistory(operations: SyncOperation[]) {
+  function downloadSyncHistory(sessions: SyncSession[], operations: SyncOperation[]) {
     const exportedAt = new Date().toISOString();
     const payload = {
       format: "midahoshi-sync-history",
-      schemaVersion: 1,
+      schemaVersion: 2,
       exportedAt,
+      sessions,
       operations,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
@@ -1305,23 +1306,55 @@ function App() {
     (historyStatusFilter === "all" || operation.status === historyStatusFilter),
   );
   const historySessions = useMemo(() => {
-    const sessions = new Map<string, SyncOperation[]>();
-    for (const operation of filteredHistoryOperations) {
-      const current = sessions.get(operation.sessionId) ?? [];
+    const operationsBySession = new Map<string, SyncOperation[]>();
+    for (const operation of historyOperations) {
+      const current = operationsBySession.get(operation.sessionId) ?? [];
       current.push(operation);
-      sessions.set(operation.sessionId, current);
+      operationsBySession.set(operation.sessionId, current);
     }
-    return [...sessions.entries()]
-      .map(([sessionId, operations]) => ({
+
+    const knownSessionIds = new Set(historySessionRecords.map((session) => session.sessionId));
+    const sessions = historySessionRecords
+      .filter((session) => historyProviderFilter === "all" || session.provider === historyProviderFilter)
+      .map((session) => {
+        const operations = (operationsBySession.get(session.sessionId) ?? [])
+          .filter((operation) => historyStatusFilter === "all" || operation.status === historyStatusFilter)
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        return {
+          ...session,
+          createdAt: session.startedAt,
+          operations,
+        };
+      })
+      .filter((session) => historyStatusFilter === "all" || session.operations.length > 0);
+
+    // Keep operations created by older app versions visible even though they have no session record.
+    const legacyGroups = new Map<string, SyncOperation[]>();
+    for (const operation of filteredHistoryOperations) {
+      if (knownSessionIds.has(operation.sessionId)) continue;
+      const current = legacyGroups.get(operation.sessionId) ?? [];
+      current.push(operation);
+      legacyGroups.set(operation.sessionId, current);
+    }
+    for (const [sessionId, operations] of legacyGroups) {
+      sessions.push({
         sessionId,
-        operations: operations.sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
-        createdAt: operations.reduce(
-          (earliest, operation) => operation.createdAt < earliest ? operation.createdAt : earliest,
-          operations[0]?.createdAt ?? "",
-        ),
-      }))
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }, [filteredHistoryOperations]);
+        provider: operations[0]!.provider,
+        status: "succeeded" as const,
+        startedAt: operations[0]!.createdAt,
+        createdAt: operations[0]!.createdAt,
+        operationCount: operations.length,
+        succeededCount: operations.filter((item) => item.status === "succeeded").length,
+        failedCount: operations.filter((item) => item.status === "failed").length,
+        pendingCount: operations.filter((item) => item.status === "pending" || item.status === "in_progress").length,
+        unchangedCount: 0,
+        conflictCount: 0,
+        recoveredCount: 0,
+        operations,
+      });
+    }
+    return sessions.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [historyOperations, historySessionRecords, filteredHistoryOperations, historyProviderFilter, historyStatusFilter]);
 
   function formatHistoryDate(value: string) {
     const date = new Date(value);
@@ -1507,8 +1540,8 @@ function App() {
                   <button
                     className="secondary-button"
                     type="button"
-                    onClick={() => downloadSyncHistory(historyOperations)}
-                    disabled={historyOperations.length === 0}
+                    onClick={() => downloadSyncHistory(historySessionRecords, historyOperations)}
+                    disabled={historyOperations.length === 0 && historySessionRecords.length === 0}
                     title="Экспортировать все операции, включая скрытые текущими фильтрами"
                   >
                     ↓ Экспорт JSON
@@ -1522,10 +1555,11 @@ function App() {
               {historyError && <div className="error-message" role="alert">{historyError}</div>}
 
               <div className="history-overview">
+                <article><span>Всего сеансов</span><strong>{historySessionRecords.length}</strong></article>
+                <article><span>Без изменений</span><strong>{historySessionRecords.filter((session) => session.status === "succeeded" && session.operationCount === 0).length}</strong></article>
+                <article><span>Успешные сеансы</span><strong className="history-count-success">{historySessionRecords.filter((session) => session.status === "succeeded").length}</strong></article>
+                <article><span>Сеансы с ошибками</span><strong className="history-count-failed">{historySessionRecords.filter((session) => session.status === "failed").length}</strong></article>
                 <article><span>Всего операций</span><strong>{historyOperations.length}</strong></article>
-                <article><span>Успешно</span><strong className="history-count-success">{historyOperations.filter((item) => item.status === "succeeded").length}</strong></article>
-                <article><span>Ожидают / выполняются</span><strong className="history-count-pending">{historyOperations.filter((item) => item.status === "pending" || item.status === "in_progress").length}</strong></article>
-                <article><span>Ошибки</span><strong className="history-count-failed">{historyOperations.filter((item) => item.status === "failed").length}</strong></article>
               </div>
 
               <div className="history-toolbar">
@@ -1564,31 +1598,33 @@ function App() {
                     const succeeded = session.operations.filter((item) => item.status === "succeeded").length;
                     const failed = session.operations.filter((item) => item.status === "failed").length;
                     const pending = session.operations.filter((item) => item.status === "pending" || item.status === "in_progress").length;
-                    const providers = [...new Set(session.operations.map((item) => item.provider))];
-                    const retryProvider = providers.length === 1 ? providers[0] : null;
                     const hasUnfinished = failed > 0 || pending > 0;
                     return (
                       <section className="history-session" key={session.sessionId}>
                         <header className="history-session-header">
                           <div>
                             <span className="history-session-date">{formatHistoryDate(session.createdAt)}</span>
-                            <h2>{providers.map((provider) => provider === "mal" ? "MyAnimeList" : "AniList").join(" + ")}</h2>
+                            <h2>{session.provider === "mal" ? "MyAnimeList" : "AniList"}</h2>
                             <small>{session.sessionId}</small>
+                            <span className={"history-session-status " + session.status}>
+                              {session.status === "running" ? "Выполняется" : session.status === "succeeded" ? "Успешно" : session.status === "failed" ? "Ошибка" : "Отменено"}
+                            </span>
                           </div>
                           <div className="history-session-summary">
                             <span className="history-count-success">✓ {succeeded}</span>
                             {pending > 0 && <span className="history-count-pending">◷ {pending}</span>}
                             {failed > 0 && <span className="history-count-failed">! {failed}</span>}
-                            <span>{session.operations.length} всего</span>
-                            {hasUnfinished && retryProvider && (
+                            <span>{session.operationCount} операций</span>
+                            {session.unchangedCount > 0 && <span>{session.unchangedCount} без изменений</span>}
+                            {hasUnfinished && (
                               <button
                                 className="secondary-button"
                                 type="button"
                                 disabled={accountSyncing !== null}
-                                onClick={() => void handleSyncToAccount(retryProvider)}
+                                onClick={() => void handleSyncToAccount(session.provider)}
                                 title="Сначала заново сверить текущее состояние сервиса, затем построить новый план"
                               >
-                                {accountSyncing === retryProvider ? "Сверяем..." : "Пересверить и продолжить"}
+                                {accountSyncing === session.provider ? "Сверяем..." : "Пересверить и продолжить"}
                               </button>
                             )}
                           </div>
