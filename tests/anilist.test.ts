@@ -62,7 +62,7 @@ describe("AniList catalogue search", () => {
       year: 2023,
       format: "TV",
       episodes: 28,
-      genres: ["Adventure", "Drama", "Fantasy"],
+      genres: ["Приключения", "Драма", "Фэнтези"],
       posterUrl: sampleMedia.coverImage.extraLarge,
       averageScore: 9.1,
       startDate: "2023-09-29",
