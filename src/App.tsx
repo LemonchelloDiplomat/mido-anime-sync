@@ -1279,7 +1279,7 @@ function App() {
           <button className={"nav-item " + (!historyOpen && !settingsOpen ? "active" : "")} onClick={() => { setHistoryOpen(false); setSettingsOpen(false); }}>
             ▦ <span>Главная</span>
           </button>
-          <button className="nav-item" onClick={() => setFilters((current) => ({ ...current, status: "ALL" }))}>
+          <button className={"nav-item " + (!historyOpen && !settingsOpen ? "" : "")} onClick={() => { setHistoryOpen(false); setSettingsOpen(false); setFilters((current) => ({ ...current, status: "ALL" })); }}>
             ▤ <span>Моя библиотека</span>
           </button>
           <button className={"nav-item " + (settingsOpen ? "active" : "")} onClick={() => { setHistoryOpen(false); setSettingsOpen((value) => !value); }}>
@@ -1304,7 +1304,7 @@ function App() {
         </nav>
 
         <div className="sidebar-bottom">
-          <button className={"nav-item " + (settingsOpen ? "active" : "")} onClick={() => setSettingsOpen((value) => !value)}>
+          <button className={"nav-item " + (settingsOpen ? "active" : "")} onClick={() => { setHistoryOpen(false); setSettingsOpen((value) => !value); }}>
             ⚙ <span>Настройки</span>
           </button>
           <div className="version">MidaHoshi Anime Sync v0.4</div>
