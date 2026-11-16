@@ -465,7 +465,7 @@ export class BrowserAnimeRepository {
     const existing = await store.get(animeId);
 
     if (!existing) {
-      transaction.abort();
+      await transaction.done;
       throw new Error(`Unknown animeId: ${animeId}`);
     }
 
