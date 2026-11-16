@@ -10,6 +10,7 @@ import type {
 
 import { BrowserAnimeRepository } from "./storage/browser-repository.js";
 import { validateSnapshot } from "./storage/snapshot-validation.js";
+import { DEFAULT_LIBRARY_FILTERS, filterLibrary, type LibraryFilters } from "./core/library-filter.js";
 
 import {
   createImportPreview,
@@ -81,8 +82,10 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("ALL");
+  const [filters, setFilters] = useState<LibraryFilters>(DEFAULT_LIBRARY_FILTERS);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [searchPageOpen, setSearchPageOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -550,33 +553,51 @@ function App() {
 
   const canConfirmImport = importSelectionValidation.valid;
 
-  const filteredLibrary = useMemo(() => {
-    const query = search.trim().toLowerCase();
+  const filteredLibrary = useMemo(
+    () => filterLibrary(library, filters).sort((a, b) => {
+      const titleA = a.anime.titles.english ?? a.anime.titles.romaji ?? "";
+      const titleB = b.anime.titles.english ?? b.anime.titles.romaji ?? "";
+      return titleA.localeCompare(titleB);
+    }),
+    [library, filters],
+  );
 
-    return library
-      .filter(({ anime, entry }) => {
-        const title = [
-          anime.titles.english,
-          anime.titles.romaji,
-          anime.titles.native,
-          ...anime.titles.synonyms,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
+  const searchResults = useMemo(
+    () => filterLibrary(library, { ...filters, query: searchQuery }).sort((a, b) => {
+      const titleA = a.anime.titles.english ?? a.anime.titles.romaji ?? "";
+      const titleB = b.anime.titles.english ?? b.anime.titles.romaji ?? "";
+      return titleA.localeCompare(titleB);
+    }),
+    [library, filters, searchQuery],
+  );
 
-        const matchesSearch = !query || title.includes(query);
-        const matchesFilter = filter === "ALL" || entry?.status === filter;
+  const genres = [
+    "CGDCT", "Авангард", "Антропоморфизм", "Боевые искусства", "Вампиры", "Взрослые персонажи", "Видеоигры", "Военное", "Выживание", "Гарем", "Гонки", "Городское фэнтези", "Гурман", "Гэг-юмор", "Детектив", "Детское", "Дзёсей", "Драма", "Жестокость", "Забота о детях", "Злодейка", "Игра с высокими ставками", "Идолы (Жен.)", "Идолы (Муж.)", "Изобразительное искусство", "Исполнительское искусство", "Исторический", "Исэкай", "Иясикэй", "Командный спорт", "Комедия", "Космос", "Кроссдрессинг", "Культура отаку", "Любовный многоугольник", "Магическая смена пола", "Махо-сёдзё", "Медицина", "Меха", "Мифология", "Музыка", "Образовательное", "Организованная преступность", "Пародия", "Питомцы", "Повседневность", "Приключения", "Психологическое", "Путешествие во времени", "Работа", "Реверс-гарем", "Реинкарнация", "Романтика", "Романтический подтекст", "Самураи", "Сверхъестественное", "Сёдзё", "Сёдзё-ай", "Сёнен", "Сёнен-ай", "Спорт", "Спортивные единоборства", "Стратегические игры", "Супер сила", "Сэйнэн", "Тайна", "Триллер", "Ужасы", "Фантастика", "Фэнтези", "Хентай", "Хулиганы", "Школа", "Шоу-бизнес", "Экшен", "Эротика", "Этти",
+  ];
 
-        return matchesSearch && matchesFilter;
-      })
-      .sort((a, b) => {
-        const titleA = a.anime.titles.english ?? a.anime.titles.romaji ?? "";
-        const titleB = b.anime.titles.english ?? b.anime.titles.romaji ?? "";
+  function toggleArrayFilter<K extends "formats" | "releaseStatuses" | "ageRatings" | "episodeRanges>(
+    key: K,
+    value: LibraryFilters[K] extends Array<infer T> ? T : never,
+  ) {
+    setFilters((current) => {
+      const values = current[key] as unknown[];
+      const next = values.includes(value)
+        ? values.filter((item) => item !== value)
+        : [...values, value];
+      return { ...current, [key]: next };
+    });
+  }
 
-        return titleA.localeCompare(titleB);
-      });
-  }, [library, search, filter]);
+  function cycleGenre(genre: string) {
+    setFilters((current) => {
+      const next = { ...current.genres };
+      const mode = next[genre];
+      if (!mode) next[genre] = "include";
+      else if (mode === "include") next[genre] = "exclude";
+      else delete next[genre];
+      return { ...current, genres: next };
+    });
+  }
 
   const watching = library.filter((item) => item.entry?.status === "WATCHING");
 
@@ -603,7 +624,7 @@ function App() {
           <button className="nav-item active">
             ▦ <span>Главная</span>
           </button>
-          <button className="nav-item" onClick={() => setFilter("ALL")}>
+          <button className="nav-item" onClick={() => setFilters((current) => ({ ...current, status: "ALL" }))}>
             ▤ <span>Моя библиотека</span>
           </button>
           <button className="nav-item" disabled>
@@ -994,27 +1015,59 @@ function App() {
             </div>
 
             <div className="library-toolbar">
-              <input
-                className="search-input"
-                type="search"
-                placeholder="Поиск по названию аниме..."
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
-
-              <select
-                className="filter-select"
-                value={filter}
-                onChange={(event) => setFilter(event.target.value)}
-              >
-                <option value="ALL">Все статусы</option>
-                {Object.entries(statusLabels).map(([value, label]) => (
-                  <option value={value} key={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
+              <button className="secondary-button" onClick={() => setSearchPageOpen(true)}>⌕ Поиск аниме</button>
+              <button className="secondary-button" onClick={() => setFiltersOpen((value) => !value)}>
+                ⚙ Фильтры {filtersOpen ? "−" : "+"}
+              </button>
+              <span className="filter-result-count">{filteredLibrary.length} результатов</span>
             </div>
+
+            {filtersOpen && (
+              <div className="library-filters">
+                <div className="filter-section">
+                  <h3>Год выхода <span title="Диапазон годов выпуска аниме">ⓘ</span></h3>
+                  <div className="year-range">
+                    <label>От <input type="number" min="1959" max={new Date().getFullYear() + 1} value={filters.yearFrom} onChange={(event) => setFilters((v) => ({ ...v, yearFrom: Math.max(1959, Number(event.target.value) || 1959) }))} /></label>
+                    <label>До <input type="number" min="1959" max={new Date().getFullYear() + 1} value={filters.yearTo} onChange={(event) => setFilters((v) => ({ ...v, yearTo: Math.min(new Date().getFullYear() + 1, Math.max(v.yearFrom, Number(event.target.value) || v.yearFrom)) }))} /></label>
+                  </div>
+                </div>
+                <div className="filter-section">
+                  <h3>Статус в списке</h3>
+                  <div className="filter-options">
+                    <label><input type="radio" checked={filters.status === "ALL"} onChange={() => setFilters((v) => ({ ...v, status: "ALL" }))} /> Все</label>
+                    {Object.entries(statusLabels).map(([value, label]) => <label key={value}><input type="radio" checked={filters.status === value} onChange={() => setFilters((v) => ({ ...v, status: value as LibraryFilters["status"] }))} /> {label}</label>)}
+                  </div>
+                </div>
+                <div className="filter-section">
+                  <h3>Жанры <span title="Нажми повторно: пусто → включить → исключить">ⓘ</span></h3>
+                  <p className="filter-hint">Нажимай на жанр, чтобы включить его, исключить или сбросить.</p>
+                  <div className="genre-grid">
+                    {genres.map((genre) => <button type="button" key={genre} className={`genre-chip ${filters.genres[genre] ?? ""}`} onClick={() => cycleGenre(genre)}>{filters.genres[genre] === "include" ? "＋ " : filters.genres[genre] === "exclude" ? "− " : ""}{genre}</button>)}
+                  </div>
+                  <label className="filter-check"><input type="checkbox" checked={filters.strictGenres} onChange={(event) => setFilters((v) => ({ ...v, strictGenres: event.target.checked }))} /> Строгое совпадение <span title="Включено: должны совпасть все выбранные жанры. Выключено: достаточно любого выбранного жанра.">ⓘ</span></label>
+                </div>
+                <div className="filter-section">
+                  <h3>Тип</h3><div className="filter-options">
+                    {([["TV","Сериал"],["MOVIE","Фильм"],["SPECIAL","Спешл"],["OVA","OVA"],["ONA","ONA"]] as const).map(([value,label]) => <label key={value}><input type="checkbox" checked={filters.formats.includes(value)} onChange={() => toggleArrayFilter("formats", value)} /> {label}</label>)}
+                  </div>
+                </div>
+                <div className="filter-section">
+                  <h3>Статус выхода <span title="Статус релиза самого аниме, а не твоего просмотра">ⓘ</span></h3><div className="filter-options">
+                    {([["ONGOING","Онгоинг"],["ANNOUNCED","Анонс"],["RELEASED","Вышел"]] as const).map(([value,label]) => <label key={value}><input type="checkbox" checked={filters.releaseStatuses.includes(value)} onChange={() => toggleArrayFilter("releaseStatuses", value)} /> {label}</label>)}
+                    <label><input type="checkbox" checked={filters.recentOnly} onChange={(event) => setFilters((v) => ({ ...v, recentOnly: event.target.checked }))} /> Недавно <span title="Премьера за последние 6 месяцев">ⓘ</span></label>
+                  </div>
+                </div>
+                <div className="filter-section">
+                  <h3>Возрастной рейтинг <span title="G: без ограничений. PG: рекомендуется присутствие родителей. PG-13: не рекомендуется детям до 13 лет. R-17: до 17 лет только со взрослым. R+: просмотр до 17 лет запрещён.">ⓘ</span></h3>
+                  <div className="filter-options">{(["G","PG","PG13","R17","R+"] as const).map((value) => <label key={value}><input type="checkbox" checked={filters.ageRatings.includes(value)} onChange={() => toggleArrayFilter("ageRatings", value)} /> {value === "PG13" ? "PG-13" : value === "R17" ? "R-17" : value}</label>)}</div>
+                </div>
+                <div className="filter-section">
+                  <h3>Количество эпизодов <span title="Короткие: до 13. Средние: 14–26. Длинные: 27–100. Очень длинные: более 100.">ⓘ</span></h3>
+                  <div className="filter-options">{([["SHORT","Короткие (до 13)"],["MEDIUM","Средние (14–26)"],["LONG","Длинные (27–100)"],["VERY_LONG","Очень длинные (100+)"]] as const).map(([value,label]) => <label key={value}><input type="checkbox" checked={filters.episodeRanges.includes(value)} onChange={() => toggleArrayFilter("episodeRanges", value)} /> {label}</label>)}</div>
+                </div>
+                <div className="filter-actions"><button className="cancel-button" onClick={() => setFilters(DEFAULT_LIBRARY_FILTERS)}>Сбросить фильтры</button><button className="add-button" onClick={() => setFiltersOpen(false)}>Применить</button></div>
+              </div>
+            )}
 
             {loading ? (
               <div className="empty-state">Загружаем библиотеку...</div>
@@ -1060,15 +1113,14 @@ function App() {
                   return (
                     <article className="anime-card" key={anime.id}>
                       <div className="anime-cover purple">
-                        <span>✦</span>
-                        <small>ANIME</small>
+                        {anime.posterUrl ? <img src={anime.posterUrl} alt="" loading="lazy" /> : <><span>✦</span><small>ANIME</small></>}
+                        {anime.averageScore != null && <span className={`poster-score ${anime.averageScore >= 8 ? "excellent" : anime.averageScore >= 7 ? "good" : anime.averageScore >= 5 ? "average" : "poor"}`}>{anime.averageScore.toFixed(1)}</span>}
                       </div>
 
                       <div className="anime-details">
                         <h3>{title}</h3>
-                        <p className="anime-subtitle">
-                          {anime.titles.romaji ?? " "}
-                        </p>
+                        <p className="anime-subtitle">{anime.titles.romaji ?? " "}</p>
+                        <div className="anime-catalog-meta">{anime.format ?? "Формат не указан"}{anime.year ? ` · ${anime.year}` : ""}{anime.genres?.length ? ` · ${anime.genres.join(", ")}` : ""}</div>
 
                         {entry && (
                           <>
@@ -1149,7 +1201,25 @@ function App() {
         </div>
       </main>
 
-      {modalOpen && (
+      {searchPageOpen && (
+        <div className="search-page">
+          <header className="search-page-header">
+            <button className="modal-close" onClick={() => setSearchPageOpen(false)} aria-label="Назад">←</button>
+            <h1>Поиск</h1>
+          </header>
+          <div className="search-page-content">
+            <input autoFocus className="search-input" type="search" placeholder="Аниме" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
+            <div className="search-results-heading"><h2>Аниме</h2><span>{searchResults.length}</span></div>
+            {searchResults.length === 0 ? <div className="empty-state"><div className="empty-icon">⌕</div><h3>Ничего не найдено</h3><p>Попробуй изменить поисковый запрос.</p></div> : <div className="search-results-list">
+              {searchResults.map(({ anime, entry }) => <article className="search-result-card" key={anime.id}>
+                <div className="search-result-poster">{anime.posterUrl ? <img src={anime.posterUrl} alt="" loading="lazy" /> : <span>✦</span>}{anime.averageScore != null && <b className={`poster-score ${anime.averageScore >= 8 ? "excellent" : anime.averageScore >= 7 ? "good" : anime.averageScore >= 5 ? "average" : "poor"}`}>{anime.averageScore.toFixed(1)}</b>}</div>
+                <div className="search-result-details"><h3>{anime.titles.english ?? anime.titles.romaji ?? anime.titles.native ?? "Без названия"}</h3><p>{anime.titles.romaji ?? anime.titles.native ?? ""}</p><div>{anime.format ?? "Формат не указан"}{anime.year ? ` · ${anime.year}` : ""}</div><small>{(anime.genres ?? []).join(" · ") || "Жанры пока не добавлены"}</small>{entry && <span className="status-label">{statusLabels[entry.status]}</span>}</div>
+              </article>)}
+            </div>}
+          </div>
+        </div>
+      )}
+\n      {modalOpen && (
         <div
           className="modal-overlay"
           onMouseDown={(event) => {
