@@ -216,3 +216,142 @@ export async function searchAniListAnime(
 
   return media.map(mapMedia);
 }
+
+export interface AniListAnimeDetails {
+  anime: AnimeIdentity;
+  description: string;
+  bannerImage: string | null;
+  season: string | null;
+  seasonYear: number | null;
+  source: string | null;
+  duration: number | null;
+  studios: string[];
+  relations: Array<{
+    relationType: string;
+    anime: AnimeIdentity;
+  }>;
+}
+
+const DETAILS_QUERY = `
+  query AnimeDetails($id: Int!) {
+    Media(id: $id, type: ANIME) {
+      id
+      idMal
+      title { romaji english native }
+      synonyms
+      format
+      status
+      episodes
+      seasonYear
+      startDate { year month day }
+      averageScore
+      genres
+      description(asHtml: false)
+      bannerImage
+      season
+      source
+      duration
+      coverImage { extraLarge large }
+      studios(isMain: true) {
+        nodes { name }
+      }
+      relations {
+        edges {
+          relationType
+          node {
+            id
+            idMal
+            type
+            title { romaji english native }
+            synonyms
+            format
+            status
+            episodes
+            seasonYear
+            startDate { year month day }
+            averageScore
+            genres
+            coverImage { extraLarge large }
+          }
+        }
+      }
+    }
+  }
+`;
+
+interface AniListDetailsResponse {
+  data?: {
+    Media?: AniListMedia & {
+      description: string | null;
+      bannerImage: string | null;
+      season: string | null;
+      source: string | null;
+      duration: number | null;
+      studios: { nodes: Array<{ name: string }> };
+      relations: {
+        edges: Array<{
+          relationType: string;
+          node: AniListMedia & { type: string };
+        }>;
+      };
+    } | null;
+  };
+  errors?: Array<{ message?: string }>;
+}
+
+export async function fetchAniListAnimeDetails(
+  id: number,
+  signal?: AbortSignal,
+): Promise<AniListAnimeDetails> {
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw new Error("Некорректный ID аниме в AniList.");
+  }
+
+  const response = await fetch(ANILIST_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      query: DETAILS_QUERY,
+      variables: { id },
+    }),
+    ...(signal ? { signal } : {}),
+  });
+
+  if (response.status === 429) {
+    throw new Error("AniList временно ограничил частоту запросов. Попробуй через минуту.");
+  }
+  if (!response.ok) {
+    throw new Error(`AniList вернул ошибку HTTP ${response.status}.`);
+  }
+
+  const payload = (await response.json()) as AniListDetailsResponse;
+  if (payload.errors?.length) {
+    throw new Error(payload.errors[0]?.message ?? "Не удалось загрузить страницу аниме.");
+  }
+
+  const media = payload.data?.Media;
+  if (!media) {
+    throw new Error("AniList не нашёл это аниме.");
+  }
+
+  const anime = mapMedia(media);
+  return {
+    anime,
+    description: (media.description ?? "").replace(/<[^>]*>/g, " ").replace(/\\s+/g, " ").trim(),
+    bannerImage: media.bannerImage,
+    season: media.season,
+    seasonYear: media.seasonYear,
+    source: media.source,
+    duration: media.duration,
+    studios: (media.studios?.nodes ?? []).map((studio) => studio.name).filter(Boolean),
+    relations: (media.relations?.edges ?? [])
+      .filter((edge) => edge.node.type === "ANIME")
+      .map((edge) => ({
+        relationType: edge.relationType,
+        anime: mapMedia(edge.node),
+      })),
+  };
+}
