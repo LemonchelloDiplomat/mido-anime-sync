@@ -687,8 +687,14 @@ function App() {
 
       const recoveredSessionIds = [...new Set(unfinishedOperations.map((operation) => operation.sessionId))];
       if (recoveredSessionIds.length > 0) {
-        const allJournalOperations = await activeRepository.getSyncOperations();
+        const [allJournalOperations, knownSessions] = await Promise.all([
+          activeRepository.getSyncOperations(),
+          activeRepository.getSyncSessions(),
+        ]);
+        const knownSessionIds = new Set(knownSessions.map((session) => session.sessionId));
         for (const recoveredSessionId of recoveredSessionIds) {
+          // Older journal versions did not persist session metadata.
+          if (!knownSessionIds.has(recoveredSessionId)) continue;
           const sessionOperations = allJournalOperations.filter((operation) => operation.sessionId === recoveredSessionId);
           const sessionPending = sessionOperations.filter((operation) => operation.status === "pending" || operation.status === "in_progress").length;
           const sessionFailed = sessionOperations.filter((operation) => operation.status === "failed").length;
