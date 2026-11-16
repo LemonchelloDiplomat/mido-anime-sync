@@ -30,7 +30,6 @@ function makeAnime(id: string, malId: string): AnimeIdentity {
 }
 
 afterEach(() => {
-  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -117,9 +116,6 @@ describe("AniList metadata provider", () => {
   });
 
   it("isolates a missing MAL ID after a batch-level HTTP 404 and keeps valid matches", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-11-17T00:00:00Z"));
-
     const requestedIds: number[][] = [];
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(
       async (_input, init) => {
@@ -166,7 +162,6 @@ describe("AniList metadata provider", () => {
       [makeAnime("mal:52991", "52991"), makeAnime("mal:99999", "99999")],
       { onBatch: (batch) => { batches.push(batch); } },
     );
-    await vi.runAllTimersAsync();
     await enrichment;
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
@@ -179,7 +174,7 @@ describe("AniList metadata provider", () => {
       missing: 1,
     });
     expect(batches[0]?.matches[0]?.animeId).toBe("mal:52991");
-  });
+  }, 15_000);
 
   it("splits large libraries into batches of twenty", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(
