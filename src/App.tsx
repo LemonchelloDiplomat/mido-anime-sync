@@ -3,6 +3,9 @@ import type { ChangeEvent, FormEvent } from "react";
 
 import type {
   AnimeIdentity,
+  AnimeAgeRating,
+  AnimeFormat,
+  AnimeReleaseStatus,
   AnimeListEntry,
   AnimeSnapshot,
   AnimeStatus,
@@ -24,6 +27,14 @@ type LibraryItem = {
 
 type AnimeForm = {
   title: string;
+  year: string;
+  format: AnimeFormat | "";
+  genres: string;
+  ageRating: AnimeAgeRating | "";
+  posterUrl: string;
+  averageScore: string;
+  startDate: string;
+  releaseStatus: AnimeReleaseStatus | "";
   subtitle: string;
   episodes: string;
   progress: string;
@@ -34,6 +45,14 @@ type AnimeForm = {
 
 const emptyForm: AnimeForm = {
   title: "",
+  year: "",
+  format: "",
+  genres: "",
+  ageRating: "",
+  posterUrl: "",
+  averageScore: "",
+  startDate: "",
+  releaseStatus: "",
   subtitle: "",
   episodes: "",
   progress: "0",
@@ -360,6 +379,14 @@ function App() {
     setEditingId(item.anime.id);
 
     setForm({
+      year: item.anime.year?.toString() ?? "",
+      format: item.anime.format ?? "",
+      genres: item.anime.genres?.join(", ") ?? "",
+      ageRating: item.anime.ageRating ?? "",
+      posterUrl: item.anime.posterUrl ?? "",
+      averageScore: item.anime.averageScore?.toString() ?? "",
+      startDate: item.anime.startDate ?? "",
+      releaseStatus: item.anime.releaseStatus ?? "",
       title:
         item.anime.titles.english ??
         item.anime.titles.romaji ??
@@ -385,6 +412,10 @@ function App() {
     const progress = Number(form.progress);
     const episodes = form.episodes.trim() === "" ? null : Number(form.episodes);
     const score = form.score.trim() === "" ? null : Number(form.score);
+    const year = form.year.trim() === "" ? null : Number(form.year);
+    const averageScore = form.averageScore.trim() === "" ? null : Number(form.averageScore);
+    const genres = [...new Set(form.genres.split(",").map((genre) => genre.trim()).filter(Boolean))];
+    const posterUrl = form.posterUrl.trim();
 
     if (!title) {
       setError("Укажи название аниме.");
@@ -396,7 +427,10 @@ function App() {
       progress < 0 ||
       (episodes !== null && (!Number.isInteger(episodes) || episodes < 0)) ||
       (episodes !== null && progress > episodes) ||
-      (score !== null && (!Number.isFinite(score) || score < 0 || score > 100))
+      (score !== null && (!Number.isFinite(score) || score < 0 || score > 100)) ||
+      (year !== null && (!Number.isInteger(year) || year < 1900 || year > 2100)) ||
+      (averageScore !== null && (!Number.isFinite(averageScore) || averageScore < 0 || averageScore > 10)) ||
+      (posterUrl !== "" && !/^https?:\\/\\//i.test(posterUrl))
     ) {
       setError("Проверь количество серий и оценку.");
       return;
@@ -422,6 +456,14 @@ function App() {
         },
         externalIds: previous?.anime.externalIds ?? {},
         episodes,
+        ...(year !== null ? { year } : {}),
+        ...(form.format ? { format: form.format } : {}),
+        ...(genres.length ? { genres } : {}),
+        ...(form.ageRating ? { ageRating: form.ageRating } : {}),
+        ...(posterUrl ? { posterUrl } : {}),
+        ...(averageScore !== null ? { averageScore } : {}),
+        ...(form.startDate ? { startDate: form.startDate } : {}),
+        ...(form.releaseStatus ? { releaseStatus: form.releaseStatus } : {}),
       };
 
       const entry: AnimeListEntry = {
@@ -1269,6 +1311,56 @@ function App() {
                 placeholder="Например, Sousou no Frieren"
               />
             </label>
+
+            <div className="form-grid">
+              <label>
+                Год выхода
+                <input type="number" min="1900" max="2100" value={form.year} onChange={(event) => setForm({ ...form, year: event.target.value })} placeholder="2026" />
+              </label>
+              <label>
+                Тип аниме
+                <select value={form.format} onChange={(event) => setForm({ ...form, format: event.target.value as AnimeFormat | "" })}>
+                  <option value="">Не указан</option>
+                  <option value="TV">Сериал</option><option value="MOVIE">Фильм</option><option value="SPECIAL">Спешл</option><option value="OVA">OVA</option><option value="ONA">ONA</option><option value="MUSIC">Музыкальное</option>
+                </select>
+              </label>
+            </div>
+
+            <label>
+              Жанры (через запятую)
+              <input value={form.genres} onChange={(event) => setForm({ ...form, genres: event.target.value })} placeholder="Фэнтези, Приключения, Драма" />
+            </label>
+
+            <div className="form-grid">
+              <label>
+                Возрастной рейтинг
+                <select value={form.ageRating} onChange={(event) => setForm({ ...form, ageRating: event.target.value as AnimeAgeRating | "" })}>
+                  <option value="">Не указан</option><option value="G">G</option><option value="PG">PG</option><option value="PG13">PG-13</option><option value="R17">R-17</option><option value="R+">R+</option>
+                </select>
+              </label>
+              <label>
+                Рейтинг (0–10)
+                <input type="number" min="0" max="10" step="0.1" value={form.averageScore} onChange={(event) => setForm({ ...form, averageScore: event.target.value })} placeholder="8.5" />
+              </label>
+            </div>
+
+            <label>
+              Ссылка на постер
+              <input type="url" value={form.posterUrl} onChange={(event) => setForm({ ...form, posterUrl: event.target.value })} placeholder="https://..." />
+            </label>
+
+            <div className="form-grid">
+              <label>
+                Дата премьеры
+                <input type="date" value={form.startDate} onChange={(event) => setForm({ ...form, startDate: event.target.value })} />
+              </label>
+              <label>
+                Статус выхода
+                <select value={form.releaseStatus} onChange={(event) => setForm({ ...form, releaseStatus: event.target.value as AnimeReleaseStatus | "" })}>
+                  <option value="">Не указан</option><option value="ONGOING">Онгоинг</option><option value="ANNOUNCED">Анонс</option><option value="RELEASED">Вышел</option>
+                </select>
+              </label>
+            </div>
 
             <div className="form-grid">
               <label>
