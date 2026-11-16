@@ -724,17 +724,19 @@ function App() {
           const externalId = item.anime.externalIds[providerSource === "myanimelist" ? "myanimelist" : "anilist"];
           if (externalId) canonicalByExternalId.set(externalId, item.anime.id);
         }
+        const baselines: AnimeListEntry[] = [];
         for (const remoteAnime of refreshedSnapshot.anime) {
           const externalId = remoteAnime.externalIds[providerSource];
           const remoteEntry = refreshedSnapshot.entries.find((entry) => entry.animeId === remoteAnime.id);
           const canonicalId = externalId ? canonicalByExternalId.get(externalId) : undefined;
           if (!remoteEntry || !canonicalId) continue;
-          await repository.saveSourceEntry({
+          baselines.push({
             ...remoteEntry,
             animeId: canonicalId,
             source: providerSource,
           });
         }
+        await repository.saveSourceEntries(baselines);
         } catch (err) {
           failures.push("Не удалось обновить базовый снимок сервиса: " + (err instanceof Error ? err.message : "ошибка"));
         }
