@@ -17,6 +17,9 @@ import { DEFAULT_LIBRARY_FILTERS, filterLibrary, type LibraryFilters } from "./c
 import { aniListMetadataProvider, fetchAniListAnimeDetails, getAniListMetadataCandidates, searchAniListAnime, type AniListAnimeDetails } from "./services/anilist.js";
 import { parseMyAnimeListXml, readMyAnimeListExport } from "./services/myanimelist-import.js";
 import { connectIntegration, disconnectIntegration, getIntegrationStatus, type IntegrationStatus } from "./services/integrations-api.js";
+import { fetchAccountList } from "./services/integrations-api.js";
+import { parseMyAnimeListApiList } from "./services/myanimelist-account.js";
+import { parseAniListAccountList, type AniListScoreFormat } from "./services/anilist-account.js";
 
 import {
   createImportPreview,
@@ -538,6 +541,31 @@ function App() {
     }
   }
 
+  async function handleImportFromAccount(provider: "mal" | "anilist") {
+    if (!repository || importing) return;
+    setImporting(true);
+    setError("");
+    try {
+      const payload = await fetchAccountList(provider);
+      const snapshot = provider === "mal"
+        ? parseMyAnimeListApiList(payload.data)
+        : parseAniListAccountList(payload.data, payload.scoreFormat as AniListScoreFormat);
+      const currentLibrary = await repository.getAll();
+      const analysis = createImportPreview(
+        snapshot.anime,
+        currentLibrary.map((item) => item.anime),
+      );
+      setImportSnapshot(snapshot);
+      setImportFormat(provider === "mal" ? "MyAnimeList account" : "AniList account");
+      setImportAnalysis(analysis);
+      setSettingsOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось получить список из аккаунта.");
+    } finally {
+      setImporting(false);
+    }
+  }
+
   async function handleConfirmImport() {
     if (!repository || !importSnapshot || importing) return;
 
@@ -913,12 +941,17 @@ function App() {
                       {status?.connected ? "Подключён" : status?.configured ? "Не подключён" : "Не настроен"}
                     </div>
                     {status?.connected ? (
-                      <button className="secondary-button" onClick={() => {
-                        void disconnectIntegration(routeProvider)
-                          .then(() => getIntegrationStatus())
-                          .then(setIntegrationStatus)
-                          .catch((err: unknown) => setIntegrationStatusError(err instanceof Error ? err.message : "Не удалось отключить аккаунт."));
-                      }}>Отключить</button>
+                      <>
+                        <button className="add-button" disabled={importing} onClick={() => void handleImportFromAccount(routeProvider)}>
+                          {importing ? "Загружаем..." : "Импорт списка"}
+                        </button>
+                        <button className="secondary-button" onClick={() => {
+                          void disconnectIntegration(routeProvider)
+                            .then(() => getIntegrationStatus())
+                            .then(setIntegrationStatus)
+                            .catch((err: unknown) => setIntegrationStatusError(err instanceof Error ? err.message : "Не удалось отключить аккаунт."));
+                        }}>Отключить</button>
+                      </>
                     ) : (
                       <button className="add-button" disabled={!status?.configured || integrationStatusLoading} onClick={() => connectIntegration(routeProvider)}>
                         Подключить аккаунт

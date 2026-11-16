@@ -41,3 +41,13 @@ export async function disconnectIntegration(provider: "mal" | "anilist"): Promis
 export function connectIntegration(provider: "mal" | "anilist"): void {
   window.location.assign("/api/auth/" + provider + "/start");
 }
+
+export interface RemoteAccountListPayload {
+  data: unknown[];
+  count: number;
+  scoreFormat?: string;
+}
+
+export function fetchAccountList(provider: "mal" | "anilist"): Promise<RemoteAccountListPayload> {
+  return request<RemoteAccountListPayload>(provider === "mal" ? "/api/mal/list" : "/api/anilist/list");
+}
