@@ -1028,3 +1028,77 @@ button:disabled {
     width: 100%;
   }
 }
+
+
+/* ===== Library filters and dedicated search ===== */
+.search-launch {
+  margin-left: auto;
+  width: 40px;
+  height: 40px;
+  border: 1px solid #343443;
+  border-radius: 10px;
+  color: #d7c7ff;
+  background: #201d2b;
+  font-size: 26px;
+}
+.library-toolbar { align-items: center; flex-wrap: wrap; }
+.filter-result-count { color: #9291a1; font-size: 11px; margin-left: auto; }
+.library-filters {
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+  margin: 0 0 22px;
+  border: 1px solid #343443;
+  border-radius: 12px;
+  background: #191923;
+}
+.filter-section { display: grid; gap: 10px; }
+.filter-section h3 { margin: 0; font-size: 13px; color: #e8e4f3; }
+.filter-section h3 span, .filter-check span { color: #a98aff; cursor: help; }
+.filter-hint { margin: 0; color: #888798; font-size: 11px; }
+.year-range, .filter-options { display: flex; flex-wrap: wrap; gap: 12px 20px; }
+.year-range label, .filter-options label, .filter-check { display: flex; align-items: center; gap: 8px; color: #bdbbca; font-size: 11px; }
+.year-range input {
+  width: 105px; padding: 8px 10px; border-radius: 7px; border: 1px solid #393747;
+  color: #f3f2fa; background: #111119; font: inherit;
+}
+.filter-options input, .filter-check input { accent-color: #9872ee; }
+.genre-grid { display: flex; flex-wrap: wrap; gap: 7px; }
+.genre-chip { border: 1px solid #393747; border-radius: 20px; padding: 7px 10px; background: #22222e; color: #aaa9b9; font-size: 10px; }
+.genre-chip.include { border-color: #7656b9; background: #35264f; color: #d5c3ff; }
+.genre-chip.exclude { border-color: #914b58; background: #39232a; color: #f0a4ad; }
+.filter-check { padding-top: 4px; }
+.filter-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.anime-cover { position: relative; overflow: hidden; flex-shrink: 0; }
+.anime-cover img, .search-result-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.poster-score { position: absolute; top: 5px; left: 5px; border-radius: 5px; padding: 4px 5px; color: #fff; font-size: 10px; font-weight: 800; box-shadow: 0 1px 5px #0008; }
+.poster-score.excellent { background: #2ea44f; }
+.poster-score.good { background: #7cb342; }
+.poster-score.average { background: #6c727f; }
+.poster-score.poor { background: #d32f2f; }
+.anime-catalog-meta { color: #858494; font-size: 10px; line-height: 1.6; margin: 0 0 8px; overflow-wrap: anywhere; }
+.search-page { position: fixed; inset: 0; z-index: 40; background: #101016; overflow-y: auto; }
+.search-page-header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 18px; height: 70px; padding: 0 max(24px, calc((100vw - 1050px) / 2)); background: #15151e; border-bottom: 1px solid #272733; }
+.search-page-header h1 { margin: 0; font-size: 20px; }
+.search-page-content { max-width: 1050px; margin: 0 auto; padding: 28px 24px 60px; }
+.search-page-content > .search-input { width: 100%; margin-bottom: 25px; }
+.search-results-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.search-results-heading h2 { margin: 0; font-size: 16px; }
+.search-results-heading span { min-width: 24px; text-align: center; padding: 4px 7px; border-radius: 12px; background: #302743; color: #d0baff; font-size: 10px; }
+.search-results-list { display: grid; gap: 10px; }
+.search-result-card { display: flex; gap: 16px; padding: 12px; min-height: 132px; border: 1px solid #292936; border-radius: 11px; background: #191923; }
+.search-result-poster { width: 82px; height: 108px; position: relative; flex-shrink: 0; overflow: hidden; border-radius: 7px; background: linear-gradient(145deg, #4d3470, #242039); display: grid; place-items: center; color: #d5c3ff; font-size: 28px; }
+.search-result-details { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.search-result-details h3 { margin: 2px 0 0; font-size: 14px; }
+.search-result-details p { margin: 0; color: #858494; font-size: 11px; }
+.search-result-details div { color: #aaa9b9; font-size: 10px; }
+.search-result-details small { color: #9291a1; font-size: 10px; line-height: 1.5; }
+@media (max-width: 650px) {
+  .library-filters { padding: 14px; }
+  .year-range { gap: 8px; }
+  .filter-actions { flex-direction: column-reverse; }
+  .filter-actions button { width: 100%; }
+  .search-result-card { gap: 11px; padding: 9px; }
+  .search-result-poster { width: 68px; height: 96px; }
+  .search-result-details h3 { font-size: 12px; }
+}
