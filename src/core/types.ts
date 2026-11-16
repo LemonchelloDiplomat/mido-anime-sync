@@ -23,6 +23,9 @@ export type AnimeFormat =
   | "MUSIC"
   | "UNKNOWN";
 
+export type AnimeAgeRating = "G" | "PG" | "PG13" | "R17" | "R+";
+export type AnimeReleaseStatus = "ONGOING" | "ANNOUNCED" | "RELEASED";
+
 export interface AnimeIdentity {
   id: string;
   year?: number | null;
@@ -35,6 +38,12 @@ export interface AnimeIdentity {
   };
   externalIds: Partial<Record<ServiceId, string>>;
   episodes?: number | null;
+  genres?: string[];
+  ageRating?: AnimeAgeRating | null;
+  posterUrl?: string | null;
+  averageScore?: number | null;
+  startDate?: string | null;
+  releaseStatus?: AnimeReleaseStatus;
 }
 
 export interface AnimeListEntry {
