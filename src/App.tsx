@@ -457,13 +457,13 @@ function App() {
         externalIds: previous?.anime.externalIds ?? {},
         episodes,
         year,
-        format: form.format || undefined,
+        ...(form.format ? { format: form.format } : {}),
         genres,
         ageRating: form.ageRating || null,
         posterUrl: posterUrl || null,
         averageScore,
         startDate: form.startDate || null,
-        releaseStatus: form.releaseStatus || undefined,
+        ...(form.releaseStatus ? { releaseStatus: form.releaseStatus } : {}),
       };
 
       const entry: AnimeListEntry = {
