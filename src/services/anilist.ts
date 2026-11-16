@@ -350,7 +350,7 @@ export const aniListMetadataProvider: CatalogMetadataProvider = {
 
     for (const anime of identities) {
       const malId = anime.externalIds.myanimelist;
-      if (!malId || !/^\\d+$/.test(malId) || !Number.isSafeInteger(Number(malId)) || Number(malId) <= 0) {
+      if (!malId || !/^\d+$/.test(malId) || !Number.isSafeInteger(Number(malId)) || Number(malId) <= 0) {
         continue;
       }
 
