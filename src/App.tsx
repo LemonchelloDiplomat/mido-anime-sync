@@ -9,6 +9,7 @@ import type {
   AnimeListEntry,
   AnimeSnapshot,
   AnimeStatus,
+  SyncOperation,
 } from "./core/types.js";
 
 import { BrowserAnimeRepository } from "./storage/browser-repository.js";
@@ -577,6 +578,35 @@ function App() {
       const remoteSnapshot = provider === "mal"
         ? parseMyAnimeListApiList(payload.data)
         : parseAniListAccountList(payload.data, payload.scoreFormat as AniListScoreFormat);
+
+      // Reconcile unfinished journal records against the freshly fetched state.
+      // This handles the case where a write reached the provider just before the app closed.
+      const unfinishedOperations = await repository.getUnfinishedSyncOperations(provider);
+      let recoveredOperations = 0;
+      for (const operation of unfinishedOperations) {
+        const actualEntry = operation.direction === "remote"
+          ? (() => {
+              const remoteAnime = remoteSnapshot.anime.find(
+                (anime) => anime.externalIds[provider === "mal" ? "myanimelist" : "anilist"] === operation.externalId,
+              );
+              return remoteAnime
+                ? remoteSnapshot.entries.find((entry) => entry.animeId === remoteAnime.id)
+                : undefined;
+            })()
+          : await repository.getEntry(operation.animeId);
+        const matchesTarget = Boolean(
+          actualEntry &&
+          actualEntry.status === operation.entry.status &&
+          actualEntry.progress === operation.entry.progress &&
+          actualEntry.score === operation.entry.score &&
+          (provider === "mal" || actualEntry.favorite === operation.entry.favorite),
+        );
+        if (matchesTarget) {
+          await repository.updateSyncOperation(operation.id, { status: "succeeded" });
+          recoveredOperations += 1;
+        }
+      }
+
       const baseItems = await repository.getAll();
       const providerSource = provider === "mal" ? "myanimelist" : "anilist";
       const localItems = await Promise.all(baseItems.map(async (item) => {
@@ -701,6 +731,10 @@ function App() {
         "\nОбновления локальной библиотеки: " + localUpdates.length +
         "\nНеразрешённых конфликтных тайтлов пропущено: " +
           conflictAnimeIds.filter((id) => !resolvedConflictAnimeIds.has(id)).length +
+        (unfinishedOperations.length
+          ? "\nНезавершённых операций из прошлых запусков: " + unfinishedOperations.length +
+            "\nУже подтверждено сверкой: " + recoveredOperations
+          : "") +
         "\n\nПеред изменениями будет скачана резервная копия. Продолжить?"
       );
       if (!confirmed) return;
@@ -708,11 +742,72 @@ function App() {
       // Backup is created before the first write to either side.
       downloadSnapshot(await repository.snapshot());
 
+      const sessionId = `sync-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const journalCreatedAt = new Date().toISOString();
+      const remoteChangesToApply = [...remoteCreates, ...remoteUpdates];
+      const localChangesToApply = [
+        ...localCreates.map((change) => ({
+          kind: "create" as const,
+          animeId: change.anime.id,
+          entry: change.entry,
+          anime: change.anime,
+        })),
+        ...localUpdates.map((change) => ({
+          kind: "update" as const,
+          animeId: change.animeId,
+          entry: change.entry,
+        })),
+      ];
+      const remoteJournalOperations: SyncOperation[] = remoteChangesToApply.map((change, index) => {
+        const localMatch = localItems.find(
+          (item) => item.anime.externalIds[providerSource] === change.externalId,
+        );
+        return {
+          id: `${sessionId}-remote-${index}`,
+          sessionId,
+          provider,
+          direction: "remote",
+          kind: index < remoteCreates.length ? "create" : "update",
+          animeId: localMatch?.anime.id ?? change.entry.animeId,
+          externalId: change.externalId,
+          entry: structuredClone(change.entry),
+          status: "pending",
+          attempts: 0,
+          createdAt: journalCreatedAt,
+          updatedAt: journalCreatedAt,
+        };
+      });
+      const localJournalOperations: SyncOperation[] = localChangesToApply.map((change, index) => ({
+        id: `${sessionId}-local-${index}`,
+        sessionId,
+        provider,
+        direction: "local",
+        kind: change.kind,
+        animeId: change.animeId,
+        entry: structuredClone(change.entry),
+        ...(change.kind === "create" ? { anime: structuredClone(change.anime) } : {}),
+        status: "pending",
+        attempts: 0,
+        createdAt: journalCreatedAt,
+        updatedAt: journalCreatedAt,
+      }));
+      // The entire plan is durable before the first write starts.
+      await repository.saveSyncOperations([
+        ...remoteJournalOperations,
+        ...localJournalOperations,
+      ]);
+
       let remoteSucceeded = 0;
       let localSucceeded = 0;
       const failures: string[] = [];
 
-      for (const change of [...remoteCreates, ...remoteUpdates]) {
+      for (let index = 0; index < remoteChangesToApply.length; index += 1) {
+        const change = remoteChangesToApply[index]!;
+        const operation = remoteJournalOperations[index]!;
+        await repository.updateSyncOperation(operation.id, {
+          status: "in_progress",
+          attempts: operation.attempts + 1,
+        });
         try {
           await updateAccountEntry(provider, {
             externalId: change.externalId,
@@ -721,28 +816,48 @@ function App() {
             score: change.entry.score,
             ...(provider === "anilist" ? { favorite: change.entry.favorite } : {}),
           });
-          remoteSucceeded += 1;
         } catch (err) {
-          failures.push("ID " + change.externalId + " (" + (err instanceof Error ? err.message : "ошибка записи") + ")");
+          const message = err instanceof Error ? err.message : "ошибка записи";
+          await repository.updateSyncOperation(operation.id, {
+            status: "failed",
+            error: message,
+          });
+          failures.push("ID " + change.externalId + " (" + message + ")");
+          continue;
         }
+        // If this journal update itself fails, the operation remains in_progress.
+        // The next run will verify the provider state before deciding what happened.
+        await repository.updateSyncOperation(operation.id, { status: "succeeded" });
+        remoteSucceeded += 1;
       }
 
-      for (const change of localCreates) {
+      for (let index = 0; index < localChangesToApply.length; index += 1) {
+        const change = localChangesToApply[index]!;
+        const operation = localJournalOperations[index]!;
+        await repository.updateSyncOperation(operation.id, {
+          status: "in_progress",
+          attempts: operation.attempts + 1,
+        });
         try {
-          await repository.saveAnime(change.anime);
+          if (change.kind === "create") {
+            await repository.saveAnime(change.anime);
+          }
           await repository.saveEntry(change.entry);
-          localSucceeded += 1;
         } catch (err) {
-          failures.push(change.anime.id + " (локальное добавление: " + (err instanceof Error ? err.message : "ошибка") + ")");
+          const message = err instanceof Error ? err.message : "ошибка";
+          await repository.updateSyncOperation(operation.id, {
+            status: "failed",
+            error: message,
+          });
+          failures.push(
+            change.animeId +
+            (change.kind === "create" ? " (локальное добавление: " : " (локальное обновление: ") +
+            message + ")",
+          );
+          continue;
         }
-      }
-      for (const change of localUpdates) {
-        try {
-          await repository.saveEntry(change.entry);
-          localSucceeded += 1;
-        } catch (err) {
-          failures.push(change.animeId + " (локальное обновление: " + (err instanceof Error ? err.message : "ошибка") + ")");
-        }
+        await repository.updateSyncOperation(operation.id, { status: "succeeded" });
+        localSucceeded += 1;
       }
 
       // A baseline is only safe when every planned write succeeded and no
@@ -780,6 +895,7 @@ function App() {
         "\nУспешно обновлено локально: " + localSucceeded +
         "\nБез изменений: " + plan.unchanged +
         "\nКонфликтных полей: " + plan.conflicts.length +
+        "\nВосстановлено по журналу: " + recoveredOperations +
         "\nОшибок: " + failures.length +
         (failures.length ? "\n" + failures.slice(0, 8).join("\n") : "") +
         (warnings.length ? "\n" + warnings.join("\n") : "") +
