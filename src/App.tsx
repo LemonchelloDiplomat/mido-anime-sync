@@ -674,19 +674,19 @@ function App() {
           try {
             // No writes were needed, so the first remote snapshot is still current.
             await saveProviderBaseline(remoteSnapshot);
-            baselineMessage = "\\nБазовый снимок сервиса обновлён.";
+            baselineMessage = "\nБазовый снимок сервиса обновлён.";
           } catch (err) {
-            baselineMessage = "\\nНе удалось обновить базовый снимок: " +
+            baselineMessage = "\nНе удалось обновить базовый снимок: " +
               (err instanceof Error ? err.message : "ошибка");
           }
         } else {
-          baselineMessage = "\\nБазовый снимок не обновлён: остались пропущенные конфликты.";
+          baselineMessage = "\nБазовый снимок не обновлён: остались пропущенные конфликты.";
         }
         window.alert(
-          "Синхронизация завершена без изменений.\\n" +
+          "Синхронизация завершена без изменений.\n" +
           "Без изменений: " + plan.unchanged +
-          "\\nКонфликтных полей: " + plan.conflicts.length +
-          "\\nПропущено записей без внешнего ID: " + plan.skippedWithoutExternalId +
+          "\nКонфликтных полей: " + plan.conflicts.length +
+          "\nПропущено записей без внешнего ID: " + plan.skippedWithoutExternalId +
           baselineMessage,
         );
         return;
