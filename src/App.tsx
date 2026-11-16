@@ -254,7 +254,9 @@ function App() {
         externalIds: {
           ...anime.externalIds,
           ...(currentAnime?.externalIds ?? {}),
-          anilist: anime.externalIds.anilist,
+          ...(anime.externalIds.anilist
+            ? { anilist: anime.externalIds.anilist }
+            : {}),
           ...(anime.externalIds.myanimelist
             ? { myanimelist: anime.externalIds.myanimelist }
             : {}),
