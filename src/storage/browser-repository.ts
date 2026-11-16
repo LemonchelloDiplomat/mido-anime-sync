@@ -78,6 +78,12 @@ function mergeAnimeIdentity(
 
   const format =
     incoming.format !== undefined ? incoming.format : existing.format;
+  const genres = [...new Set([...(existing.genres ?? []), ...(incoming.genres ?? [])])];
+  const ageRating = incoming.ageRating ?? existing.ageRating;
+  const posterUrl = incoming.posterUrl ?? existing.posterUrl;
+  const averageScore = incoming.averageScore ?? existing.averageScore;
+  const startDate = incoming.startDate ?? existing.startDate;
+  const releaseStatus = incoming.releaseStatus ?? existing.releaseStatus;
 
   return {
     id: existing.id,
@@ -107,6 +113,12 @@ function mergeAnimeIdentity(
     ...(episodes !== undefined ? { episodes } : {}),
     ...(year !== undefined ? { year } : {}),
     ...(format !== undefined ? { format } : {}),
+    ...(genres.length > 0 ? { genres } : {}),
+    ...(ageRating !== undefined ? { ageRating } : {}),
+    ...(posterUrl !== undefined ? { posterUrl } : {}),
+    ...(averageScore !== undefined ? { averageScore } : {}),
+    ...(startDate !== undefined ? { startDate } : {}),
+    ...(releaseStatus !== undefined ? { releaseStatus } : {}),
   };
 }
 
@@ -132,6 +144,12 @@ function mergeAnimeForReconciliation(
   const year = target.year ?? source.year;
   const format = target.format ?? source.format;
   const episodes = target.episodes ?? source.episodes;
+  const genres = [...new Set([...(target.genres ?? []), ...(source.genres ?? [])])];
+  const ageRating = target.ageRating ?? source.ageRating;
+  const posterUrl = target.posterUrl ?? source.posterUrl;
+  const averageScore = target.averageScore ?? source.averageScore;
+  const startDate = target.startDate ?? source.startDate;
+  const releaseStatus = target.releaseStatus ?? source.releaseStatus;
 
   const english = target.titles.english || source.titles.english;
   const romaji = target.titles.romaji || source.titles.romaji;
