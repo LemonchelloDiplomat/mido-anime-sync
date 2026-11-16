@@ -14,7 +14,7 @@ import type {
 import { BrowserAnimeRepository } from "./storage/browser-repository.js";
 import { validateSnapshot } from "./storage/snapshot-validation.js";
 import { DEFAULT_LIBRARY_FILTERS, filterLibrary, type LibraryFilters } from "./core/library-filter.js";
-import { aniListMetadataProvider, fetchAniListAnimeDetails, searchAniListAnime, type AniListAnimeDetails } from "./services/anilist.js";
+import { aniListMetadataProvider, fetchAniListAnimeDetails, getAniListMetadataCandidates, searchAniListAnime, type AniListAnimeDetails } from "./services/anilist.js";
 import { parseMyAnimeListXml, readMyAnimeListExport } from "./services/myanimelist-import.js";
 
 import {
@@ -376,15 +376,27 @@ function App() {
     try {
       const currentItems = await db.getAll();
       const identities = currentItems.map((item) => item.anime);
-      const total = new Set(
+      const validMalIds = new Set(
         identities
           .map((anime) => anime.externalIds.myanimelist)
           .filter((id): id is string => Boolean(id && /^\d+$/.test(id))),
-      ).size;
-
-      if (total === 0) {
+      );
+      if (validMalIds.size === 0) {
         setMetadataProgress(null);
         setMetadataEnrichmentError("В библиотеке нет записей с корректным MAL ID для поиска в AniList.");
+        return;
+      }
+
+      const total = getAniListMetadataCandidates(identities).length;
+      if (total === 0) {
+        setMetadataProgress({
+          provider: aniListMetadataProvider.name,
+          completed: 0,
+          total: 0,
+          matched: 0,
+          missing: 0,
+        });
+        await refreshLibrary();
         return;
       }
 
