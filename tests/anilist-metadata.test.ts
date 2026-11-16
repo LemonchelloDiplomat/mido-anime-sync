@@ -29,7 +29,10 @@ function makeAnime(id: string, malId: string): AnimeIdentity {
   };
 }
 
-afterEach(() => {\n  vi.useRealTimers();\n  vi.restoreAllMocks();\n});
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe("AniList metadata provider", () => {
   it("looks up exact MAL IDs in one batch and reports matches and missing records", async () => {
