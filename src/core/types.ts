@@ -59,6 +59,27 @@ export interface AnimeListEntry {
 
 export type AnimeSourceEntry = AnimeListEntry;
 
+export type SyncOperationStatus = "pending" | "in_progress" | "succeeded" | "failed";
+export type SyncOperationDirection = "local" | "remote";
+export type SyncOperationKind = "create" | "update";
+
+export interface SyncOperation {
+  id: string;
+  sessionId: string;
+  provider: "mal" | "anilist";
+  direction: SyncOperationDirection;
+  kind: SyncOperationKind;
+  animeId: string;
+  externalId?: string;
+  entry: AnimeListEntry;
+  anime?: AnimeIdentity;
+  status: SyncOperationStatus;
+  attempts: number;
+  createdAt: string;
+  updatedAt: string;
+  error?: string;
+}
+
 export type AnimeRelationType =
   | "SEQUEL"
   | "PREQUEL"
