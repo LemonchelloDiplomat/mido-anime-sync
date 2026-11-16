@@ -716,27 +716,27 @@ function App() {
         // Refresh the provider snapshot and persist it as the next three-way merge baseline.
         try {
           const refreshedPayload = await fetchAccountList(provider);
-        const refreshedSnapshot = provider === "mal"
-          ? parseMyAnimeListApiList(refreshedPayload.data)
-          : parseAniListAccountList(refreshedPayload.data, refreshedPayload.scoreFormat as AniListScoreFormat);
-        const canonicalByExternalId = new Map<string, string>();
-        for (const item of [...localItems, ...localCreates.map((change) => ({ ...change, entry: change.entry }))]) {
-          const externalId = item.anime.externalIds[providerSource === "myanimelist" ? "myanimelist" : "anilist"];
-          if (externalId) canonicalByExternalId.set(externalId, item.anime.id);
-        }
-        const baselines: AnimeListEntry[] = [];
-        for (const remoteAnime of refreshedSnapshot.anime) {
-          const externalId = remoteAnime.externalIds[providerSource];
-          const remoteEntry = refreshedSnapshot.entries.find((entry) => entry.animeId === remoteAnime.id);
-          const canonicalId = externalId ? canonicalByExternalId.get(externalId) : undefined;
-          if (!remoteEntry || !canonicalId) continue;
-          baselines.push({
-            ...remoteEntry,
-            animeId: canonicalId,
-            source: providerSource,
-          });
-        }
-        await repository.saveSourceEntries(baselines);
+          const refreshedSnapshot = provider === "mal"
+            ? parseMyAnimeListApiList(refreshedPayload.data)
+            : parseAniListAccountList(refreshedPayload.data, refreshedPayload.scoreFormat as AniListScoreFormat);
+          const canonicalByExternalId = new Map<string, string>();
+          for (const item of [...localItems, ...localCreates.map((change) => ({ ...change, entry: change.entry }))]) {
+            const externalId = item.anime.externalIds[providerSource];
+            if (externalId) canonicalByExternalId.set(externalId, item.anime.id);
+          }
+          const baselines: AnimeListEntry[] = [];
+          for (const remoteAnime of refreshedSnapshot.anime) {
+            const externalId = remoteAnime.externalIds[providerSource];
+            const remoteEntry = refreshedSnapshot.entries.find((entry) => entry.animeId === remoteAnime.id);
+            const canonicalId = externalId ? canonicalByExternalId.get(externalId) : undefined;
+            if (!remoteEntry || !canonicalId) continue;
+            baselines.push({
+              ...remoteEntry,
+              animeId: canonicalId,
+              source: providerSource,
+            });
+          }
+          await repository.saveSourceEntries(baselines);
         } catch (err) {
           failures.push("Не удалось обновить базовый снимок сервиса: " + (err instanceof Error ? err.message : "ошибка"));
         }
