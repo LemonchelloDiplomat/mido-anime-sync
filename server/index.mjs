@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { randomBytes, createCipheriv, createDecipheriv } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { toMyAnimeListScore } from "./mal-score.mjs";
 
 const ROOT = process.cwd();
 const DATA_DIR = path.join(ROOT, ".local-data");
@@ -386,7 +387,7 @@ async function handleRequest(request, response) {
       : status === "ON_HOLD" ? "on_hold" : "dropped";
     const form = new URLSearchParams({
       status: malStatus,
-      score: String(score === 0 ? 0 : Math.max(1, Math.min(10, Math.round(score / 10)))),
+      score: String(toMyAnimeListScore(score)),
       num_watched_episodes: String(progress),
       is_rewatching: status === "REWATCHING" ? "true" : "false",
     });
