@@ -25,6 +25,17 @@ export interface SyncFieldConflict {
   reason: "same_timestamp" | "unknown_order" | "both_changed";
 }
 
+/**
+ * A provider baseline represents a fully reconciled state. Never advance it
+ * after partial writes or while the user has left any conflict unresolved.
+ */
+export function canAdvanceSyncBaseline(
+  failedWrites: number,
+  unresolvedConflicts: number,
+): boolean {
+  return failedWrites === 0 && unresolvedConflicts === 0;
+}
+
 export interface SyncPlan {
   provider: SyncProvider;
   remoteCreates: Array<{ externalId: string; entry: AnimeListEntry }>;
