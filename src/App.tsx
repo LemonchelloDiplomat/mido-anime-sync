@@ -407,7 +407,7 @@ function App() {
         throw new Error("Файл слишком большой. Максимальный размер: 25 МБ.");
       }
 
-      const isMyAnimeListXml = /\\.xml(?:\\.gz)?$/i.test(file.name);
+      const isMyAnimeListXml = /\.xml(?:\.gz)?$/i.test(file.name);
       const text = isMyAnimeListXml
         ? await readMyAnimeListExport(file)
         : await file.text();
