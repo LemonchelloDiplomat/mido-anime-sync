@@ -201,5 +201,21 @@ describe("bidirectional sync planner", () => {
     expect(plan.remoteUpdates[0]?.entry.score).toBe(86);
   });
 
+  it("imports a remote entry into an existing catalog anime without creating a duplicate", () => {
+    const localAnime = anime("local:10");
+    const remoteAnime = anime("mal:10");
+    const plan = createBidirectionalSyncPlan(
+      [{ anime: localAnime, entry: undefined }],
+      remoteSnapshot([remoteAnime], [entry(remoteAnime.id, "myanimelist", "2026-11-17T10:00:00.000Z", { progress: 6 })]),
+      "mal",
+    );
+    expect(plan.localCreates).toHaveLength(0);
+    expect(plan.localUpdates).toHaveLength(1);
+    expect(plan.localUpdates[0]).toMatchObject({
+      animeId: localAnime.id,
+      entry: { animeId: localAnime.id, source: "myanimelist", progress: 6 },
+    });
+  });
+
 });
 
