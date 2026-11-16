@@ -379,7 +379,7 @@ function App() {
       const total = new Set(
         identities
           .map((anime) => anime.externalIds.myanimelist)
-          .filter((id): id is string => Boolean(id && /^\\d+$/.test(id))),
+          .filter((id): id is string => Boolean(id && /^\d+$/.test(id))),
       ).size;
 
       if (total === 0) {
