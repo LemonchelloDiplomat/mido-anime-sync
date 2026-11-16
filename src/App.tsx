@@ -20,6 +20,7 @@ import { connectIntegration, disconnectIntegration, getIntegrationStatus, type I
 import { fetchAccountList, updateAccountEntry } from "./services/integrations-api.js";
 import { parseMyAnimeListApiList } from "./services/myanimelist-account.js";
 import { parseAniListAccountList, type AniListScoreFormat } from "./services/anilist-account.js";
+import { createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
 
 import {
   createImportPreview,
@@ -576,57 +577,99 @@ function App() {
       const remoteSnapshot = provider === "mal"
         ? parseMyAnimeListApiList(payload.data)
         : parseAniListAccountList(payload.data, payload.scoreFormat as AniListScoreFormat);
-      const remoteByExternalId = new Map<string, AnimeListEntry>();
-      remoteSnapshot.anime.forEach((anime) => {
-        const externalId = provider === "mal" ? anime.externalIds.myanimelist : anime.externalIds.anilist;
-        const remoteEntry = remoteSnapshot.entries.find((entry) => entry.animeId === anime.id);
-        if (externalId && remoteEntry) remoteByExternalId.set(externalId, remoteEntry);
-      });
+      const localItems = await repository.getAll();
+      const plan = createBidirectionalSyncPlan(localItems, remoteSnapshot, provider);
 
-      const changes: Array<{ externalId: string; entry: AnimeListEntry }> = [];
-      let newerRemote = 0;
-      let conflicts = 0;
-      for (const item of library) {
-        if (!item.entry) continue;
-        const externalId = provider === "mal" ? item.anime.externalIds.myanimelist : item.anime.externalIds.anilist;
+      const remoteCreates = [...plan.remoteCreates];
+      const remoteUpdates = [...plan.remoteUpdates];
+      const localCreates = [...plan.localCreates];
+      const localUpdates = [...plan.localUpdates];
+
+      // Each conflicting anime is resolved explicitly. Cancel or S keeps it untouched.
+      const conflictAnimeIds = [...new Set(plan.conflicts.map((conflict) => conflict.animeId))];
+      for (const animeId of conflictAnimeIds) {
+        const local = localItems.find((item) => item.anime.id === animeId);
+        if (!local?.entry) continue;
+        const externalId = provider === "mal"
+          ? local.anime.externalIds.myanimelist
+          : local.anime.externalIds.anilist;
         if (!externalId) continue;
-        const remote = remoteByExternalId.get(externalId);
-        if (!remote) {
-          changes.push({ externalId, entry: item.entry });
-          continue;
-        }
-        const differs = remote.status !== item.entry.status ||
-          remote.progress !== item.entry.progress ||
-          remote.score !== item.entry.score;
-        if (!differs) continue;
-        const localTime = Date.parse(item.entry.updatedAt);
-        const remoteTime = Date.parse(remote.updatedAt);
-        if (Number.isFinite(localTime) && Number.isFinite(remoteTime) && localTime > remoteTime) {
-          changes.push({ externalId, entry: item.entry });
-        } else if (Number.isFinite(remoteTime) && Number.isFinite(localTime) && remoteTime > localTime) {
-          newerRemote += 1;
-        } else {
-          conflicts += 1;
+        const remoteAnime = remoteSnapshot.anime.find((anime) =>
+          (provider === "mal" ? anime.externalIds.myanimelist : anime.externalIds.anilist) === externalId
+        );
+        const remoteEntry = remoteAnime
+          ? remoteSnapshot.entries.find((entry) => entry.animeId === remoteAnime.id)
+          : undefined;
+        if (!remoteEntry) continue;
+
+        const fields = plan.conflicts
+          .filter((conflict) => conflict.animeId === animeId)
+          .map((conflict) => conflict.field + ": " + String(conflict.localValue) + " ↔ " + String(conflict.remoteValue))
+          .join("\n");
+        const choice = window.prompt(
+          "Конфликт: " + (local.anime.titles.english || local.anime.titles.romaji || animeId) +
+          "\n" + fields +
+          "\n\nL — оставить локальную версию и отправить её на сервис" +
+          "\nR — принять версию сервиса и обновить локальную библиотеку" +
+          "\nS или Отмена — пропустить этот тайтл",
+          "S",
+        );
+        if (choice?.trim().toLowerCase() === "l") {
+          remoteUpdates.push({ externalId, entry: local.entry });
+        } else if (choice?.trim().toLowerCase() === "r") {
+          localUpdates.push({
+            animeId: local.anime.id,
+            entry: {
+              ...remoteEntry,
+              animeId: local.anime.id,
+              source: provider === "mal" ? "myanimelist" : "anilist",
+            },
+          });
         }
       }
 
-      if (changes.length === 0) {
-        window.alert("Изменений для записи нет. Более свежие удалённые записи: " + newerRemote + ". Неоднозначные конфликты: " + conflicts + ".");
+      const remoteChanges = remoteCreates.length + remoteUpdates.length;
+      const localChanges = localCreates.length + localUpdates.length;
+      const unresolved = conflictAnimeIds.length -
+        plan.conflicts.filter((conflict) => conflictAnimeIds.includes(conflict.animeId)).length +
+        0;
+      if (remoteChanges === 0 && localChanges === 0) {
+        window.alert(
+          "Синхронизация завершена без изменений.\n" +
+          "Без изменений: " + plan.unchanged +
+          "\nКонфликтных полей: " + plan.conflicts.length +
+          "\nПропущено записей без внешнего ID: " + plan.skippedWithoutExternalId,
+        );
         return;
       }
 
       const serviceName = provider === "mal" ? "MyAnimeList" : "AniList";
       const confirmed = window.confirm(
-        "Подготовлено записей к отправке в " + serviceName + ": " + changes.length +
-        ". Пропущено как более свежие на сервисе: " + newerRemote +
-        ". Неоднозначных конфликтов: " + conflicts +
-        ". Будут записаны только статус, прогресс и оценка. Избранное, даты и теги не изменяются. Продолжить?"
+        "План синхронизации с " + serviceName + ":" +
+        "\nНовые записи на сервисе: " + remoteCreates.length +
+        "\nОбновления на сервисе: " + remoteUpdates.length +
+        "\nНовые записи в локальной библиотеке: " + localCreates.length +
+        "\nОбновления локальной библиотеки: " + localUpdates.length +
+        "\nНеразрешённых конфликтных тайтлов пропущено: " +
+          Math.max(0, conflictAnimeIds.length - plan.conflicts.filter((conflict) => {
+            const local = localItems.find((item) => item.anime.id === conflict.animeId);
+            return local?.entry && (
+              remoteUpdates.some((change) => change.externalId === (provider === "mal" ? local.anime.externalIds.myanimelist : local.anime.externalIds.anilist)) ||
+              localUpdates.some((change) => change.animeId === conflict.animeId)
+            );
+          }).length) +
+        "\n\nПеред изменениями будет скачана резервная копия. Продолжить?"
       );
       if (!confirmed) return;
 
-      let succeeded = 0;
-      const failed: string[] = [];
-      for (const change of changes) {
+      // Backup is created before the first write to either side.
+      downloadSnapshot(await repository.snapshot());
+
+      let remoteSucceeded = 0;
+      let localSucceeded = 0;
+      const failures: string[] = [];
+
+      for (const change of [...remoteCreates, ...remoteUpdates]) {
         try {
           await updateAccountEntry(provider, {
             externalId: change.externalId,
@@ -634,18 +677,43 @@ function App() {
             progress: change.entry.progress,
             score: change.entry.score,
           });
-          succeeded += 1;
+          remoteSucceeded += 1;
         } catch (err) {
-          failed.push(change.externalId + ": " + (err instanceof Error ? err.message : "ошибка"));
+          failures.push("ID " + change.externalId + " (" + (err instanceof Error ? err.message : "ошибка записи") + ")");
         }
       }
+
+      for (const change of localCreates) {
+        try {
+          await repository.saveAnime(change.anime);
+          await repository.saveEntry(change.entry);
+          localSucceeded += 1;
+        } catch (err) {
+          failures.push(change.anime.id + " (локальное добавление: " + (err instanceof Error ? err.message : "ошибка") + ")");
+        }
+      }
+      for (const change of localUpdates) {
+        try {
+          await repository.saveEntry(change.entry);
+          localSucceeded += 1;
+        } catch (err) {
+          failures.push(change.animeId + " (локальное обновление: " + (err instanceof Error ? err.message : "ошибка") + ")");
+        }
+      }
+
+      await refreshLibrary();
       window.alert(
-        "Запись в " + serviceName + " завершена. Успешно: " + succeeded +
-        ". Ошибок: " + failed.length +
-        (failed.length ? "\n" + failed.slice(0, 5).join("\n") : "")
+        "Двусторонняя синхронизация с " + serviceName + " завершена." +
+        "\nУспешно записано на сервис: " + remoteSucceeded +
+        "\nУспешно обновлено локально: " + localSucceeded +
+        "\nБез изменений: " + plan.unchanged +
+        "\nКонфликтных полей: " + plan.conflicts.length +
+        "\nОшибок: " + failures.length +
+        (failures.length ? "\n" + failures.slice(0, 8).join("\n") : "") +
+        "\n\nРезервная копия скачана."
       );
     } catch (err) {
-      setIntegrationStatusError(err instanceof Error ? err.message : "Не удалось синхронизировать аккаунт.");
+      setIntegrationStatusError(err instanceof Error ? err.message : "Не удалось выполнить двустороннюю синхронизацию.");
     } finally {
       setAccountSyncing(null);
     }
