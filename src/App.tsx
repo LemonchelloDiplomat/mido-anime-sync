@@ -14,6 +14,7 @@ import type {
 import { BrowserAnimeRepository } from "./storage/browser-repository.js";
 import { validateSnapshot } from "./storage/snapshot-validation.js";
 import { DEFAULT_LIBRARY_FILTERS, filterLibrary, type LibraryFilters } from "./core/library-filter.js";
+import { searchAniListAnime } from "./services/anilist.js";
 
 import {
   createImportPreview,
@@ -105,6 +106,12 @@ function App() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [searchPageOpen, setSearchPageOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [catalogResults, setCatalogResults] = useState<AnimeIdentity[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState("");
+  const [hideAnimeInMyLists, setHideAnimeInMyLists] = useState(false);
+  const [addingCatalogId, setAddingCatalogId] = useState<string | null>(null);
+  const [catalogActionMessage, setCatalogActionMessage] = useState("");
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -179,6 +186,115 @@ function App() {
     window.addEventListener("keydown", handleSearchKeyDown);
     return () => window.removeEventListener("keydown", handleSearchKeyDown);
   }, [searchPageOpen]);
+
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (!searchPageOpen || query.length < 2) {
+      setCatalogResults([]);
+      setCatalogLoading(false);
+      setCatalogError("");
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      setCatalogLoading(true);
+      setCatalogError("");
+      void searchAniListAnime(query, controller.signal)
+        .then((results) => {
+          setCatalogResults(results);
+        })
+        .catch((err: unknown) => {
+          if (err instanceof Error && err.name === "AbortError") return;
+          setCatalogError(err instanceof Error ? err.message : "Не удалось выполнить поиск в AniList.");
+          setCatalogResults([]);
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setCatalogLoading(false);
+        });
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [searchPageOpen, searchQuery]);
+
+  async function addCatalogAnime(anime: AnimeIdentity) {
+    if (!repository || addingCatalogId) return;
+
+    setAddingCatalogId(anime.id);
+    setCatalogActionMessage("");
+    setCatalogError("");
+
+    try {
+      const currentItems = await repository.getAll();
+      const existing = currentItems.find(({ anime: current }) =>
+        current.id === anime.id ||
+        (anime.externalIds.myanimelist != null &&
+          current.externalIds.myanimelist === anime.externalIds.myanimelist) ||
+        (anime.externalIds.anilist != null &&
+          current.externalIds.anilist === anime.externalIds.anilist)
+      );
+
+      const targetId = existing?.anime.id ?? anime.id;
+      const currentAnime = existing?.anime;
+      const mergedAnime: AnimeIdentity = {
+        ...anime,
+        ...(currentAnime ?? {}),
+        id: targetId,
+        titles: {
+          ...anime.titles,
+          ...(currentAnime?.titles ?? {}),
+          synonyms: [...new Set([
+            ...anime.titles.synonyms,
+            ...(currentAnime?.titles.synonyms ?? []),
+          ])],
+        },
+        externalIds: {
+          ...anime.externalIds,
+          ...(currentAnime?.externalIds ?? {}),
+          anilist: anime.externalIds.anilist,
+          ...(anime.externalIds.myanimelist
+            ? { myanimelist: anime.externalIds.myanimelist }
+            : {}),
+        },
+        year: currentAnime?.year ?? anime.year,
+        format: currentAnime?.format ?? anime.format,
+        episodes: currentAnime?.episodes ?? anime.episodes,
+        genres: currentAnime?.genres?.length ? currentAnime.genres : anime.genres,
+        ageRating: currentAnime?.ageRating ?? anime.ageRating,
+        posterUrl: currentAnime?.posterUrl ?? anime.posterUrl,
+        averageScore: currentAnime?.averageScore ?? anime.averageScore,
+        startDate: currentAnime?.startDate ?? anime.startDate,
+        releaseStatus: currentAnime?.releaseStatus ?? anime.releaseStatus,
+      };
+
+      await repository.saveAnime(mergedAnime);
+
+      if (!existing?.entry) {
+        const newEntry: AnimeListEntry = {
+          animeId: targetId,
+          status: "PLANNING",
+          progress: 0,
+          score: null,
+          favorite: false,
+          updatedAt: new Date().toISOString(),
+          source: "local",
+        };
+        await repository.saveEntry(newEntry);
+      }
+
+      await refreshLibrary();
+      setCatalogActionMessage(existing
+        ? "Информация об аниме обновлена. Твоя запись и статус просмотра сохранены."
+        : "Аниме добавлено в список «В планах».");
+    } catch (err) {
+      setCatalogError(err instanceof Error ? err.message : "Не удалось добавить аниме.");
+    } finally {
+      setAddingCatalogId(null);
+    }
+  }
 
   async function refreshLibrary() {
     if (!repository) return;
@@ -1276,13 +1392,57 @@ function App() {
               </svg>
               <input autoFocus className="search-input" type="search" aria-label="Поиск по моей библиотеке" placeholder="Аниме" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
             </div>
-            <div className="search-results-heading"><h2>Аниме в моей библиотеке</h2><span>{searchResults.length}</span></div>
-            {searchResults.length === 0 ? <div className="empty-state"><div className="empty-icon">⌕</div><h3>Ничего не найдено</h3><p>Попробуй изменить поисковый запрос.</p></div> : <div className="search-results-list">
-              {searchResults.map(({ anime, entry }) => <article className="search-result-card" key={anime.id}>
-                <div className="search-result-poster">{anime.posterUrl ? <img src={anime.posterUrl} alt="" loading="lazy" /> : <span>✦</span>}{anime.averageScore != null && <b className={`poster-score ${anime.averageScore >= 8 ? "excellent" : anime.averageScore >= 7 ? "good" : anime.averageScore >= 5 ? "average" : "poor"}`}>{anime.averageScore.toFixed(1)}</b>}</div>
-                <div className="search-result-details"><h3>{anime.titles.english ?? anime.titles.romaji ?? anime.titles.native ?? "Без названия"}</h3><p>{anime.titles.romaji ?? anime.titles.native ?? ""}</p><div>{anime.format ?? "Формат не указан"}{anime.year ? ` · ${anime.year}` : ""}</div><small>{(anime.genres ?? []).join(" · ") || "Жанры пока не добавлены"}</small>{entry && <span className="status-label">{statusLabels[entry.status]}</span>}</div>
-              </article>)}
-            </div>}
+            <div className="search-results-heading"><h2>В моей библиотеке</h2><span>{searchResults.length}</span></div>
+            {searchQuery.trim().length < 2 ? (
+              <div className="catalog-hint">Введи хотя бы 2 символа, чтобы искать в своей библиотеке и общем каталоге AniList.</div>
+            ) : searchResults.length === 0 ? (
+              <div className="catalog-hint">В своей библиотеке ничего не найдено.</div>
+            ) : (
+              <div className="search-results-list">
+                {searchResults.map(({ anime, entry }) => <article className="search-result-card" key={anime.id}>
+                  <div className="search-result-poster">{anime.posterUrl ? <img src={anime.posterUrl} alt="" loading="lazy" /> : <span>✦</span>}{anime.averageScore != null && <b className={`poster-score ${anime.averageScore >= 8 ? "excellent" : anime.averageScore >= 7 ? "good" : anime.averageScore >= 5 ? "average" : "poor"}`}>{anime.averageScore.toFixed(1)}</b>}</div>
+                  <div className="search-result-details"><h3>{anime.titles.english ?? anime.titles.romaji ?? anime.titles.native ?? "Без названия"}</h3><p>{anime.titles.romaji ?? anime.titles.native ?? ""}</p><div>{anime.format ?? "Формат не указан"}{anime.year ? ` · ${anime.year}` : ""}</div><small>{(anime.genres ?? []).join(" · ") || "Жанры пока не добавлены"}</small>{entry && <span className="status-label">{statusLabels[entry.status]}</span>}</div>
+                </article>)}
+              </div>
+            )}
+
+            <div className="catalog-heading-row">
+              <div className="search-results-heading"><h2>В каталоге AniList</h2><span>{catalogResults.filter((anime) => !hideAnimeInMyLists || !library.some(({ anime: local }) => local.id === anime.id || (anime.externalIds.myanimelist != null && local.externalIds.myanimelist === anime.externalIds.myanimelist) || (anime.externalIds.anilist != null && local.externalIds.anilist === anime.externalIds.anilist))).length}</span></div>
+              <label className="catalog-hide-toggle"><input type="checkbox" checked={hideAnimeInMyLists} onChange={(event) => setHideAnimeInMyLists(event.target.checked)} /> Скрыть аниме из моих списков</label>
+            </div>
+            {catalogLoading && <p className="catalog-hint">Ищем аниме в AniList...</p>}
+            {catalogError && <p className="catalog-error" role="alert">{catalogError}</p>}
+            {catalogActionMessage && <p className="catalog-success" role="status">{catalogActionMessage}</p>}
+            {searchQuery.trim().length >= 2 && !catalogLoading && !catalogError && catalogResults.length === 0 && <p className="catalog-hint">В каталоге AniList ничего не найдено.</p>}
+            {catalogResults.length > 0 && (
+              <div className="search-results-list">
+                {catalogResults
+                  .filter((anime) => !hideAnimeInMyLists || !library.some(({ anime: local }) =>
+                    local.id === anime.id ||
+                    (anime.externalIds.myanimelist != null && local.externalIds.myanimelist === anime.externalIds.myanimelist) ||
+                    (anime.externalIds.anilist != null && local.externalIds.anilist === anime.externalIds.anilist)
+                  ))
+                  .map((anime) => {
+                    const existing = library.find(({ anime: local }) =>
+                      local.id === anime.id ||
+                      (anime.externalIds.myanimelist != null && local.externalIds.myanimelist === anime.externalIds.myanimelist) ||
+                      (anime.externalIds.anilist != null && local.externalIds.anilist === anime.externalIds.anilist)
+                    );
+                    return <article className="search-result-card" key={anime.id}>
+                      <div className="search-result-poster">{anime.posterUrl ? <img src={anime.posterUrl} alt="" loading="lazy" /> : <span>✦</span>}{anime.averageScore != null && <b className={`poster-score ${anime.averageScore >= 8 ? "excellent" : anime.averageScore >= 7 ? "good" : anime.averageScore >= 5 ? "average" : "poor"}`}>{anime.averageScore.toFixed(1)}</b>}</div>
+                      <div className="search-result-details">
+                        <h3>{anime.titles.english ?? anime.titles.romaji ?? anime.titles.native ?? "Без названия"}</h3>
+                        <p>{anime.titles.romaji ?? anime.titles.native ?? ""}</p>
+                        <div>{anime.format ?? "Формат не указан"}{anime.year ? ` · ${anime.year}` : ""}{anime.episodes ? ` · ${anime.episodes} эп.` : ""}</div>
+                        <small>{(anime.genres ?? []).join(" · ")}</small>
+                        <button className="catalog-add-button" disabled={addingCatalogId !== null || Boolean(existing?.entry)} onClick={() => void addCatalogAnime(anime)}>
+                          {addingCatalogId === anime.id ? "Добавляем..." : existing?.entry ? "Уже в моей библиотеке" : existing ? "Добавить в список" : "＋ Добавить в библиотеку"}
+                        </button>
+                      </div>
+                    </article>;
+                  })}
+              </div>
+            )}
           </div>
         </div>
       )}
