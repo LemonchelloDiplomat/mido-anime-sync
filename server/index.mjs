@@ -462,6 +462,23 @@ async function handleRequest(request, response) {
         score: remoteScore,
         progress,
       }, tokens.anilist.accessToken);
+
+      // AniList favorites are media-level, separate from list-entry fields.
+      // Read the current value before toggling so retries remain idempotent.
+      if (typeof body.favorite === "boolean") {
+        const current = await anilistRequest(
+          "query CurrentFavourite($mediaId: Int!) { Media(id: $mediaId) { isFavourite } }",
+          { mediaId: id },
+          tokens.anilist.accessToken,
+        );
+        if (Boolean(current.Media?.isFavourite) !== body.favorite) {
+          await anilistRequest(
+            "mutation SetFavourite($animeId: Int!) { ToggleFavourite(animeId: $animeId) { anime { nodes { id } } } }",
+            { animeId: id },
+            tokens.anilist.accessToken,
+          );
+        }
+      }
       return sendJson(response, 200, { ok: true, result: data.SaveMediaListEntry });
     } catch (error) {
       return sendJson(response, error.status || 502, { error: error.message });
