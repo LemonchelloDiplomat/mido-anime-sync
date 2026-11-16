@@ -285,32 +285,7 @@ async function handleRequest(request, response) {
   }
 
   if (method === "GET" && url.pathname === "/api/auth/anilist/callback") {
-    const html = String.raw\`<!doctype html><html lang="ru"><meta charset="utf-8"><title>AniList OAuth</title><body><h2>Подключаем AniList…</h2><p id="message">Проверяем ответ AniList.</p><script>
-      (async () => {
-        const params = new URLSearchParams(location.hash.slice(1));
-        const token = params.get("access_token");
-        const state = params.get("state");
-        const error = params.get("error");
-        const message = document.getElementById("message");
-        if (error || !token || !state) {
-          message.textContent = "AniList не вернул токен. Вернись в приложение и повтори подключение.";
-          return;
-        }
-        try {
-          const result = await fetch("/api/auth/anilist/token", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ accessToken: token, expiresIn: Number(params.get("expires_in") || 0), state })
-          });
-          const payload = await result.json();
-          if (!result.ok) throw new Error(payload.error || "Не удалось сохранить токен.");
-          message.textContent = "AniList подключён. Возвращаемся в приложение…";
-          location.replace("/");
-        } catch (error) {
-          message.textContent = error.message || "Не удалось подключить AniList.";
-        }
-      })();
-    </script></body></html>\`;
+    const html = await fs.readFile(path.join(ROOT, "public", "anilist-oauth-callback.html"), "utf8");
     return sendHtml(response, 200, html);
   }
 
@@ -377,6 +352,29 @@ async function handleRequest(request, response) {
       return sendJson(response, 200, { lists, data: entries, count: entries.length });
     } catch (error) {
       return sendJson(response, error.status || 502, { error: error.message });
+    }
+  }
+
+  if (method === "GET" && !url.pathname.startsWith("/api/")) {
+    const dist = path.join(ROOT, "dist");
+    const requested = decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname);
+    const target = path.resolve(dist, "." + requested);
+    if (target !== dist && !target.startsWith(dist + path.sep)) return sendJson(response, 400, { error: "Недопустимый путь." });
+    try {
+      const stat = await fs.stat(target);
+      if (!stat.isFile()) throw new Error("not a file");
+      const ext = path.extname(target).toLowerCase();
+      const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".ico": "image/x-icon" };
+      response.writeHead(200, { "Content-Type": types[ext] || "application/octet-stream", "X-Content-Type-Options": "nosniff" });
+      return response.end(await fs.readFile(target));
+    } catch {
+      if (path.extname(requested)) return sendJson(response, 404, { error: "Файл не найден." });
+      try {
+        response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        return response.end(await fs.readFile(path.join(dist, "index.html")));
+      } catch {
+        return sendJson(response, 404, { error: "Сначала выполни npm run build." });
+      }
     }
   }
 
