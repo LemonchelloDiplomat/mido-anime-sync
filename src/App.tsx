@@ -20,7 +20,7 @@ import { connectIntegration, disconnectIntegration, getIntegrationStatus, type I
 import { fetchAccountList, updateAccountEntry } from "./services/integrations-api.js";
 import { parseMyAnimeListApiList } from "./services/myanimelist-account.js";
 import { parseAniListAccountList, type AniListScoreFormat } from "./services/anilist-account.js";
-import { createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
+import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
 
 import {
   createImportPreview,
@@ -704,10 +704,18 @@ function App() {
         }
       }
 
-      // Refresh the provider snapshot and persist it as the next three-way merge baseline.
-      // This also makes the operation safe to retry after partial remote failures.
-      try {
-        const refreshedPayload = await fetchAccountList(provider);
+      // A baseline is only safe when every planned write succeeded and no
+      // conflict was intentionally skipped. Otherwise the next sync must
+      // compare against the previous common state and retry/reconcile safely.
+      const unresolvedConflictCount = conflictAnimeIds.filter(
+        (id) => !resolvedConflictAnimeIds.has(id),
+      ).length;
+      const warnings: string[] = [];
+
+      if (canAdvanceSyncBaseline(failures.length, unresolvedConflictCount)) {
+        // Refresh the provider snapshot and persist it as the next three-way merge baseline.
+        try {
+          const refreshedPayload = await fetchAccountList(provider);
         const refreshedSnapshot = provider === "mal"
           ? parseMyAnimeListApiList(refreshedPayload.data)
           : parseAniListAccountList(refreshedPayload.data, refreshedPayload.scoreFormat as AniListScoreFormat);
@@ -727,8 +735,13 @@ function App() {
             source: providerSource,
           });
         }
-      } catch (err) {
-        failures.push("Не удалось обновить базовый снимок сервиса: " + (err instanceof Error ? err.message : "ошибка"));
+        } catch (err) {
+          failures.push("Не удалось обновить базовый снимок сервиса: " + (err instanceof Error ? err.message : "ошибка"));
+        }
+      } else {
+        warnings.push(
+          "Базовый снимок не обновлён: есть ошибки записи или нерешённые конфликты. Повтори синхронизацию после их устранения.",
+        );
       }
 
       await refreshLibrary();
@@ -740,6 +753,7 @@ function App() {
         "\nКонфликтных полей: " + plan.conflicts.length +
         "\nОшибок: " + failures.length +
         (failures.length ? "\n" + failures.slice(0, 8).join("\n") : "") +
+        (warnings.length ? "\n" + warnings.join("\n") : "") +
         "\n\nРезервная копия скачана."
       );
     } catch (err) {
