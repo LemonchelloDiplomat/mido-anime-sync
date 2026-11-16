@@ -678,6 +678,7 @@ function App() {
             status: change.entry.status,
             progress: change.entry.progress,
             score: change.entry.score,
+            ...(provider === "anilist" ? { favorite: change.entry.favorite } : {}),
           });
           remoteSucceeded += 1;
         } catch (err) {
@@ -1128,7 +1129,7 @@ function App() {
                           {importing ? "Загружаем..." : "Импорт списка"}
                         </button>
                         <button className="secondary-button" disabled={accountSyncing !== null} onClick={() => void handleSyncToAccount(routeProvider)}>
-                          {accountSyncing === routeProvider ? "Записываем..." : "Записать изменения"}
+                          {accountSyncing === routeProvider ? "Синхронизируем..." : "Синхронизировать"}
                         </button>
                         <button className="secondary-button" onClick={() => {
                           void disconnectIntegration(routeProvider)
