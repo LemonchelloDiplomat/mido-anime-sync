@@ -245,11 +245,27 @@ export function createBidirectionalSyncPlan(
   }
 
   for (const [externalId, remote] of remoteByExternalId) {
-    if (localByExternalId.has(externalId)) continue;
-    plan.localCreates.push({
-      anime: structuredClone(remote.anime),
-      entry: cloneEntry(remote.entry, remote.anime.id),
-    });
+    const local = localByExternalId.get(externalId);
+    if (!local) {
+      plan.localCreates.push({
+        anime: structuredClone(remote.anime),
+        entry: cloneEntry(remote.entry, remote.anime.id),
+      });
+      continue;
+    }
+
+    // The catalog may already contain this anime without a watch-list entry.
+    // Attach the provider's entry to that canonical record instead of skipping
+    // it or creating a duplicate anime identity.
+    if (!local.entry) {
+      plan.localUpdates.push({
+        animeId: local.anime.id,
+        entry: {
+          ...cloneEntry(remote.entry, local.anime.id),
+          source: provider === "mal" ? "myanimelist" : "anilist",
+        },
+      });
+    }
   }
 
   return plan;
