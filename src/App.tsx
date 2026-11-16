@@ -266,7 +266,7 @@ function App() {
           ? { format: currentAnime?.format ?? anime.format! }
           : {}),
         episodes: currentAnime?.episodes ?? anime.episodes ?? null,
-        genres: currentAnime?.genres?.length ? currentAnime.genres : anime.genres,
+        genres: currentAnime?.genres?.length ? currentAnime.genres : (anime.genres ?? []),
         ageRating: currentAnime?.ageRating ?? anime.ageRating ?? null,
         posterUrl: currentAnime?.posterUrl ?? anime.posterUrl ?? null,
         averageScore: currentAnime?.averageScore ?? anime.averageScore ?? null,
