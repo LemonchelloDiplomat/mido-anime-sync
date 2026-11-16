@@ -161,6 +161,11 @@ function App() {
   const [integrationStatusLoading, setIntegrationStatusLoading] = useState(false);
   const [integrationStatusError, setIntegrationStatusError] = useState("");
   const [accountSyncing, setAccountSyncing] = useState<"mal" | "anilist" | null>(null);
+  const [syncConflictDialog, setSyncConflictDialog] = useState<{
+    title: string;
+    fields: string;
+    resolve: (choice: "l" | "r" | "s") => void;
+  } | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyOperations, setHistoryOperations] = useState<SyncOperation[]>([]);
   const [historySessionRecords, setHistorySessionRecords] = useState<SyncSession[]>([]);
@@ -778,14 +783,13 @@ function App() {
           .filter((conflict) => conflict.animeId === animeId)
           .map((conflict) => conflict.field + ": " + String(conflict.localValue) + " ↔ " + String(conflict.remoteValue))
           .join("\n");
-        const choice = window.prompt(
-          "Конфликт: " + (local.anime.titles.english || local.anime.titles.romaji || animeId) +
-          "\n" + fields +
-          "\n\nL — оставить локальную версию и отправить её на сервис" +
-          "\nR — принять версию сервиса и обновить локальную библиотеку" +
-          "\nS или Отмена — пропустить этот тайтл",
-          "S",
-        );
+        const choice = await new Promise<"l" | "r" | "s">((resolve) => {
+          setSyncConflictDialog({
+            title: local.anime.titles.english || local.anime.titles.romaji || animeId,
+            fields,
+            resolve,
+          });
+        });
         if (choice?.trim().toLowerCase() === "l") {
           resolvedConflictAnimeIds.add(animeId);
           remoteUpdates.push({ externalId, entry: local.entry });
@@ -2247,6 +2251,38 @@ function App() {
                 </div>
               </>
             )}
+          </section>
+        </div>
+      )}
+
+      {syncConflictDialog && (
+        <div className="modal-overlay" role="presentation">
+          <section className="anime-modal sync-conflict-modal" role="dialog" aria-modal="true" aria-labelledby="sync-conflict-title">
+            <div className="modal-heading">
+              <div>
+                <h2 id="sync-conflict-title">Конфликт синхронизации</h2>
+                <p>{syncConflictDialog.title}</p>
+              </div>
+            </div>
+            <pre className="sync-conflict-fields">{syncConflictDialog.fields}</pre>
+            <p className="sync-conflict-help">Выбери, какую версию сохранить. Если пропустить, этот тайтл не будет изменён.</p>
+            <div className="modal-actions sync-conflict-actions">
+              <button type="button" className="cancel-button" onClick={() => {
+                const resolve = syncConflictDialog.resolve;
+                setSyncConflictDialog(null);
+                resolve("s");
+              }}>Пропустить</button>
+              <button type="button" className="cancel-button" onClick={() => {
+                const resolve = syncConflictDialog.resolve;
+                setSyncConflictDialog(null);
+                resolve("r");
+              }}>Принять версию сервиса</button>
+              <button type="button" className="add-button" onClick={() => {
+                const resolve = syncConflictDialog.resolve;
+                setSyncConflictDialog(null);
+                resolve("l");
+              }}>Оставить локальную</button>
+            </div>
           </section>
         </div>
       )}
