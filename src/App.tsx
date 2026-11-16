@@ -15,6 +15,7 @@ import { BrowserAnimeRepository } from "./storage/browser-repository.js";
 import { validateSnapshot } from "./storage/snapshot-validation.js";
 import { DEFAULT_LIBRARY_FILTERS, filterLibrary, type LibraryFilters } from "./core/library-filter.js";
 import { fetchAniListAnimeDetails, searchAniListAnime, type AniListAnimeDetails } from "./services/anilist.js";
+import { parseMyAnimeListXml } from "./services/myanimelist-import.js";
 
 import {
   createImportPreview,
@@ -133,6 +134,7 @@ function App() {
   const [importSelections, setImportSelections] = useState<ImportSelections>(
     {},
   );
+  const [importFormat, setImportFormat] = useState("");
 
   const [importing, setImporting] = useState(false);
 
@@ -406,8 +408,10 @@ function App() {
       }
 
       const text = await file.text();
-      const parsed: unknown = JSON.parse(text);
-      const validated = validateSnapshot(parsed);
+      const isMyAnimeListXml = file.name.toLowerCase().endsWith(".xml");
+      const validated = isMyAnimeListXml
+        ? parseMyAnimeListXml(text)
+        : validateSnapshot(JSON.parse(text) as unknown);
 
       const analysis = createImportPreview(
         validated.anime,
@@ -415,6 +419,7 @@ function App() {
       );
 
       setImportSnapshot(validated);
+      setImportFormat(isMyAnimeListXml ? "MyAnimeList XML" : `JSON v${validated.schemaVersion}`);
       setImportAnalysis(analysis);
       setImportSelections(createInitialImportSelections(analysis));
       setError("");
@@ -422,6 +427,7 @@ function App() {
       setImportSnapshot(null);
       setImportAnalysis(null);
       setImportSelections({});
+      setImportFormat("");
 
       setError(
         err instanceof Error ? err.message : "Не удалось прочитать файл.",
@@ -534,6 +540,7 @@ function App() {
       setImportSnapshot(null);
       setImportAnalysis(null);
       setImportSelections({});
+      setImportFormat("");
 
       window.alert("Слияние библиотек завершено! Резервная копия скачана.");
     } catch (err) {
@@ -985,10 +992,10 @@ function App() {
             </button>
 
             <label className="secondary-button">
-              ↑ Импорт JSON
+              ↑ Импорт JSON / MAL XML
               <input
                 type="file"
-                accept=".json,application/json"
+                accept=".json,.xml,application/json,text/xml,application/xml"
                 onChange={handleImportFile}
                 disabled={loading || !repository || importing}
                 style={{ display: "none" }}
@@ -1014,6 +1021,7 @@ function App() {
                     setImportSnapshot(null);
                     setImportAnalysis(null);
                     setImportSelections({});
+                    setImportFormat("");
                   }}
                   disabled={importing}
                 >
@@ -1044,7 +1052,7 @@ function App() {
               </div>
 
               <div className="import-file-info">
-                <span>Формат: JSON v{importSnapshot.schemaVersion}</span>
+                <span>Формат: {importFormat || `JSON v${importSnapshot.schemaVersion}`}</span>
                 <span>Записей библиотеки: {importSnapshot.entries.length}</span>
               </div>
 
@@ -1214,6 +1222,7 @@ function App() {
                     setImportSnapshot(null);
                     setImportAnalysis(null);
                     setImportSelections({});
+                    setImportFormat("");
                   }}
                   disabled={importing}
                 >
