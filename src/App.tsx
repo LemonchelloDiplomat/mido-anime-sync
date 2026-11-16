@@ -63,28 +63,6 @@ const emptyForm: AnimeForm = {
   favorite: false,
 };
 
-const KEEP_SEPARATE = "__KEEP_SEPARATE__";
-
-type ImportSelections = Record<string, string>;
-
-function createInitialImportSelections(
-  analysis: ImportPreview,
-): ImportSelections {
-  return Object.fromEntries(
-    analysis.items.map((item) => {
-      if (item.status === "new") {
-        return [item.imported.id, KEEP_SEPARATE];
-      }
-
-      if (item.status === "matched") {
-        return [item.imported.id, item.selectedMatch?.id ?? item.imported.id];
-      }
-
-      return [item.imported.id, ""];
-    }),
-  );
-}
-
 const statusLabels: Record<AnimeStatus, string> = {
   PLANNING: "В планах",
   WATCHING: "Смотрю",
@@ -131,9 +109,6 @@ function App() {
     null,
   );
 
-  const [importSelections, setImportSelections] = useState<ImportSelections>(
-    {},
-  );
   const [importFormat, setImportFormat] = useState("");
 
   const [importing, setImporting] = useState(false);
@@ -448,8 +423,6 @@ function App() {
 
     try {
       const currentLibrary = await repository.getAll();
-      const currentIds = new Set(currentLibrary.map((item) => item.anime.id));
-
       const freshAnalysis = createImportPreview(
         importSnapshot.anime,
         currentLibrary.map((item) => item.anime),
@@ -458,94 +431,39 @@ function App() {
       setImportAnalysis(freshAnalysis);
 
       const mappings: Record<string, string> = {};
-      const targetOwners = new Map<string, string>();
+      const mappedTargets = new Set<string>();
 
       for (const item of freshAnalysis.items) {
-        if (item.duplicateInImport) {
+        const match = item.matchedAnime;
+        if (!match || match.id === item.imported.id) continue;
+
+        if (mappedTargets.has(match.id)) {
           throw new Error(
-            `Импорт заблокирован: обнаружен дубликат внутри файла (${
-              item.imported.titles.english ??
-              item.imported.titles.romaji ??
-              item.imported.id
-            }).`,
+            `Несколько импортируемых записей указывают на один и тот же тайтл в библиотеке: ${match.titles.english ?? match.titles.romaji ?? match.id}.`,
           );
         }
 
-        const importedId = item.imported.id;
-        const selected = importSelections[importedId] ?? "";
-
-        if (!selected) {
-          throw new Error(
-            `Не выбрано соответствие для аниме: ${
-              item.imported.titles.english ??
-              item.imported.titles.romaji ??
-              importedId
-            }`,
-          );
-        }
-
-        if (selected === KEEP_SEPARATE) {
-          if (currentIds.has(importedId)) {
-            throw new Error(
-              `Нельзя оставить отдельной записью аниме с уже существующим ID: ${importedId}`,
-            );
-          }
-
-          continue;
-        }
-
-        if (!currentIds.has(selected)) {
-          throw new Error(
-            `Выбранная запись больше не существует в библиотеке: ${selected}`,
-          );
-        }
-
-        const isSameId = selected === importedId;
-
-        const isAvailableMatch =
-          isSameId || item.matches.some((match) => match.anime.id === selected);
-
-        if (!isAvailableMatch) {
-          throw new Error(
-            `Выбранное соответствие больше не подтверждается: ${importedId}`,
-          );
-        }
-
-        const previousOwner = targetOwners.get(selected);
-
-        if (previousOwner && previousOwner !== importedId) {
-          throw new Error(
-            `Несколько импортируемых аниме выбраны для одной записи: ${selected}`,
-          );
-        }
-
-        targetOwners.set(selected, importedId);
-
-        if (!isSameId) {
-          mappings[importedId] = selected;
-        }
+        mappedTargets.add(match.id);
+        mappings[item.imported.id] = match.id;
       }
 
-      const confirmed = window.confirm(
-        `Объединить ${importSnapshot.anime.length} аниме и ${importSnapshot.entries.length} записей с текущей библиотекой? Новые тайтлы будут добавлены, выбранные совпадения объединены. Отсутствующие в файле тайтлы сохранятся. Перед этим будет скачана резервная копия.`,
-      );
-
-      if (!confirmed) return;
-
+      // Автоматически создаём резервную копию перед безопасным добавлением/слиянием.
       const backup = await repository.snapshot();
-
       downloadSnapshot(backup);
 
       await repository.mergeSnapshotWithMappings(importSnapshot, mappings);
-
       await refreshLibrary();
+
+      const importedCount = freshAnalysis.summary.new;
+      const matchedCount = freshAnalysis.summary.matched;
 
       setImportSnapshot(null);
       setImportAnalysis(null);
-      setImportSelections({});
       setImportFormat("");
 
-      window.alert("Слияние библиотек завершено! Резервная копия скачана.");
+      window.alert(
+        `Импорт завершён! Новых тайтлов добавлено: ${importedCount}. Точных совпадений объединено: ${matchedCount}. Резервная копия скачана.`,
+      );
     } catch (err) {
       setError(
         err instanceof Error
@@ -703,88 +621,6 @@ function App() {
     }
   }
 
-  const importSelectionValidation = useMemo(() => {
-    if (!importAnalysis) {
-      return {
-        valid: false,
-        mappings: {} as Record<string, string>,
-        unresolved: 0,
-        duplicateTargets: [] as string[],
-        duplicateImports: 0,
-      };
-    }
-
-    const existingIds = new Set(library.map((item) => item.anime.id));
-    const mappings: Record<string, string> = {};
-    const targetOwners = new Map<string, string>();
-    const duplicateTargets = new Set<string>();
-
-    let unresolved = 0;
-    let duplicateImports = 0;
-
-    for (const item of importAnalysis.items) {
-      if (item.duplicateInImport) {
-        duplicateImports++;
-        continue;
-      }
-
-      const importedId = item.imported.id;
-      const selected = importSelections[importedId] ?? "";
-
-      if (!selected) {
-        unresolved++;
-        continue;
-      }
-
-      if (selected === KEEP_SEPARATE) {
-        if (existingIds.has(importedId)) {
-          unresolved++;
-        }
-
-        continue;
-      }
-
-      if (!existingIds.has(selected)) {
-        unresolved++;
-        continue;
-      }
-
-      const isSameId = selected === importedId;
-
-      const isAvailableMatch =
-        isSameId || item.matches.some((match) => match.anime.id === selected);
-
-      if (!isAvailableMatch) {
-        unresolved++;
-        continue;
-      }
-
-      const previousOwner = targetOwners.get(selected);
-
-      if (previousOwner && previousOwner !== importedId) {
-        duplicateTargets.add(selected);
-      } else {
-        targetOwners.set(selected, importedId);
-      }
-
-      if (!isSameId) {
-        mappings[importedId] = selected;
-      }
-    }
-
-    return {
-      valid:
-        unresolved === 0 &&
-        duplicateTargets.size === 0 &&
-        duplicateImports === 0,
-      mappings,
-      unresolved,
-      duplicateTargets: [...duplicateTargets],
-      duplicateImports,
-    };
-  }, [importAnalysis, importSelections, library]);
-
-  const canConfirmImport = importSelectionValidation.valid;
 
   const filteredLibrary = useMemo(
     () => filterLibrary(library, filters).sort((a, b) => {
@@ -1013,8 +849,7 @@ function App() {
                   <div className="eyebrow">IMPORT CENTER</div>
                   <h2>Предварительный просмотр импорта</h2>
                   <p>
-                    Проверь результаты сопоставления перед изменением
-                    библиотеки.
+                    Новые тайтлы будут добавлены автоматически. Совпадения определяются только по точным ID, а похожие названия не объединяются.
                   </p>
                 </div>
 
@@ -1023,8 +858,7 @@ function App() {
                   onClick={() => {
                     setImportSnapshot(null);
                     setImportAnalysis(null);
-                    setImportSelections({});
-                    setImportFormat("");
+                                 setImportFormat("");
                   }}
                   disabled={importing}
                 >
@@ -1049,8 +883,6 @@ function App() {
                 </div>
 
                 <div className="import-summary-card review">
-                  <span>Проверить</span>
-                  <strong>{importAnalysis.summary.review}</strong>
                 </div>
               </div>
 
@@ -1059,163 +891,15 @@ function App() {
                 <span>Записей библиотеки: {importSnapshot.entries.length}</span>
               </div>
 
-              <div className="import-results">
-                {importAnalysis.items.map((item, index) => {
-                  const title =
-                    item.imported.titles.english ??
-                    item.imported.titles.romaji ??
-                    item.imported.titles.native ??
-                    "Без названия";
-
-                  const statusLabel = {
-                    new: "Новый",
-                    matched: "Совпадение",
-                    review: "Проверить",
-                  }[item.status];
-
-                  const matchedTitle = item.selectedMatch
-                    ? (item.selectedMatch.titles.english ??
-                      item.selectedMatch.titles.romaji ??
-                      item.selectedMatch.titles.native ??
-                      "Без названия")
-                    : null;
-
-                  return (
-                    <article
-                      className="import-result-item"
-                      key={`${item.imported.id}-${index}`}
-                    >
-                      <div className="import-result-main">
-                        <strong>{title}</strong>
-                        <span>{item.reason}</span>
-
-                        {item.duplicateInImport && (
-                          <strong className="import-duplicate-warning">
-                            ⚠ Эта запись заблокирована из-за возможного
-                            дубликата внутри файла.
-                          </strong>
-                        )}
-
-                        {item.matches.length > 0 && (
-                          <div className="import-match-list">
-                            {item.matches.map((match) => (
-                              <div
-                                className="import-match"
-                                key={match.anime.id}
-                              >
-                                <span>
-                                  Возможное совпадение:{" "}
-                                  {match.anime.titles.english ??
-                                    match.anime.titles.romaji ??
-                                    match.anime.titles.native ??
-                                    "Без названия"}
-                                </span>
-
-                                <span>{match.score}/100</span>
-
-                                <small>{match.reasons.join(" · ")}</small>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {!item.duplicateInImport &&
-                          (item.status === "review" ||
-                            item.matches.length > 0 ||
-                            (item.selectedMatch !== null &&
-                              item.selectedMatch.id !== item.imported.id)) && (
-                            <label className="import-selection-control">
-                              <span>Как поступить с этой записью?</span>
-
-                              <select
-                                className="filter-select"
-                                value={importSelections[item.imported.id] ?? ""}
-                                onChange={(event) =>
-                                  setImportSelections((previous) => ({
-                                    ...previous,
-                                    [item.imported.id]: event.target.value,
-                                  }))
-                                }
-                                disabled={importing}
-                              >
-                                <option value="">Выбери действие...</option>
-
-                                {!library.some(
-                                  (existing) =>
-                                    existing.anime.id === item.imported.id,
-                                ) && (
-                                  <option value={KEEP_SEPARATE}>
-                                    Оставить отдельным аниме
-                                  </option>
-                                )}
-
-                                {item.matches.map((match) => {
-                                  const matchTitle =
-                                    match.anime.titles.english ??
-                                    match.anime.titles.romaji ??
-                                    match.anime.titles.native ??
-                                    "Без названия";
-
-                                  return (
-                                    <option
-                                      value={match.anime.id}
-                                      key={match.anime.id}
-                                    >
-                                      Объединить с: {matchTitle} ({match.score}
-                                      /100)
-                                    </option>
-                                  );
-                                })}
-
-                                {item.selectedMatch &&
-                                  item.selectedMatch.id ===
-                                    item.imported.id && (
-                                    <option value={item.imported.id}>
-                                      Использовать существующую запись
-                                    </option>
-                                  )}
-                              </select>
-                            </label>
-                          )}
-
-                        {matchedTitle && (
-                          <small className="import-selected-match">
-                            Автоматически найдено: {matchedTitle}
-                          </small>
-                        )}
-                      </div>
-
-                      <span className={`import-status ${item.status}`}>
-                        {statusLabel}
-                      </span>
-                    </article>
-                  );
-                })}
-              </div>
-
               <div className="import-safety-note">
-                {canConfirmImport ? (
-                  <>
-                    <strong>Можно продолжить.</strong>
-                    <p>
-                      Все соответствия проверены. Новые тайтлы будут добавлены,
-                      выбранные совпадения объединены, остальные записи
-                      сохранены.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <strong>Импорт пока заблокирован.</strong>
-                    <p>
-                      Осталось разрешить неоднозначные совпадения:
-                      {` ${importSelectionValidation.unresolved}`}.
-                      {importSelectionValidation.duplicateTargets.length > 0 &&
-                        " Несколько аниме выбраны для одной существующей записи."}
-                      {importSelectionValidation.duplicateImports > 0 &&
-                        ` Обнаружено дубликатов внутри файла: ${importSelectionValidation.duplicateImports}. Удали или исправь их в исходном JSON и загрузи файл заново.`}
-                    </p>
-                  </>
-                )}
+                <strong>Готово к импорту.</strong>
+                <p>
+                  Будут добавлены все новые тайтлы. Уже известные записи объединяются
+                  только при совпадении внутреннего или внешнего ID. Похожие названия
+                  с разными ID останутся отдельными тайтлами. Существующие записи,
+                  которых нет в файле, сохранятся. Перед импортом автоматически
+                  скачается резервная копия.
+                </p>
               </div>
 
               <div className="import-actions">
@@ -1224,8 +908,7 @@ function App() {
                   onClick={() => {
                     setImportSnapshot(null);
                     setImportAnalysis(null);
-                    setImportSelections({});
-                    setImportFormat("");
+                                 setImportFormat("");
                   }}
                   disabled={importing}
                 >
@@ -1235,9 +918,9 @@ function App() {
                 <button
                   className="add-button"
                   onClick={() => void handleConfirmImport()}
-                  disabled={importing || !canConfirmImport}
+                  disabled={importing}
                 >
-                  {importing ? "Импорт..." : "Подтвердить слияние"}
+                  {importing ? "Импорт..." : `Импортировать ${importSnapshot.anime.length} аниме`}
                 </button>
               </div>
             </section>
