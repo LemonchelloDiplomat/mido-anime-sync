@@ -57,6 +57,7 @@ export interface AccountEntryUpdate {
   status: "PLANNING" | "WATCHING" | "COMPLETED" | "ON_HOLD" | "DROPPED" | "REWATCHING";
   progress: number;
   score: number | null;
+  favorite?: boolean;
 }
 
 export function updateAccountEntry(provider: "mal" | "anilist", entry: AccountEntryUpdate): Promise<{ ok: boolean }> {
