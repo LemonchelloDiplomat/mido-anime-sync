@@ -1202,6 +1202,36 @@ describe("BrowserAnimeRepository catalog metadata", () => {
 
 
 describe("BrowserAnimeRepository sync operation journal", () => {
+
+  it("atomically creates an anime with its first provider entry", async () => {
+    const repo = await createRepository();
+    const anime = makeAnime("atomic-create");
+    const entry = makeEntry("atomic-create", 2, "2026-11-17T12:00:00.000Z");
+
+    await repo.saveAnimeWithEntry(anime, entry);
+
+    expect(await repo.getAnime("atomic-create")).toEqual(anime);
+    expect(await repo.getSourceEntries("atomic-create")).toEqual([entry]);
+    expect(await repo.getEntry("atomic-create")).toMatchObject({
+      animeId: "atomic-create",
+      progress: 2,
+      source: "myanimelist",
+    });
+  });
+
+  it("rejects mismatched anime and entry IDs without creating either record", async () => {
+    const repo = await createRepository();
+
+    await expect(
+      repo.saveAnimeWithEntry(
+        makeAnime("anime-one"),
+        makeEntry("anime-two", 2, "2026-11-17T12:00:00.000Z"),
+      ),
+    ).rejects.toThrow("Anime and entry IDs must match");
+
+    expect(await repo.getAnime("anime-one")).toBeUndefined();
+    expect(await repo.getEntry("anime-two")).toBeUndefined();
+  });
   it("persists operations and tracks independent completion states", async () => {
     const repo = await createRepository();
     const now = "2026-11-17T12:00:00.000Z";
