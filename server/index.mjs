@@ -390,7 +390,12 @@ async function handleRequest(request, response) {
       const data = await anilistRequest(query, { userId: tokens.anilist.userId }, tokens.anilist.accessToken);
       const lists = data.MediaListCollection?.lists || [];
       const entries = lists.flatMap((list) => list.entries || []);
-      return sendJson(response, 200, { lists, data: entries, count: entries.length, scoreFormat: data.Viewer?.mediaListOptions?.scoreFormat || "POINT_100" });
+      const scoreFormat = data.Viewer?.mediaListOptions?.scoreFormat || "POINT_100";
+      if (tokens.anilist.scoreFormat !== scoreFormat) {
+        tokens.anilist.scoreFormat = scoreFormat;
+        await writeTokens(tokens);
+      }
+      return sendJson(response, 200, { lists, data: entries, count: entries.length, scoreFormat });
     } catch (error) {
       return sendJson(response, error.status || 502, { error: error.message });
     }
