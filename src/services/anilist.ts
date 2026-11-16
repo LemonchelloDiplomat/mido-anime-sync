@@ -172,7 +172,7 @@ export async function searchAniListAnime(
         perPage: 20,
       },
     }),
-    signal,
+    ...(signal ? { signal } : {}),
   });
 
   if (response.status === 429) {
