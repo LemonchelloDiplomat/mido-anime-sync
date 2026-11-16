@@ -14,7 +14,7 @@ import type {
 import { BrowserAnimeRepository } from "./storage/browser-repository.js";
 import { validateSnapshot } from "./storage/snapshot-validation.js";
 import { DEFAULT_LIBRARY_FILTERS, filterLibrary, type LibraryFilters } from "./core/library-filter.js";
-import { fetchAniListAnimeDetails, searchAniListAnime, type AniListAnimeDetails } from "./services/anilist.js";
+import { aniListMetadataProvider, fetchAniListAnimeDetails, searchAniListAnime, type AniListAnimeDetails } from "./services/anilist.js";
 import { parseMyAnimeListXml, readMyAnimeListExport } from "./services/myanimelist-import.js";
 
 import {
@@ -25,6 +25,14 @@ import {
 type LibraryItem = {
   anime: AnimeIdentity;
   entry: AnimeListEntry | undefined;
+};
+
+type MetadataEnrichmentProgress = {
+  provider: string;
+  completed: number;
+  total: number;
+  matched: number;
+  missing: number;
 };
 
 type AnimeForm = {
@@ -72,6 +80,32 @@ const statusLabels: Record<AnimeStatus, string> = {
   REWATCHING: "Пересматриваю",
 };
 
+function AnimeCover({ url, score }: { url?: string | null; score?: number | null }) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [url]);
+
+  return (
+    <div className="anime-cover purple">
+      {url && !failed ? (
+        <img src={url} alt="" loading="lazy" onError={() => setFailed(true)} />
+      ) : (
+        <>
+          <span>✦</span>
+          <small>ANIME</small>
+        </>
+      )}
+      {score != null && (
+        <span className={`poster-score ${score >= 8 ? "excellent" : score >= 7 ? "good" : score >= 5 ? "average" : "poor"}`}>
+          {score.toFixed(1)}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function App() {
   const [repository, setRepository] = useState<BrowserAnimeRepository | null>(
     null,
@@ -112,6 +146,9 @@ function App() {
   const [importFormat, setImportFormat] = useState("");
 
   const [importing, setImporting] = useState(false);
+  const [metadataEnriching, setMetadataEnriching] = useState(false);
+  const [metadataProgress, setMetadataProgress] = useState<MetadataEnrichmentProgress | null>(null);
+  const [metadataEnrichmentError, setMetadataEnrichmentError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -329,6 +366,63 @@ function App() {
     setLibrary(await repository.getAll());
   }
 
+  async function runMetadataEnrichment() {
+    if (!repository || metadataEnriching) return;
+
+    const db = repository;
+    setMetadataEnriching(true);
+    setMetadataEnrichmentError("");
+
+    try {
+      const currentItems = await db.getAll();
+      const identities = currentItems.map((item) => item.anime);
+      const total = new Set(
+        identities
+          .map((anime) => anime.externalIds.myanimelist)
+          .filter((id): id is string => Boolean(id && /^\\d+$/.test(id))),
+      ).size;
+
+      if (total === 0) {
+        setMetadataProgress(null);
+        setMetadataEnrichmentError("В библиотеке нет записей с корректным MAL ID для поиска в AniList.");
+        return;
+      }
+
+      setMetadataProgress({
+        provider: aniListMetadataProvider.name,
+        completed: 0,
+        total,
+        matched: 0,
+        missing: 0,
+      });
+
+      await aniListMetadataProvider.enrich(identities, {
+        onBatch: async (batch) => {
+          for (const match of batch.matches) {
+            await db.updateAnimeMetadata(match.animeId, match.metadata);
+          }
+
+          setMetadataProgress((previous) => ({
+            provider: aniListMetadataProvider.name,
+            completed: batch.completed,
+            total: batch.total,
+            matched: (previous?.matched ?? 0) + batch.matched,
+            missing: (previous?.missing ?? 0) + batch.missing,
+          }));
+        },
+      });
+
+      await refreshLibrary();
+    } catch (err) {
+      setMetadataEnrichmentError(
+        err instanceof Error ? err.message : "Не удалось обновить данные каталога.",
+      );
+      await refreshLibrary();
+    } finally {
+      setMetadataEnriching(false);
+    }
+  }
+
   function downloadSnapshot(snapshot: AnimeSnapshot) {
     const json = JSON.stringify(snapshot, null, 2);
 
@@ -462,6 +556,9 @@ function App() {
       window.alert(
         `Импорт завершён! Новых тайтлов добавлено: ${importedCount}. Точных совпадений объединено: ${matchedCount}. Резервная копия скачана.`,
       );
+      if (freshAnalysis.items.some((item) => item.imported.externalIds.myanimelist)) {
+        void runMetadataEnrichment();
+      }
     } catch (err) {
       setError(
         err instanceof Error
@@ -942,6 +1039,43 @@ function App() {
               <span className="filter-result-count">{filteredLibrary.length} результатов</span>
             </div>
 
+            {library.some((item) => item.anime.externalIds.myanimelist) && (
+              <button
+                className="secondary-button metadata-refresh-button"
+                onClick={() => void runMetadataEnrichment()}
+                disabled={metadataEnriching}
+              >
+                {metadataEnriching ? "Обновляем данные..." : "↻ Обновить данные каталога"}
+              </button>
+            )}
+
+            {(metadataProgress || metadataEnrichmentError) && (
+              <div className="metadata-progress" role="status">
+                <div className="metadata-progress-heading">
+                  <strong>{metadataEnriching ? "Обогащаем библиотеку" : "Обновление каталожных данных"}</strong>
+                  {metadataProgress && <span>{metadataProgress.completed} / {metadataProgress.total}</span>}
+                </div>
+                {metadataProgress && (
+                  <>
+                    <progress value={metadataProgress.completed} max={metadataProgress.total || 1} />
+                    <p>
+                      Источник: {metadataProgress.provider}. Найдено: {metadataProgress.matched}.
+                      Не найдено: {metadataProgress.missing}.
+                    </p>
+                  </>
+                )}
+                {metadataEnrichmentError && <p className="metadata-progress-error">{metadataEnrichmentError}</p>}
+                {!metadataEnriching && metadataEnrichmentError && (
+                  <button className="small-action" onClick={() => void runMetadataEnrichment()}>
+                    Повторить
+                  </button>
+                )}
+                {!metadataEnriching && !metadataEnrichmentError && metadataProgress && metadataProgress.completed === metadataProgress.total && (
+                  <p className="metadata-progress-success">Обогащение завершено. Личные статусы, оценки и прогресс сохранены.</p>
+                )}
+              </div>
+            )}
+
             {filtersOpen && (
               <div className="library-filters">
                 <div className="filter-section">
@@ -1032,10 +1166,7 @@ function App() {
 
                   return (
                     <article className="anime-card" key={anime.id}>
-                      <div className="anime-cover purple">
-                        {anime.posterUrl ? <img src={anime.posterUrl} alt="" loading="lazy" /> : <><span>✦</span><small>ANIME</small></>}
-                        {anime.averageScore != null && <span className={`poster-score ${anime.averageScore >= 8 ? "excellent" : anime.averageScore >= 7 ? "good" : anime.averageScore >= 5 ? "average" : "poor"}`}>{anime.averageScore.toFixed(1)}</span>}
-                      </div>
+                      <AnimeCover url={anime.posterUrl} score={anime.averageScore} />
 
                       <div className="anime-details">
                         <h3>{title}</h3>
