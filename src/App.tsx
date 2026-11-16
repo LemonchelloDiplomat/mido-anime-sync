@@ -456,14 +456,14 @@ function App() {
         },
         externalIds: previous?.anime.externalIds ?? {},
         episodes,
-        ...(year !== null ? { year } : {}),
-        ...(form.format ? { format: form.format } : {}),
-        ...(genres.length ? { genres } : {}),
-        ...(form.ageRating ? { ageRating: form.ageRating } : {}),
-        ...(posterUrl ? { posterUrl } : {}),
-        ...(averageScore !== null ? { averageScore } : {}),
-        ...(form.startDate ? { startDate: form.startDate } : {}),
-        ...(form.releaseStatus ? { releaseStatus: form.releaseStatus } : {}),
+        year,
+        format: form.format || undefined,
+        genres,
+        ageRating: form.ageRating || null,
+        posterUrl: posterUrl || null,
+        averageScore,
+        startDate: form.startDate || null,
+        releaseStatus: form.releaseStatus || undefined,
       };
 
       const entry: AnimeListEntry = {
