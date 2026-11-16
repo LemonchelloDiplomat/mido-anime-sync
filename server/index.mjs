@@ -299,9 +299,9 @@ async function handleRequest(request, response) {
     const expiresIn = Number(body.expiresIn);
     if (accessToken.length < 20 || !Number.isFinite(expiresIn) || expiresIn <= 0) return sendJson(response, 400, { error: "AniList вернул некорректный токен." });
     try {
-      const data = await anilistRequest("query { Viewer { id name } }", {}, accessToken);
+      const data = await anilistRequest("query { Viewer { id name mediaListOptions { scoreFormat } } }", {}, accessToken);
       const tokens = await readTokens();
-      tokens.anilist = { accessToken, expiresAt: Date.now() + expiresIn * 1000, username: data.Viewer.name, userId: data.Viewer.id };
+      tokens.anilist = { accessToken, expiresAt: Date.now() + expiresIn * 1000, username: data.Viewer.name, userId: data.Viewer.id, scoreFormat: data.Viewer.mediaListOptions?.scoreFormat || "POINT_100" };
       await writeTokens(tokens);
       return sendJson(response, 200, { ok: true });
     } catch (error) {
@@ -341,6 +341,47 @@ async function handleRequest(request, response) {
     }
   }
 
+  if (method === "POST" && url.pathname === "/api/mal/entry") {
+    const body = await readJson(request);
+    const id = Number(body.externalId);
+    const status = String(body.status || "");
+    const progress = Number(body.progress);
+    const score = body.score == null ? 0 : Number(body.score);
+    const statuses = ["PLANNING", "WATCHING", "COMPLETED", "ON_HOLD", "DROPPED", "REWATCHING"];
+    if (!Number.isSafeInteger(id) || id <= 0 || !statuses.includes(status) ||
+        !Number.isSafeInteger(progress) || progress < 0 ||
+        !Number.isFinite(score) || score < 0 || score > 100) {
+      return sendJson(response, 400, { error: "Некорректные данные записи для MyAnimeList." });
+    }
+    const malStatus = status === "PLANNING" ? "plan_to_watch"
+      : status === "WATCHING" || status === "REWATCHING" ? "watching"
+      : status === "COMPLETED" ? "completed"
+      : status === "ON_HOLD" ? "on_hold" : "dropped";
+    const form = new URLSearchParams({
+      status: malStatus,
+      score: String(score === 0 ? 0 : Math.max(1, Math.min(10, Math.round(score / 10)))),
+      num_watched_episodes: String(progress),
+      is_rewatching: status === "REWATCHING" ? "true" : "false",
+    });
+    try {
+      const tokens = await readTokens();
+      const accessToken = await getMalAccessToken(tokens);
+      const result = await fetchJson(MAL_API + "/anime/" + id + "/my_list_status", {
+        method: "PUT",
+        headers: {
+          "X-MAL-CLIENT-ID": process.env.MAL_CLIENT_ID,
+          Authorization: "Bearer " + accessToken,
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "application/json",
+        },
+        body: form,
+      });
+      return sendJson(response, 200, { ok: true, result });
+    } catch (error) {
+      return sendJson(response, error.status || 502, { error: error.message });
+    }
+  }
+
   if (method === "GET" && url.pathname === "/api/anilist/list") {
     const tokens = await readTokens();
     if (!tokens.anilist?.accessToken) return sendJson(response, 401, { error: "AniList ещё не подключён." });
@@ -350,6 +391,46 @@ async function handleRequest(request, response) {
       const lists = data.MediaListCollection?.lists || [];
       const entries = lists.flatMap((list) => list.entries || []);
       return sendJson(response, 200, { lists, data: entries, count: entries.length, scoreFormat: data.Viewer?.mediaListOptions?.scoreFormat || "POINT_100" });
+    } catch (error) {
+      return sendJson(response, error.status || 502, { error: error.message });
+    }
+  }
+
+  if (method === "POST" && url.pathname === "/api/anilist/entry") {
+    const body = await readJson(request);
+    const id = Number(body.externalId);
+    const status = String(body.status || "");
+    const progress = Number(body.progress);
+    const score = body.score == null ? 0 : Number(body.score);
+    const statuses = ["PLANNING", "WATCHING", "COMPLETED", "ON_HOLD", "DROPPED", "REWATCHING"];
+    if (!Number.isSafeInteger(id) || id <= 0 || !statuses.includes(status) ||
+        !Number.isSafeInteger(progress) || progress < 0 ||
+        !Number.isFinite(score) || score < 0 || score > 100) {
+      return sendJson(response, 400, { error: "Некорректные данные записи для AniList." });
+    }
+    const tokens = await readTokens();
+    if (!tokens.anilist?.accessToken) return sendJson(response, 401, { error: "AniList ещё не подключён." });
+    const format = tokens.anilist.scoreFormat || "POINT_100";
+    const remoteScore = score === 0 ? 0
+      : format === "POINT_100" ? score
+      : format === "POINT_10" || format === "POINT_10_DECIMAL" ? score / 10
+      : format === "POINT_5" ? score / 20
+      : format === "POINT_3" ? (score / 100) * 3
+      : score;
+    const remoteStatus = status === "WATCHING" ? "CURRENT"
+      : status === "COMPLETED" ? "COMPLETED"
+      : status === "ON_HOLD" ? "PAUSED"
+      : status === "DROPPED" ? "DROPPED"
+      : status === "REWATCHING" ? "REPEATING" : "PLANNING";
+    const mutation = "mutation SaveEntry($mediaId: Int!, $status: MediaListStatus!, $score: Float!, $progress: Int!) { SaveMediaListEntry(mediaId: $mediaId, status: $status, score: $score, progress: $progress) { id status score progress updatedAt } }";
+    try {
+      const data = await anilistRequest(mutation, {
+        mediaId: id,
+        status: remoteStatus,
+        score: remoteScore,
+        progress,
+      }, tokens.anilist.accessToken);
+      return sendJson(response, 200, { ok: true, result: data.SaveMediaListEntry });
     } catch (error) {
       return sendJson(response, error.status || 502, { error: error.message });
     }

@@ -51,3 +51,17 @@ export interface RemoteAccountListPayload {
 export function fetchAccountList(provider: "mal" | "anilist"): Promise<RemoteAccountListPayload> {
   return request<RemoteAccountListPayload>(provider === "mal" ? "/api/mal/list" : "/api/anilist/list");
 }
+
+export interface AccountEntryUpdate {
+  externalId: string;
+  status: "PLANNING" | "WATCHING" | "COMPLETED" | "ON_HOLD" | "DROPPED" | "REWATCHING";
+  progress: number;
+  score: number | null;
+}
+
+export function updateAccountEntry(provider: "mal" | "anilist", entry: AccountEntryUpdate): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(provider === "mal" ? "/api/mal/entry" : "/api/anilist/entry", {
+    method: "POST",
+    body: JSON.stringify(entry),
+  });
+}

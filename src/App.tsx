@@ -17,7 +17,7 @@ import { DEFAULT_LIBRARY_FILTERS, filterLibrary, type LibraryFilters } from "./c
 import { aniListMetadataProvider, fetchAniListAnimeDetails, getAniListMetadataCandidates, searchAniListAnime, type AniListAnimeDetails } from "./services/anilist.js";
 import { parseMyAnimeListXml, readMyAnimeListExport } from "./services/myanimelist-import.js";
 import { connectIntegration, disconnectIntegration, getIntegrationStatus, type IntegrationStatus } from "./services/integrations-api.js";
-import { fetchAccountList } from "./services/integrations-api.js";
+import { fetchAccountList, updateAccountEntry } from "./services/integrations-api.js";
 import { parseMyAnimeListApiList } from "./services/myanimelist-account.js";
 import { parseAniListAccountList, type AniListScoreFormat } from "./services/anilist-account.js";
 
@@ -157,6 +157,7 @@ function App() {
   const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus | null>(null);
   const [integrationStatusLoading, setIntegrationStatusLoading] = useState(false);
   const [integrationStatusError, setIntegrationStatusError] = useState("");
+  const [accountSyncing, setAccountSyncing] = useState<"mal" | "anilist" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -566,6 +567,90 @@ function App() {
     }
   }
 
+  async function handleSyncToAccount(provider: "mal" | "anilist") {
+    if (!repository || accountSyncing) return;
+    setAccountSyncing(provider);
+    setIntegrationStatusError("");
+    try {
+      const payload = await fetchAccountList(provider);
+      const remoteSnapshot = provider === "mal"
+        ? parseMyAnimeListApiList(payload.data)
+        : parseAniListAccountList(payload.data, payload.scoreFormat as AniListScoreFormat);
+      const remoteByExternalId = new Map<string, AnimeListEntry>();
+      remoteSnapshot.anime.forEach((anime) => {
+        const externalId = provider === "mal" ? anime.externalIds.myanimelist : anime.externalIds.anilist;
+        const remoteEntry = remoteSnapshot.entries.find((entry) => entry.animeId === anime.id);
+        if (externalId && remoteEntry) remoteByExternalId.set(externalId, remoteEntry);
+      });
+
+      const changes: Array<{ externalId: string; entry: AnimeListEntry }> = [];
+      let newerRemote = 0;
+      let conflicts = 0;
+      for (const item of library) {
+        if (!item.entry) continue;
+        const externalId = provider === "mal" ? item.anime.externalIds.myanimelist : item.anime.externalIds.anilist;
+        if (!externalId) continue;
+        const remote = remoteByExternalId.get(externalId);
+        if (!remote) {
+          changes.push({ externalId, entry: item.entry });
+          continue;
+        }
+        const differs = remote.status !== item.entry.status ||
+          remote.progress !== item.entry.progress ||
+          remote.score !== item.entry.score;
+        if (!differs) continue;
+        const localTime = Date.parse(item.entry.updatedAt);
+        const remoteTime = Date.parse(remote.updatedAt);
+        if (Number.isFinite(localTime) && Number.isFinite(remoteTime) && localTime > remoteTime) {
+          changes.push({ externalId, entry: item.entry });
+        } else if (Number.isFinite(remoteTime) && Number.isFinite(localTime) && remoteTime > localTime) {
+          newerRemote += 1;
+        } else {
+          conflicts += 1;
+        }
+      }
+
+      if (changes.length === 0) {
+        window.alert("Изменений для записи нет. Более свежие удалённые записи: " + newerRemote + ". Неоднозначные конфликты: " + conflicts + ".");
+        return;
+      }
+
+      const serviceName = provider === "mal" ? "MyAnimeList" : "AniList";
+      const confirmed = window.confirm(
+        "Подготовлено записей к отправке в " + serviceName + ": " + changes.length +
+        ". Пропущено как более свежие на сервисе: " + newerRemote +
+        ". Неоднозначных конфликтов: " + conflicts +
+        ". Будут записаны только статус, прогресс и оценка. Избранное, даты и теги не изменяются. Продолжить?"
+      );
+      if (!confirmed) return;
+
+      let succeeded = 0;
+      const failed: string[] = [];
+      for (const change of changes) {
+        try {
+          await updateAccountEntry(provider, {
+            externalId: change.externalId,
+            status: change.entry.status,
+            progress: change.entry.progress,
+            score: change.entry.score,
+          });
+          succeeded += 1;
+        } catch (err) {
+          failed.push(change.externalId + ": " + (err instanceof Error ? err.message : "ошибка"));
+        }
+      }
+      window.alert(
+        "Запись в " + serviceName + " завершена. Успешно: " + succeeded +
+        ". Ошибок: " + failed.length +
+        (failed.length ? "\n" + failed.slice(0, 5).join("\n") : "")
+      );
+    } catch (err) {
+      setIntegrationStatusError(err instanceof Error ? err.message : "Не удалось синхронизировать аккаунт.");
+    } finally {
+      setAccountSyncing(null);
+    }
+  }
+
   async function handleConfirmImport() {
     if (!repository || !importSnapshot || importing) return;
 
@@ -944,6 +1029,9 @@ function App() {
                       <>
                         <button className="add-button" disabled={importing} onClick={() => void handleImportFromAccount(routeProvider)}>
                           {importing ? "Загружаем..." : "Импорт списка"}
+                        </button>
+                        <button className="secondary-button" disabled={accountSyncing !== null} onClick={() => void handleSyncToAccount(routeProvider)}>
+                          {accountSyncing === routeProvider ? "Записываем..." : "Записать изменения"}
                         </button>
                         <button className="secondary-button" onClick={() => {
                           void disconnectIntegration(routeProvider)
