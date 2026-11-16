@@ -231,7 +231,7 @@ export function getAniListMetadataCandidates(
     const malId = anime.externalIds.myanimelist;
     return Boolean(
       malId &&
-      /^\\d+$/.test(malId) &&
+      /^\d+$/.test(malId) &&
       Number.isSafeInteger(Number(malId)) &&
       Number(malId) > 0 &&
       !anime.externalIds.anilist,
