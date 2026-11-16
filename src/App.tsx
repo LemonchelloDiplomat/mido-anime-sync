@@ -1563,7 +1563,7 @@ function App() {
                 <div>
                   <div className="eyebrow">SYNC ACTIVITY</div>
                   <h1>История синхронизации</h1>
-                  <p>Все операции, которые приложение записало в журнал перед изменением библиотеки или аккаунта</p>
+                  <p>Все запуски синхронизации, включая сеансы без изменений, и подробности каждой операции</p>
                 </div>
                 <div className="history-heading-actions">
                   <button
@@ -1619,7 +1619,7 @@ function App() {
                 <div className="empty-state">
                   <div className="empty-icon">◷</div>
                   <h3>{historyOperations.length === 0 ? "История пока пуста" : "Ничего не найдено"}</h3>
-                  <p>{historyOperations.length === 0 ? "Когда ты запустишь синхронизацию с MAL или AniList, операции появятся здесь." : "Измени фильтры, чтобы увидеть другие операции."}</p>
+                  <p>{historyOperations.length === 0 && historySessionRecords.length === 0 ? "Когда ты запустишь синхронизацию с MAL или AniList, каждый запуск появится здесь, даже если изменений не будет." : "Измени фильтры, чтобы увидеть другие сеансы и операции."}</p>
                 </div>
               ) : (
                 <div className="history-session-list">
