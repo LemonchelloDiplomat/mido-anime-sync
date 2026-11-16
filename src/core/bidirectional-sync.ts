@@ -119,7 +119,7 @@ export function createBidirectionalSyncPlan(
       const remoteValue = remote.entry[field];
       if (localValue === remoteValue) continue;
 
-      if (localTime === null || remoteTime === null) {
+      if (localTime === null || remoteTime === null || Math.abs(localTime - remoteTime) <= 1000) {
         conflicts.push({
           animeId: local.anime.id,
           title: titleOf(local.anime),
