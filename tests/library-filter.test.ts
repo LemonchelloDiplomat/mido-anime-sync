@@ -43,7 +43,7 @@ describe("library filtering", () => {
   });
 
   it("supports include-any and strict include-all genre matching", () => {
-    const selected = { "Фэнтези": "include", "Комедия": "include" } as const;
+    const selected: Record<string, "include" | "exclude"> = { "Фэнтези": "include", "Комедия": "include" };
     expect(filterLibrary([item()], filters({ genres: selected, strictGenres: false }))).toHaveLength(1);
     expect(filterLibrary([item()], filters({ genres: selected, strictGenres: true }))).toHaveLength(0);
   });
