@@ -8,6 +8,7 @@ import type {
   AnimeRelation,
   AnimeSnapshot,
   SyncOperation,
+  SyncSession,
 } from "../src/core/types.js";
 
 const repositories: BrowserAnimeRepository[] = [];
@@ -1290,6 +1291,44 @@ describe("BrowserAnimeRepository sync operation journal", () => {
     await expect(
       repo.updateSyncOperation("missing-operation", { status: "succeeded" }),
     ).rejects.toThrow("Unknown sync operation: missing-operation");
+  });
+
+  it("persists sessions even when a sync has no operations", async () => {
+    const repo = await createRepository();
+    const session: SyncSession = {
+      sessionId: "no-op-session",
+      provider: "anilist",
+      status: "running",
+      startedAt: "2026-11-17T12:00:00.000Z",
+      operationCount: 0,
+      succeededCount: 0,
+      failedCount: 0,
+      pendingCount: 0,
+      unchangedCount: 0,
+      conflictCount: 0,
+      recoveredCount: 0,
+    };
+
+    await repo.saveSyncSession(session);
+    await repo.updateSyncSession(session.sessionId, {
+      status: "succeeded",
+      finishedAt: "2026-11-17T12:00:05.000Z",
+      unchangedCount: 42,
+    });
+
+    expect(await repo.getSyncSessions()).toEqual([{
+      ...session,
+      status: "succeeded",
+      finishedAt: "2026-11-17T12:00:05.000Z",
+      unchangedCount: 42,
+    }]);
+  });
+
+  it("rejects updates for unknown sync sessions", async () => {
+    const repo = await createRepository();
+    await expect(
+      repo.updateSyncSession("missing-session", { status: "failed" }),
+    ).rejects.toThrow("Unknown sync session: missing-session");
   });
 
   it("upgrades an existing version 4 database without losing its anime records", async () => {
