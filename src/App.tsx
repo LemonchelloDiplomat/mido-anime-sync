@@ -14,7 +14,7 @@ import type {
 import { BrowserAnimeRepository } from "./storage/browser-repository.js";
 import { validateSnapshot } from "./storage/snapshot-validation.js";
 import { DEFAULT_LIBRARY_FILTERS, filterLibrary, type LibraryFilters } from "./core/library-filter.js";
-import { searchAniListAnime } from "./services/anilist.js";
+import { fetchAniListAnimeDetails, searchAniListAnime, type AniListAnimeDetails } from "./services/anilist.js";
 
 import {
   createImportPreview,
@@ -112,6 +112,10 @@ function App() {
   const [hideAnimeInMyLists, setHideAnimeInMyLists] = useState(false);
   const [addingCatalogId, setAddingCatalogId] = useState<string | null>(null);
   const [catalogActionMessage, setCatalogActionMessage] = useState("");
+  const [selectedAnime, setSelectedAnime] = useState<AnimeIdentity | null>(null);
+  const [animeDetails, setAnimeDetails] = useState<AniListAnimeDetails | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState("");
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -179,13 +183,17 @@ function App() {
 
     function handleSearchKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        setSearchPageOpen(false);
+        if (selectedAnime) {
+          setSelectedAnime(null);
+        } else {
+          setSearchPageOpen(false);
+        }
       }
     }
 
     window.addEventListener("keydown", handleSearchKeyDown);
     return () => window.removeEventListener("keydown", handleSearchKeyDown);
-  }, [searchPageOpen]);
+  }, [searchPageOpen, selectedAnime]);
 
   useEffect(() => {
     const query = searchQuery.trim();
@@ -219,6 +227,43 @@ function App() {
       controller.abort();
     };
   }, [searchPageOpen, searchQuery]);
+
+  useEffect(() => {
+    const externalId = selectedAnime?.externalIds.anilist;
+    if (!selectedAnime) {
+      setAnimeDetails(null);
+      setDetailsLoading(false);
+      setDetailsError("");
+      return;
+    }
+    if (!externalId) {
+      setAnimeDetails(null);
+      setDetailsLoading(false);
+      setDetailsError("Для подробной страницы пока нет AniList ID у этого тайтла.");
+      return;
+    }
+
+    const controller = new AbortController();
+    setDetailsLoading(true);
+    setDetailsError("");
+    setAnimeDetails(null);
+
+    void fetchAniListAnimeDetails(Number(externalId), controller.signal)
+      .then(setAnimeDetails)
+      .catch((err: unknown) => {
+        if (err instanceof Error && err.name === "AbortError") return;
+        setDetailsError(err instanceof Error ? err.message : "Не удалось загрузить информацию об аниме.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setDetailsLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [selectedAnime]);
+
+  function openAnimeDetails(anime: AnimeIdentity) {
+    setSelectedAnime(anime);
+  }
 
   async function addCatalogAnime(anime: AnimeIdentity) {
     if (!repository || addingCatalogId) return;
@@ -1407,7 +1452,7 @@ function App() {
               <div className="search-results-list">
                 {searchResults.map(({ anime, entry }) => <article className="search-result-card" key={anime.id}>
                   <div className="search-result-poster">{anime.posterUrl ? <img src={anime.posterUrl} alt="" loading="lazy" /> : <span>✦</span>}{anime.averageScore != null && <b className={`poster-score ${anime.averageScore >= 8 ? "excellent" : anime.averageScore >= 7 ? "good" : anime.averageScore >= 5 ? "average" : "poor"}`}>{anime.averageScore.toFixed(1)}</b>}</div>
-                  <div className="search-result-details"><h3>{anime.titles.english ?? anime.titles.romaji ?? anime.titles.native ?? "Без названия"}</h3><p>{anime.titles.romaji ?? anime.titles.native ?? ""}</p><div>{anime.format ?? "Формат не указан"}{anime.year ? ` · ${anime.year}` : ""}</div><small>{(anime.genres ?? []).join(" · ") || "Жанры пока не добавлены"}</small>{entry && <span className="status-label">{statusLabels[entry.status]}</span>}</div>
+                  <div className="search-result-details"><button className="detail-title-button" onClick={() => openAnimeDetails(anime)}>{anime.titles.english ?? anime.titles.romaji ?? anime.titles.native ?? "Без названия"}</button><p>{anime.titles.romaji ?? anime.titles.native ?? ""}</p><div>{anime.format ?? "Формат не указан"}{anime.year ? ` · ${anime.year}` : ""}</div><small>{(anime.genres ?? []).join(" · ") || "Жанры пока не добавлены"}</small>{entry && <span className="status-label">{statusLabels[entry.status]}</span>}</div>
                 </article>)}
               </div>
             )}
@@ -1437,7 +1482,7 @@ function App() {
                     return <article className="search-result-card" key={anime.id}>
                       <div className="search-result-poster">{anime.posterUrl ? <img src={anime.posterUrl} alt="" loading="lazy" /> : <span>✦</span>}{anime.averageScore != null && <b className={`poster-score ${anime.averageScore >= 8 ? "excellent" : anime.averageScore >= 7 ? "good" : anime.averageScore >= 5 ? "average" : "poor"}`}>{anime.averageScore.toFixed(1)}</b>}</div>
                       <div className="search-result-details">
-                        <h3>{anime.titles.english ?? anime.titles.romaji ?? anime.titles.native ?? "Без названия"}</h3>
+                        <button className="detail-title-button" onClick={() => openAnimeDetails(anime)}>{anime.titles.english ?? anime.titles.romaji ?? anime.titles.native ?? "Без названия"}</button>
                         <p>{anime.titles.romaji ?? anime.titles.native ?? ""}</p>
                         <div>{anime.format ?? "Формат не указан"}{anime.year ? ` · ${anime.year}` : ""}{anime.episodes ? ` · ${anime.episodes} эп.` : ""}</div>
                         <small>{(anime.genres ?? []).join(" · ")}</small>
@@ -1452,7 +1497,70 @@ function App() {
           </div>
         </div>
       )}
-\n      {modalOpen && (
+\n      {searchPageOpen && selectedAnime && (
+        <div className="anime-detail-overlay">
+          <section className="anime-detail-page" role="dialog" aria-modal="true" aria-labelledby="anime-detail-title">
+            <header className="anime-detail-header">
+              <span>Страница аниме</span>
+              <button type="button" onClick={() => setSelectedAnime(null)} aria-label="Закрыть страницу аниме">×</button>
+            </header>
+            {detailsLoading && <p className="catalog-hint">Загружаем подробную информацию...</p>}
+            {detailsError && <p className="catalog-error" role="alert">{detailsError}</p>}
+            {animeDetails && (
+              <>
+                {animeDetails.bannerImage && <div className="anime-detail-banner" style={{ backgroundImage: `linear-gradient(90deg, #101016 0%, #10101655 100%), url("${animeDetails.bannerImage}")` }} />}
+                <div className="anime-detail-main">
+                  <img className="anime-detail-poster" src={animeDetails.anime.posterUrl ?? selectedAnime.posterUrl ?? ""} alt="" />
+                  <div className="anime-detail-heading">
+                    <h1 id="anime-detail-title">{animeDetails.anime.titles.english ?? animeDetails.anime.titles.romaji ?? animeDetails.anime.titles.native}</h1>
+                    <p>{animeDetails.anime.titles.romaji ?? ""}</p>
+                    {animeDetails.anime.titles.native && <p>{animeDetails.anime.titles.native}</p>}
+                    <div className="anime-detail-tags">
+                      <span>{animeDetails.anime.format ?? "Формат не указан"}</span>
+                      {animeDetails.anime.year && <span>{animeDetails.anime.year}</span>}
+                      {animeDetails.anime.episodes && <span>{animeDetails.anime.episodes} эп.</span>}
+                      {animeDetails.anime.averageScore != null && <strong>★ {animeDetails.anime.averageScore.toFixed(1)}</strong>}
+                    </div>
+                    <div className="anime-detail-genres">{(animeDetails.anime.genres ?? []).map((genre) => <span key={genre}>{genre}</span>)}</div>
+                  </div>
+                </div>
+                <div className="anime-detail-body">
+                  <section>
+                    <h2>Описание</h2>
+                    <p className="anime-detail-description">{animeDetails.description || "Описание пока отсутствует в AniList."}</p>
+                  </section>
+                  <section className="anime-detail-facts">
+                    <h2>Информация</h2>
+                    <dl>
+                      <div><dt>Статус выхода</dt><dd>{animeDetails.anime.releaseStatus === "ONGOING" ? "Выходит" : animeDetails.anime.releaseStatus === "ANNOUNCED" ? "Анонсировано" : animeDetails.anime.releaseStatus === "RELEASED" ? "Вышло" : "Не указан"}</dd></div>
+                      <div><dt>Премьера</dt><dd>{animeDetails.anime.startDate ?? "Не указана"}</dd></div>
+                      <div><dt>Сезон</dt><dd>{animeDetails.season ? `${animeDetails.season} ${animeDetails.seasonYear ?? ""}`.trim() : "Не указан"}</dd></div>
+                      <div><dt>Длительность эпизода</dt><dd>{animeDetails.duration ? `${animeDetails.duration} мин.` : "Не указана"}</dd></div>
+                      <div><dt>Первоисточник</dt><dd>{animeDetails.source ?? "Не указан"}</dd></div>
+                      <div><dt>Студия</dt><dd>{animeDetails.studios.join(", ") || "Не указана"}</dd></div>
+                    </dl>
+                  </section>
+                  {animeDetails.relations.length > 0 && (
+                    <section>
+                      <h2>Связанные произведения</h2>
+                      <div className="anime-relations-grid">
+                        {animeDetails.relations.map(({ relationType, anime }) => (
+                          <button type="button" className="anime-relation-card" key={`${relationType}-${anime.id}`} onClick={() => openAnimeDetails(anime)}>
+                            {anime.posterUrl ? <img src={anime.posterUrl} alt="" loading="lazy" /> : <span className="anime-relation-placeholder">✦</span>}
+                            <span><small>{relationType.replaceAll("_", " ")}</small><strong>{anime.titles.english ?? anime.titles.romaji ?? anime.titles.native ?? "Без названия"}</strong><small>{anime.format ?? "Аниме"}{anime.year ? ` · ${anime.year}` : ""}</small></span>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </div>
+              </>
+            )}
+          </section>
+        </div>
+      )}
+
+      {modalOpen && (
         <div
           className="modal-overlay"
           onMouseDown={(event) => {
