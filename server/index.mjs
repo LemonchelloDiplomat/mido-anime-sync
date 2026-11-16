@@ -271,14 +271,16 @@ async function handleRequest(request, response) {
   }
 
   if (method === "GET" && url.pathname === "/api/auth/anilist/start") {
-    if (!process.env.ANILIST_CLIENT_ID) return sendJson(response, 400, { error: "Сначала добавь ANILIST_CLIENT_ID в .env.local." });
+    if (!process.env.ANILIST_CLIENT_ID || !process.env.ANILIST_CLIENT_SECRET) {
+      return sendJson(response, 400, { error: "Сначала добавь ANILIST_CLIENT_ID и ANILIST_CLIENT_SECRET в .env.local." });
+    }
     const state = randomBytes(24).toString("hex");
     const redirectUri = getRedirectUri("anilist");
     sessions.set("anilist:" + state, { redirectUri, expiresAt: Date.now() + 600000 });
     const authorize = new URL("https://anilist.co/api/v2/oauth/authorize");
     authorize.searchParams.set("client_id", process.env.ANILIST_CLIENT_ID);
     authorize.searchParams.set("redirect_uri", redirectUri);
-    authorize.searchParams.set("response_type", "token");
+    authorize.searchParams.set("response_type", "code");
     authorize.searchParams.set("state", state);
     response.writeHead(302, { Location: authorize.toString(), "Cache-Control": "no-store" });
     return response.end();
@@ -294,18 +296,43 @@ async function handleRequest(request, response) {
     const state = String(body.state || "");
     const pending = sessions.get("anilist:" + state);
     sessions.delete("anilist:" + state);
-    if (!pending || pending.expiresAt < Date.now()) return sendJson(response, 400, { error: "Состояние авторизации AniList устарело. Повтори подключение." });
-    const accessToken = String(body.accessToken || "");
-    const expiresIn = Number(body.expiresIn);
-    if (accessToken.length < 20 || !Number.isFinite(expiresIn) || expiresIn <= 0) return sendJson(response, 400, { error: "AniList вернул некорректный токен." });
+    if (!pending || pending.expiresAt < Date.now()) {
+      return sendJson(response, 400, { error: "Состояние авторизации AniList устарело. Повтори подключение." });
+    }
+    const code = String(body.code || "");
+    if (!code || !process.env.ANILIST_CLIENT_ID || !process.env.ANILIST_CLIENT_SECRET) {
+      return sendJson(response, 400, { error: "Не хватает кода авторизации или настроек AniList в .env.local." });
+    }
     try {
+      const token = await fetchJson("https://anilist.co/api/v2/oauth/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          grant_type: "authorization_code",
+          client_id: process.env.ANILIST_CLIENT_ID,
+          client_secret: process.env.ANILIST_CLIENT_SECRET,
+          redirect_uri: pending.redirectUri,
+          code,
+        }),
+      });
+      const accessToken = String(token.access_token || "");
+      const expiresIn = Number(token.expires_in);
+      if (accessToken.length < 20 || !Number.isFinite(expiresIn) || expiresIn <= 0) {
+        return sendJson(response, 502, { error: "AniList вернул некорректный ответ при обмене кода на токен." });
+      }
       const data = await anilistRequest("query { Viewer { id name mediaListOptions { scoreFormat } } }", {}, accessToken);
       const tokens = await readTokens();
-      tokens.anilist = { accessToken, expiresAt: Date.now() + expiresIn * 1000, username: data.Viewer.name, userId: data.Viewer.id, scoreFormat: data.Viewer.mediaListOptions?.scoreFormat || "POINT_100" };
+      tokens.anilist = {
+        accessToken,
+        expiresAt: Date.now() + expiresIn * 1000,
+        username: data.Viewer.name,
+        userId: data.Viewer.id,
+        scoreFormat: data.Viewer.mediaListOptions?.scoreFormat || "POINT_100",
+      };
       await writeTokens(tokens);
       return sendJson(response, 200, { ok: true });
     } catch (error) {
-      return sendJson(response, 401, { error: "Не удалось проверить токен AniList: " + error.message });
+      return sendJson(response, error.status || 401, { error: "Не удалось подключить AniList: " + error.message });
     }
   }
 
