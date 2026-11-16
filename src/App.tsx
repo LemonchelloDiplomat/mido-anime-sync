@@ -399,12 +399,10 @@ function App() {
       setImportSnapshot(validated);
       setImportFormat(isMyAnimeListXml ? "MyAnimeList XML" : `JSON v${validated.schemaVersion}`);
       setImportAnalysis(analysis);
-      setImportSelections(createInitialImportSelections(analysis));
       setError("");
     } catch (err) {
       setImportSnapshot(null);
       setImportAnalysis(null);
-      setImportSelections({});
       setImportFormat("");
 
       setError(
@@ -882,8 +880,6 @@ function App() {
                   <strong>{importAnalysis.summary.matched}</strong>
                 </div>
 
-                <div className="import-summary-card review">
-                </div>
               </div>
 
               <div className="import-file-info">
