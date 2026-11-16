@@ -577,7 +577,15 @@ function App() {
       const remoteSnapshot = provider === "mal"
         ? parseMyAnimeListApiList(payload.data)
         : parseAniListAccountList(payload.data, payload.scoreFormat as AniListScoreFormat);
-      const localItems = await repository.getAll();
+      const baseItems = await repository.getAll();
+      const providerSource = provider === "mal" ? "myanimelist" : "anilist";
+      const localItems = await Promise.all(baseItems.map(async (item) => {
+        const sourceEntries = await repository.getSourceEntries(item.anime.id);
+        return {
+          ...item,
+          baseline: sourceEntries.find((entry) => entry.source === providerSource),
+        };
+      }));
       const plan = createBidirectionalSyncPlan(localItems, remoteSnapshot, provider);
 
       const remoteCreates = [...plan.remoteCreates];
@@ -693,6 +701,33 @@ function App() {
         } catch (err) {
           failures.push(change.animeId + " (локальное обновление: " + (err instanceof Error ? err.message : "ошибка") + ")");
         }
+      }
+
+      // Refresh the provider snapshot and persist it as the next three-way merge baseline.
+      // This also makes the operation safe to retry after partial remote failures.
+      try {
+        const refreshedPayload = await fetchAccountList(provider);
+        const refreshedSnapshot = provider === "mal"
+          ? parseMyAnimeListApiList(refreshedPayload.data)
+          : parseAniListAccountList(refreshedPayload.data, refreshedPayload.scoreFormat as AniListScoreFormat);
+        const canonicalByExternalId = new Map<string, string>();
+        for (const item of [...localItems, ...localCreates.map((change) => ({ ...change, entry: change.entry }))]) {
+          const externalId = item.anime.externalIds[providerSource === "myanimelist" ? "myanimelist" : "anilist"];
+          if (externalId) canonicalByExternalId.set(externalId, item.anime.id);
+        }
+        for (const remoteAnime of refreshedSnapshot.anime) {
+          const externalId = remoteAnime.externalIds[providerSource];
+          const remoteEntry = refreshedSnapshot.entries.find((entry) => entry.animeId === remoteAnime.id);
+          const canonicalId = externalId ? canonicalByExternalId.get(externalId) : undefined;
+          if (!remoteEntry || !canonicalId) continue;
+          await repository.saveSourceEntry({
+            ...remoteEntry,
+            animeId: canonicalId,
+            source: providerSource,
+          });
+        }
+      } catch (err) {
+        failures.push("Не удалось обновить базовый снимок сервиса: " + (err instanceof Error ? err.message : "ошибка"));
       }
 
       await refreshLibrary();
