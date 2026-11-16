@@ -171,7 +171,7 @@ export function createBidirectionalSyncPlan(
     const remoteDiffers = fields.some((field) => remote.entry[field] !== desired[field]);
 
     if (localDiffers) {
-      plan.localUpdates.push({ animeId: local.anime.id, entry: cloneEntry(desired, local.anime.id) });
+      plan.localUpdates.push({ animeId: local.anime.id, entry: { ...cloneEntry(desired, local.anime.id), source: provider === "mal" ? "myanimelist" : "anilist" } });
     }
     if (remoteDiffers) {
       plan.remoteUpdates.push({ externalId, entry: cloneEntry(desired, local.anime.id) });
