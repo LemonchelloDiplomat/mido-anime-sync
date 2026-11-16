@@ -98,6 +98,32 @@ afterEach(() => {
 });
 
 describe("BrowserAnimeRepository merge", () => {
+  it("saves provider baselines as one atomic batch", async () => {
+    const repo = await createRepository();
+    await repo.saveAnime(makeAnime("one"));
+    await repo.saveAnime(makeAnime("two"));
+
+    await repo.saveSourceEntries([
+      makeEntry("one", 3, "2026-11-15T12:00:00.000Z"),
+      makeEntry("two", 5, "2026-11-15T12:00:00.000Z"),
+    ]);
+
+    expect(await repo.getSourceEntries("one")).toHaveLength(1);
+    expect(await repo.getSourceEntries("two")).toHaveLength(1);
+  });
+
+  it("rolls back the whole baseline batch if one anime is missing", async () => {
+    const repo = await createRepository();
+    await repo.saveAnime(makeAnime("exists"));
+
+    await expect(repo.saveSourceEntries([
+      makeEntry("exists", 3, "2026-11-15T12:00:00.000Z"),
+      makeEntry("missing", 5, "2026-11-15T12:00:00.000Z"),
+    ])).rejects.toThrow("Unknown animeId: missing");
+
+    expect(await repo.getSourceEntries("exists")).toHaveLength(0);
+  });
+
   it("preserves existing anime and adds new anime", async () => {
     const repo = await createRepository();
 
