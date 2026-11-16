@@ -593,12 +593,21 @@ function App() {
                 ? remoteSnapshot.entries.find((entry) => entry.animeId === remoteAnime.id)
                 : undefined;
             })()
-          : await repository.getEntry(operation.animeId);
+          : (await repository.getSourceEntries(operation.animeId)).find(
+              (entry) => entry.source === operation.entry.source,
+            );
+        // MAL stores integer scores from 1 to 10, so compare against its
+        // normalized 0-100 representation rather than the pre-rounded target.
+        const expectedScore = provider === "mal"
+          ? operation.entry.score === null || operation.entry.score === 0
+            ? null
+            : Math.max(10, Math.min(100, Math.round(operation.entry.score / 10) * 10))
+          : operation.entry.score;
         const matchesTarget = Boolean(
           actualEntry &&
           actualEntry.status === operation.entry.status &&
           actualEntry.progress === operation.entry.progress &&
-          actualEntry.score === operation.entry.score &&
+          actualEntry.score === expectedScore &&
           (provider === "mal" || actualEntry.favorite === operation.entry.favorite),
         );
         if (matchesTarget) {
@@ -715,6 +724,7 @@ function App() {
         window.alert(
           "Синхронизация завершена без изменений.\n" +
           "Без изменений: " + plan.unchanged +
+          "\nВосстановлено по журналу: " + recoveredOperations +
           "\nКонфликтных полей: " + plan.conflicts.length +
           "\nПропущено записей без внешнего ID: " + plan.skippedWithoutExternalId +
           baselineMessage,
