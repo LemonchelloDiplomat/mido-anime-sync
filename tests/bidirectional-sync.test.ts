@@ -161,5 +161,45 @@ describe("bidirectional sync planner", () => {
       "mal",
     )).toThrow(/несколько аниме имеют один внешний ID/);
   });
+  it("does not repeatedly sync a local MAL score that rounds to the stored value", () => {
+    const localAnime = anime("local:10");
+    const baseline = entry(localAnime.id, "myanimelist", "2026-11-16T10:00:00.000Z", { score: 80 });
+    const plan = createBidirectionalSyncPlan(
+      [{ anime: localAnime, entry: entry(localAnime.id, "local", "2026-11-17T10:00:00.000Z", { score: 84 }), baseline }],
+      remoteSnapshot([anime("mal:10")], [entry("mal:10", "myanimelist", "2026-11-16T10:00:00.000Z", { score: 80 })]),
+      "mal",
+    );
+    expect(plan.remoteUpdates).toHaveLength(0);
+    expect(plan.localUpdates).toHaveLength(0);
+    expect(plan.conflicts).toHaveLength(0);
+    expect(plan.unchanged).toBe(1);
+  });
+
+  it("uses MAL score precision on the first sync without creating a false conflict", () => {
+    const localAnime = anime("local:10");
+    const plan = createBidirectionalSyncPlan(
+      [{ anime: localAnime, entry: entry(localAnime.id, "local", "2026-11-17T10:00:00.000Z", { score: 84 }) }],
+      remoteSnapshot([anime("mal:10")], [entry("mal:10", "myanimelist", "2026-11-17T10:00:00.000Z", { score: 80 })]),
+      "mal",
+    );
+    expect(plan.conflicts).toHaveLength(0);
+    expect(plan.remoteUpdates).toHaveLength(0);
+    expect(plan.localUpdates).toHaveLength(0);
+    expect(plan.unchanged).toBe(1);
+  });
+
+  it("detects a real local MAL score change at the provider's precision", () => {
+    const localAnime = anime("local:10");
+    const baseline = entry(localAnime.id, "myanimelist", "2026-11-15T10:00:00.000Z", { score: 80 });
+    const plan = createBidirectionalSyncPlan(
+      [{ anime: localAnime, entry: entry(localAnime.id, "local", "2026-11-17T10:00:00.000Z", { score: 86 }), baseline }],
+      remoteSnapshot([anime("mal:10")], [entry("mal:10", "myanimelist", "2026-11-16T10:00:00.000Z", { score: 80 })]),
+      "mal",
+    );
+    expect(plan.conflicts).toHaveLength(0);
+    expect(plan.remoteUpdates).toHaveLength(1);
+    expect(plan.remoteUpdates[0]?.entry.score).toBe(86);
+  });
+
 });
 
