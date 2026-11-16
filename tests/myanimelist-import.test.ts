@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseMyAnimeListXml } from "../src/services/myanimelist-import.js";
+import { parseMyAnimeListXml, readMyAnimeListExport } from "../src/services/myanimelist-import.js";
 
 const sample = `<?xml version="1.0" encoding="UTF-8"?>
 <myanimelist>
@@ -115,5 +115,20 @@ describe("MyAnimeList XML importer", () => {
     expect(() => parseMyAnimeListXml(
       "<myanimelist><anime><series_animedb_id>1</series_animedb_id><series_title>A</series_title><my_status>1</my_status></anime><anime><series_animedb_id>1</series_animedb_id><series_title>B</series_title><my_status>2</my_status></anime></myanimelist>",
     )).toThrow(/повторяется ID/);
+  });
+});
+
+describe("MyAnimeList export file reader", () => {
+  it("reads the default gzip-compressed XML export without manual extraction", async () => {
+    const compressedStream = new Blob([sample]).stream().pipeThrough(new CompressionStream("gzip"));
+    const compressedBlob = await new Response(compressedStream).blob();
+    const file = Object.assign(compressedBlob, { name: "animelist_test.xml.gz" });
+
+    await expect(readMyAnimeListExport(file)).resolves.toBe(sample);
+  });
+
+  it("reads plain XML files unchanged", async () => {
+    const file = Object.assign(new Blob([sample]), { name: "animelist_test.xml" });
+    await expect(readMyAnimeListExport(file)).resolves.toBe(sample);
   });
 });
