@@ -850,9 +850,10 @@ function App() {
         });
         try {
           if (change.kind === "create") {
-            await repository.saveAnime(change.anime);
+            await repository.saveAnimeWithEntry(change.anime, change.entry);
+          } else {
+            await repository.saveEntry(change.entry);
           }
-          await repository.saveEntry(change.entry);
         } catch (err) {
           const message = err instanceof Error ? err.message : "ошибка";
           await repository.updateSyncOperation(operation.id, {
