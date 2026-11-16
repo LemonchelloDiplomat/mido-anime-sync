@@ -452,6 +452,43 @@ export class BrowserAnimeRepository {
     await this.db.put("anime", structuredClone(anime));
   }
 
+  /**
+   * Adds catalog metadata to an existing local anime record.
+   * The local ID and all personal watch-list entries remain untouched.
+   */
+  async updateAnimeMetadata(
+    animeId: string,
+    metadata: AnimeIdentity,
+  ): Promise<void> {
+    const transaction = this.db.transaction("anime", "readwrite");
+    const store = transaction.objectStore("anime");
+    const existing = await store.get(animeId);
+
+    if (!existing) {
+      transaction.abort();
+      throw new Error(`Unknown animeId: ${animeId}`);
+    }
+
+    for (const [service, incomingId] of Object.entries(metadata.externalIds)) {
+      const existingId =
+        existing.externalIds[service as keyof AnimeIdentity["externalIds"]];
+      if (existingId && incomingId && existingId !== incomingId) {
+        transaction.abort();
+        throw new Error(
+          `Catalog metadata ID conflict for ${service}: ${existingId} vs ${incomingId}`,
+        );
+      }
+    }
+
+    const merged = mergeAnimeIdentity(existing, {
+      ...structuredClone(metadata),
+      id: animeId,
+    });
+
+    await store.put(merged);
+    await transaction.done;
+  }
+
   async saveEntry(entry: AnimeListEntry): Promise<void> {
     await this.saveSourceEntry(entry);
   }
