@@ -175,6 +175,12 @@ function mergeAnimeForReconciliation(
     ...(year !== undefined ? { year } : {}),
     ...(format !== undefined ? { format } : {}),
     ...(episodes !== undefined ? { episodes } : {}),
+    ...(genres.length > 0 ? { genres } : {}),
+    ...(ageRating !== undefined ? { ageRating } : {}),
+    ...(posterUrl !== undefined ? { posterUrl } : {}),
+    ...(averageScore !== undefined ? { averageScore } : {}),
+    ...(startDate !== undefined ? { startDate } : {}),
+    ...(releaseStatus !== undefined ? { releaseStatus } : {}),
   };
 }
 
