@@ -6,20 +6,20 @@
   <p id="message">Проверяем ответ AniList.</p>
   <script>
     (async () => {
-      const params = new URLSearchParams(location.hash.slice(1));
-      const token = params.get("access_token");
+      const params = new URLSearchParams(location.search);
+      const code = params.get("code");
       const state = params.get("state");
       const error = params.get("error");
       const message = document.getElementById("message");
-      if (error || !token || !state) {
-        message.textContent = "AniList не вернул токен. Вернись в приложение и повтори подключение.";
+      if (error || !code || !state) {
+        message.textContent = params.get("error_description") || "AniList не вернул код авторизации. Вернись в приложение и повтори подключение.";
         return;
       }
       try {
         const result = await fetch("/api/auth/anilist/token", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ accessToken: token, expiresIn: Number(params.get("expires_in") || 0), state })
+          body: JSON.stringify({ code, state })
         });
         const payload = await result.json();
         if (!result.ok) throw new Error(payload.error || "Не удалось сохранить токен.");
