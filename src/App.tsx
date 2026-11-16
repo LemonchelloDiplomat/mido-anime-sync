@@ -160,6 +160,12 @@ function App() {
   const [integrationStatusLoading, setIntegrationStatusLoading] = useState(false);
   const [integrationStatusError, setIntegrationStatusError] = useState("");
   const [accountSyncing, setAccountSyncing] = useState<"mal" | "anilist" | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyOperations, setHistoryOperations] = useState<SyncOperation[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | "mal" | "anilist">("all");
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<"all" | SyncOperation["status"]>("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -202,6 +208,24 @@ function App() {
       openedRepository?.close();
     };
   }, []);
+
+  useEffect(() => {
+    if (!historyOpen || !repository) return;
+    let active = true;
+    setHistoryLoading(true);
+    setHistoryError("");
+    void repository.getSyncOperations()
+      .then((operations) => {
+        if (active) setHistoryOperations(operations);
+      })
+      .catch((err: unknown) => {
+        if (active) setHistoryError(err instanceof Error ? err.message : "Не удалось загрузить историю синхронизации.");
+      })
+      .finally(() => {
+        if (active) setHistoryLoading(false);
+      });
+    return () => { active = false; };
+  }, [historyOpen, repository]);
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -1184,6 +1208,60 @@ function App() {
 
   const favorites = library.filter((item) => item.entry?.favorite);
 
+  const filteredHistoryOperations = historyOperations.filter((operation) =>
+    (historyProviderFilter === "all" || operation.provider === historyProviderFilter) &&
+    (historyStatusFilter === "all" || operation.status === historyStatusFilter),
+  );
+  const historySessions = useMemo(() => {
+    const sessions = new Map<string, SyncOperation[]>();
+    for (const operation of filteredHistoryOperations) {
+      const current = sessions.get(operation.sessionId) ?? [];
+      current.push(operation);
+      sessions.set(operation.sessionId, current);
+    }
+    return [...sessions.entries()]
+      .map(([sessionId, operations]) => ({
+        sessionId,
+        operations: operations.sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+        createdAt: operations.reduce(
+          (earliest, operation) => operation.createdAt < earliest ? operation.createdAt : earliest,
+          operations[0]?.createdAt ?? "",
+        ),
+      }))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [filteredHistoryOperations]);
+
+  function formatHistoryDate(value: string) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime())
+      ? value
+      : date.toLocaleString("ru-RU", { dateStyle: "medium", timeStyle: "short" });
+  }
+
+  function historyStatusLabel(status: SyncOperation["status"]) {
+    return ({
+      pending: "Ожидает",
+      in_progress: "Выполняется",
+      succeeded: "Успешно",
+      failed: "Ошибка",
+    })[status];
+  }
+
+  function historyAnimeTitle(operation: SyncOperation) {
+    const anime = operation.anime ?? library.find((item) => item.anime.id === operation.animeId)?.anime;
+    return anime?.titles.english ?? anime?.titles.romaji ?? anime?.titles.native ?? `Аниме ID: ${operation.animeId}`;
+  }
+
+  function refreshHistory() {
+    if (!repository) return;
+    setHistoryLoading(true);
+    setHistoryError("");
+    void repository.getSyncOperations()
+      .then(setHistoryOperations)
+      .catch((err: unknown) => setHistoryError(err instanceof Error ? err.message : "Не удалось обновить историю."))
+      .finally(() => setHistoryLoading(false));
+  }
+
   return (
     <div className="app">
       <aside className="sidebar">
@@ -1198,17 +1276,17 @@ function App() {
         <div className="menu-label">МЕНЮ</div>
 
         <nav className="navigation">
-          <button className="nav-item active">
+          <button className={"nav-item " + (!historyOpen && !settingsOpen ? "active" : "")} onClick={() => { setHistoryOpen(false); setSettingsOpen(false); }}>
             ▦ <span>Главная</span>
           </button>
           <button className="nav-item" onClick={() => setFilters((current) => ({ ...current, status: "ALL" }))}>
             ▤ <span>Моя библиотека</span>
           </button>
-          <button className={"nav-item " + (settingsOpen ? "active" : "")} onClick={() => setSettingsOpen((value) => !value)}>
+          <button className={"nav-item " + (settingsOpen ? "active" : "")} onClick={() => { setHistoryOpen(false); setSettingsOpen((value) => !value); }}>
             ⇄ <span>Подключения</span>
           </button>
-          <button className="nav-item" disabled>
-            ◷ <span>История</span>
+          <button className={"nav-item " + (historyOpen ? "active" : "")} onClick={() => { setSettingsOpen(false); setHistoryOpen(true); }}>
+            ◷ <span>История синхронизации</span>
           </button>
         </nav>
 
@@ -1236,7 +1314,7 @@ function App() {
       <main className="main">
         <header className="topbar">
           <div className="breadcrumb">
-            Рабочее пространство <span>/</span> Главная
+            Рабочее пространство <span>/</span> {historyOpen ? "История синхронизации" : settingsOpen ? "Подключения" : "Главная"}
           </div>
           <button className="search-launch" onClick={() => setSearchPageOpen(true)} aria-label="Открыть поиск" title="Поиск">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1322,6 +1400,116 @@ function App() {
               </div>
             </section>
           )}
+          {historyOpen ? (
+            <section className="sync-history-page">
+              <div className="history-heading">
+                <div>
+                  <div className="eyebrow">SYNC ACTIVITY</div>
+                  <h1>История синхронизации</h1>
+                  <p>Все операции, которые приложение записало в журнал перед изменением библиотеки или аккаунта</p>
+                </div>
+                <button className="secondary-button" type="button" onClick={refreshHistory} disabled={historyLoading || !repository}>
+                  {historyLoading ? "Обновляем..." : "↻ Обновить"}
+                </button>
+              </div>
+
+              {historyError && <div className="error-message" role="alert">{historyError}</div>}
+
+              <div className="history-overview">
+                <article><span>Всего операций</span><strong>{historyOperations.length}</strong></article>
+                <article><span>Успешно</span><strong className="history-count-success">{historyOperations.filter((item) => item.status === "succeeded").length}</strong></article>
+                <article><span>Ожидают / выполняются</span><strong className="history-count-pending">{historyOperations.filter((item) => item.status === "pending" || item.status === "in_progress").length}</strong></article>
+                <article><span>Ошибки</span><strong className="history-count-failed">{historyOperations.filter((item) => item.status === "failed").length}</strong></article>
+              </div>
+
+              <div className="history-toolbar">
+                <label>
+                  Сервис
+                  <select className="filter-select" value={historyProviderFilter} onChange={(event) => setHistoryProviderFilter(event.target.value as typeof historyProviderFilter)}>
+                    <option value="all">Все сервисы</option>
+                    <option value="mal">MyAnimeList</option>
+                    <option value="anilist">AniList</option>
+                  </select>
+                </label>
+                <label>
+                  Статус
+                  <select className="filter-select" value={historyStatusFilter} onChange={(event) => setHistoryStatusFilter(event.target.value as typeof historyStatusFilter)}>
+                    <option value="all">Все статусы</option>
+                    <option value="pending">Ожидает</option>
+                    <option value="in_progress">Выполняется</option>
+                    <option value="succeeded">Успешно</option>
+                    <option value="failed">Ошибка</option>
+                  </select>
+                </label>
+                <span>{filteredHistoryOperations.length} операций · {historySessions.length} сеансов</span>
+              </div>
+
+              {historyLoading && historyOperations.length === 0 ? (
+                <div className="empty-state"><div className="empty-icon">◷</div><h3>Загружаем историю</h3><p>Читаем журнал из локальной базы данных.</p></div>
+              ) : historySessions.length === 0 ? (
+                <div className="empty-state">
+                  <div className="empty-icon">◷</div>
+                  <h3>{historyOperations.length === 0 ? "История пока пуста" : "Ничего не найдено"}</h3>
+                  <p>{historyOperations.length === 0 ? "Когда ты запустишь синхронизацию с MAL или AniList, операции появятся здесь." : "Измени фильтры, чтобы увидеть другие операции."}</p>
+                </div>
+              ) : (
+                <div className="history-session-list">
+                  {historySessions.map((session) => {
+                    const succeeded = session.operations.filter((item) => item.status === "succeeded").length;
+                    const failed = session.operations.filter((item) => item.status === "failed").length;
+                    const pending = session.operations.filter((item) => item.status === "pending" || item.status === "in_progress").length;
+                    const providers = [...new Set(session.operations.map((item) => item.provider))];
+                    return (
+                      <section className="history-session" key={session.sessionId}>
+                        <header className="history-session-header">
+                          <div>
+                            <span className="history-session-date">{formatHistoryDate(session.createdAt)}</span>
+                            <h2>{providers.map((provider) => provider === "mal" ? "MyAnimeList" : "AniList").join(" + ")}</h2>
+                            <small>{session.sessionId}</small>
+                          </div>
+                          <div className="history-session-summary">
+                            <span className="history-count-success">✓ {succeeded}</span>
+                            {pending > 0 && <span className="history-count-pending">◷ {pending}</span>}
+                            {failed > 0 && <span className="history-count-failed">! {failed}</span>}
+                            <span>{session.operations.length} всего</span>
+                          </div>
+                        </header>
+                        <div className="history-operation-list">
+                          {session.operations.map((operation) => (
+                            <details className={"history-operation " + operation.status} key={operation.id}>
+                              <summary>
+                                <span className={"history-status-dot " + operation.status} />
+                                <span className="history-operation-title">
+                                  <strong>{historyAnimeTitle(operation)}</strong>
+                                  <small>
+                                    {operation.direction === "remote" ? "Отправка в сервис" : "Запись в библиотеку"}
+                                    {" · "}{operation.kind === "create" ? "Создание" : "Обновление"}
+                                    {" · "}{operation.provider === "mal" ? "MAL" : "AniList"}
+                                  </small>
+                                </span>
+                                <span className={"history-status-label " + operation.status}>{historyStatusLabel(operation.status)}</span>
+                                <span className="history-operation-time">{formatHistoryDate(operation.updatedAt)}</span>
+                              </summary>
+                              <div className="history-operation-details">
+                                <div><span>Статус просмотра</span><strong>{statusLabels[operation.entry.status]}</strong></div>
+                                <div><span>Прогресс</span><strong>{operation.entry.progress} эп.</strong></div>
+                                <div><span>Оценка</span><strong>{operation.entry.score == null || operation.entry.score === 0 ? "Не оценено" : operation.entry.score + " / 100"}</strong></div>
+                                {operation.provider === "anilist" && <div><span>Избранное</span><strong>{operation.entry.favorite ? "Да" : "Нет"}</strong></div>}
+                                {operation.externalId && <div><span>Внешний ID</span><strong>{operation.externalId}</strong></div>}
+                                <div><span>Попыток</span><strong>{operation.attempts}</strong></div>
+                                {operation.error && <div className="history-operation-error"><span>Ошибка</span><strong>{operation.error}</strong></div>}
+                              </div>
+                            </details>
+                          ))}
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          ) : (
+            <>
           <section className="welcome">
             <div>
               <div className="eyebrow">ТВОЯ АНИМЕ-ВСЕЛЕННАЯ</div>
@@ -1733,6 +1921,8 @@ function App() {
             <span>MidaHoshi Anime Sync</span>
             <span>Твоя библиотека. Твои правила.</span>
           </footer>
+            </>
+          )}
         </div>
       </main>
 
