@@ -21,6 +21,9 @@ const VALID_STATUSES = [
   "REWATCHING",
 ] as const;
 
+const VALID_AGE_RATINGS = ["G", "PG", "PG13", "R17", "R+"] as const;
+const VALID_RELEASE_STATUSES = ["ONGOING", "ANNOUNCED", "RELEASED"] as const;
+
 const VALID_FORMATS = [
   "TV",
   "MOVIE",
@@ -84,6 +87,45 @@ function validateAnimeList(value: unknown): AnimeIdentity[] {
       !VALID_FORMATS.includes(item.format as (typeof VALID_FORMATS)[number])
     ) {
       throw new Error(`Invalid anime format: ${item.id}`);
+    }
+
+    if (item.genres !== undefined && (
+      !Array.isArray(item.genres) ||
+      item.genres.some((genre) => typeof genre !== "string" || genre.trim().length === 0)
+    )) {
+      throw new Error(`Invalid anime genres: ${item.id}`);
+    }
+
+    if (item.ageRating !== undefined && item.ageRating !== null &&
+      !VALID_AGE_RATINGS.includes(item.ageRating as (typeof VALID_AGE_RATINGS)[number])) {
+      throw new Error(`Invalid anime age rating: ${item.id}`);
+    }
+
+    if (item.posterUrl !== undefined && item.posterUrl !== null) {
+      let validPosterUrl = false;
+      try {
+        const url = new URL(item.posterUrl);
+        validPosterUrl = url.protocol === "https:" || url.protocol === "http:";
+      } catch {
+        validPosterUrl = false;
+      }
+      if (!validPosterUrl) throw new Error(`Invalid anime poster URL: ${item.id}`);
+    }
+
+    if (item.averageScore !== undefined && item.averageScore !== null &&
+      (!Number.isFinite(item.averageScore) || item.averageScore < 0 || item.averageScore > 10)) {
+      throw new Error(`Invalid anime average score: ${item.id}`);
+    }
+
+    if (item.startDate !== undefined && item.startDate !== null &&
+      (!/^\\d{4}-\\d{2}-\\d{2}$/.test(item.startDate) ||
+       !Number.isFinite(Date.parse(`${item.startDate}T00:00:00Z`)))) {
+      throw new Error(`Invalid anime start date: ${item.id}`);
+    }
+
+    if (item.releaseStatus !== undefined &&
+      !VALID_RELEASE_STATUSES.includes(item.releaseStatus as (typeof VALID_RELEASE_STATUSES)[number])) {
+      throw new Error(`Invalid anime release status: ${item.id}`);
     }
 
     if (ids.has(item.id)) {
