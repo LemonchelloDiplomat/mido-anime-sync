@@ -588,6 +588,30 @@ function App() {
       }));
       const plan = createBidirectionalSyncPlan(localItems, remoteSnapshot, provider);
 
+      async function saveProviderBaseline(
+        snapshot: AnimeSnapshot,
+        additionalItems: Array<{ anime: AnimeIdentity }> = [],
+      ) {
+        const canonicalByExternalId = new Map<string, string>();
+        for (const item of [...localItems, ...additionalItems]) {
+          const externalId = item.anime.externalIds[providerSource];
+          if (externalId) canonicalByExternalId.set(externalId, item.anime.id);
+        }
+        const baselines: AnimeListEntry[] = [];
+        for (const remoteAnime of snapshot.anime) {
+          const externalId = remoteAnime.externalIds[providerSource];
+          const remoteEntry = snapshot.entries.find((entry) => entry.animeId === remoteAnime.id);
+          const canonicalId = externalId ? canonicalByExternalId.get(externalId) : undefined;
+          if (!remoteEntry || !canonicalId) continue;
+          baselines.push({
+            ...remoteEntry,
+            animeId: canonicalId,
+            source: providerSource,
+          });
+        }
+        await repository.saveSourceEntries(baselines);
+      }
+
       const remoteCreates = [...plan.remoteCreates];
       const remoteUpdates = [...plan.remoteUpdates];
       const localCreates = [...plan.localCreates];
@@ -642,11 +666,28 @@ function App() {
       const remoteChanges = remoteCreates.length + remoteUpdates.length;
       const localChanges = localCreates.length + localUpdates.length;
       if (remoteChanges === 0 && localChanges === 0) {
+        const unresolved = conflictAnimeIds.filter(
+          (id) => !resolvedConflictAnimeIds.has(id),
+        ).length;
+        let baselineMessage = "";
+        if (canAdvanceSyncBaseline(0, unresolved)) {
+          try {
+            // No writes were needed, so the first remote snapshot is still current.
+            await saveProviderBaseline(remoteSnapshot);
+            baselineMessage = "\\nБазовый снимок сервиса обновлён.";
+          } catch (err) {
+            baselineMessage = "\\nНе удалось обновить базовый снимок: " +
+              (err instanceof Error ? err.message : "ошибка");
+          }
+        } else {
+          baselineMessage = "\\nБазовый снимок не обновлён: остались пропущенные конфликты.";
+        }
         window.alert(
-          "Синхронизация завершена без изменений.\n" +
+          "Синхронизация завершена без изменений.\\n" +
           "Без изменений: " + plan.unchanged +
-          "\nКонфликтных полей: " + plan.conflicts.length +
-          "\nПропущено записей без внешнего ID: " + plan.skippedWithoutExternalId,
+          "\\nКонфликтных полей: " + plan.conflicts.length +
+          "\\nПропущено записей без внешнего ID: " + plan.skippedWithoutExternalId +
+          baselineMessage,
         );
         return;
       }
@@ -719,24 +760,10 @@ function App() {
           const refreshedSnapshot = provider === "mal"
             ? parseMyAnimeListApiList(refreshedPayload.data)
             : parseAniListAccountList(refreshedPayload.data, refreshedPayload.scoreFormat as AniListScoreFormat);
-          const canonicalByExternalId = new Map<string, string>();
-          for (const item of [...localItems, ...localCreates.map((change) => ({ ...change, entry: change.entry }))]) {
-            const externalId = item.anime.externalIds[providerSource];
-            if (externalId) canonicalByExternalId.set(externalId, item.anime.id);
-          }
-          const baselines: AnimeListEntry[] = [];
-          for (const remoteAnime of refreshedSnapshot.anime) {
-            const externalId = remoteAnime.externalIds[providerSource];
-            const remoteEntry = refreshedSnapshot.entries.find((entry) => entry.animeId === remoteAnime.id);
-            const canonicalId = externalId ? canonicalByExternalId.get(externalId) : undefined;
-            if (!remoteEntry || !canonicalId) continue;
-            baselines.push({
-              ...remoteEntry,
-              animeId: canonicalId,
-              source: providerSource,
-            });
-          }
-          await repository.saveSourceEntries(baselines);
+          await saveProviderBaseline(
+            refreshedSnapshot,
+            localCreates.map((change) => ({ anime: change.anime })),
+          );
         } catch (err) {
           failures.push("Не удалось обновить базовый снимок сервиса: " + (err instanceof Error ? err.message : "ошибка"));
         }
