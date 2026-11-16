@@ -259,15 +259,19 @@ function App() {
             ? { myanimelist: anime.externalIds.myanimelist }
             : {}),
         },
-        year: currentAnime?.year ?? anime.year,
-        format: currentAnime?.format ?? anime.format,
-        episodes: currentAnime?.episodes ?? anime.episodes,
+        year: currentAnime?.year ?? anime.year ?? null,
+        ...(currentAnime?.format ?? anime.format
+          ? { format: currentAnime?.format ?? anime.format! }
+          : {}),
+        episodes: currentAnime?.episodes ?? anime.episodes ?? null,
         genres: currentAnime?.genres?.length ? currentAnime.genres : anime.genres,
-        ageRating: currentAnime?.ageRating ?? anime.ageRating,
-        posterUrl: currentAnime?.posterUrl ?? anime.posterUrl,
-        averageScore: currentAnime?.averageScore ?? anime.averageScore,
-        startDate: currentAnime?.startDate ?? anime.startDate,
-        releaseStatus: currentAnime?.releaseStatus ?? anime.releaseStatus,
+        ageRating: currentAnime?.ageRating ?? anime.ageRating ?? null,
+        posterUrl: currentAnime?.posterUrl ?? anime.posterUrl ?? null,
+        averageScore: currentAnime?.averageScore ?? anime.averageScore ?? null,
+        startDate: currentAnime?.startDate ?? anime.startDate ?? null,
+        ...(currentAnime?.releaseStatus ?? anime.releaseStatus
+          ? { releaseStatus: currentAnime?.releaseStatus ?? anime.releaseStatus! }
+          : {}),
       };
 
       await repository.saveAnime(mergedAnime);
