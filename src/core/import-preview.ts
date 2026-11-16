@@ -18,6 +18,20 @@ export interface ImportPreview {
   };
 }
 
+function getExternalIdConflicts(
+  imported: AnimeIdentity,
+  existing: AnimeIdentity,
+): string[] {
+  return Object.entries(imported.externalIds)
+    .filter(([service, externalId]) => {
+      if (!externalId) return false;
+      const existingId =
+        existing.externalIds[service as keyof AnimeIdentity["externalIds"]];
+      return Boolean(existingId && existingId !== externalId);
+    })
+    .map(([service]) => service);
+}
+
 function getSharedExternalId(
   imported: AnimeIdentity,
   existing: AnimeIdentity,
@@ -76,6 +90,15 @@ export function createImportPreview(
     }
 
     const matchedAnime = exactMatches[0] ?? null;
+
+    if (matchedAnime) {
+      const conflicts = getExternalIdConflicts(imported, matchedAnime);
+      if (conflicts.length > 0) {
+        throw new Error(
+          `Нельзя объединить записи ${imported.id} и ${matchedAnime.id}: различаются внешние ID сервисов ${conflicts.join(", ")}.`,
+        );
+      }
+    }
 
     items.push({
       imported,
