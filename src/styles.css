@@ -1456,6 +1456,16 @@ button:disabled {
   justify-content: space-between;
   gap: 20px;
 }
+.history-heading-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.history-session-summary .secondary-button {
+  margin-left: 8px;
+  white-space: nowrap;
+}
 .history-heading h1 {
   margin: 10px 0 8px;
   font-size: 28px;
