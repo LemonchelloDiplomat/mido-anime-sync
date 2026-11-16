@@ -16,6 +16,7 @@ import { validateSnapshot } from "./storage/snapshot-validation.js";
 import { DEFAULT_LIBRARY_FILTERS, filterLibrary, type LibraryFilters } from "./core/library-filter.js";
 import { aniListMetadataProvider, fetchAniListAnimeDetails, getAniListMetadataCandidates, searchAniListAnime, type AniListAnimeDetails } from "./services/anilist.js";
 import { parseMyAnimeListXml, readMyAnimeListExport } from "./services/myanimelist-import.js";
+import { connectIntegration, disconnectIntegration, getIntegrationStatus, type IntegrationStatus } from "./services/integrations-api.js";
 
 import {
   createImportPreview,
@@ -149,6 +150,10 @@ function App() {
   const [metadataEnriching, setMetadataEnriching] = useState(false);
   const [metadataProgress, setMetadataProgress] = useState<MetadataEnrichmentProgress | null>(null);
   const [metadataEnrichmentError, setMetadataEnrichmentError] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus | null>(null);
+  const [integrationStatusLoading, setIntegrationStatusLoading] = useState(false);
+  const [integrationStatusError, setIntegrationStatusError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -191,6 +196,20 @@ function App() {
       openedRepository?.close();
     };
   }, []);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    let active = true;
+    setIntegrationStatusLoading(true);
+    setIntegrationStatusError("");
+    void getIntegrationStatus()
+      .then((status) => { if (active) setIntegrationStatus(status); })
+      .catch((err: unknown) => {
+        if (active) setIntegrationStatusError(err instanceof Error ? err.message : "Не удалось получить состояние подключений.");
+      })
+      .finally(() => { if (active) setIntegrationStatusLoading(false); });
+    return () => { active = false; };
+  }, [settingsOpen]);
 
   useEffect(() => {
     if (!searchPageOpen) return;
@@ -803,8 +822,8 @@ function App() {
           <button className="nav-item" onClick={() => setFilters((current) => ({ ...current, status: "ALL" }))}>
             ▤ <span>Моя библиотека</span>
           </button>
-          <button className="nav-item" disabled>
-            ⇄ <span>Синхронизация</span>
+          <button className={"nav-item " + (settingsOpen ? "active" : "")} onClick={() => setSettingsOpen((value) => !value)}>
+            ⇄ <span>Подключения</span>
           </button>
           <button className="nav-item" disabled>
             ◷ <span>История</span>
@@ -825,7 +844,7 @@ function App() {
         </nav>
 
         <div className="sidebar-bottom">
-          <button className="nav-item" disabled>
+          <button className={"nav-item " + (settingsOpen ? "active" : "")} onClick={() => setSettingsOpen((value) => !value)}>
             ⚙ <span>Настройки</span>
           </button>
           <div className="version">MidaHoshi Anime Sync v0.4</div>
@@ -850,6 +869,69 @@ function App() {
         </header>
 
         <div className="content">
+          {settingsOpen && (
+            <section className="integration-settings">
+              <div className="section-heading">
+                <div>
+                  <div className="eyebrow">ACCOUNT CONNECTIONS</div>
+                  <h2>Подключение аккаунтов</h2>
+                  <p>Авторизация проходит на официальных сайтах. Пароли от аккаунтов приложение не запрашивает.</p>
+                </div>
+                <button className="secondary-button" onClick={() => {
+                  setIntegrationStatusLoading(true);
+                  void getIntegrationStatus()
+                    .then(setIntegrationStatus)
+                    .catch((err: unknown) => setIntegrationStatusError(err instanceof Error ? err.message : "Не удалось обновить состояние."))
+                    .finally(() => setIntegrationStatusLoading(false));
+                }} disabled={integrationStatusLoading}>
+                  {integrationStatusLoading ? "Проверка..." : "Обновить"}
+                </button>
+              </div>
+              {integrationStatusError && <div className="error-message">{integrationStatusError}</div>}
+              {(["myanimelist", "anilist"] as const).map((provider) => {
+                const label = provider === "myanimelist" ? "MyAnimeList" : "AniList";
+                const status = integrationStatus?.[provider];
+                const routeProvider = provider === "myanimelist" ? "mal" : "anilist";
+                return (
+                  <article className="integration-provider" key={provider}>
+                    <div className="integration-provider-mark">{provider === "myanimelist" ? "MAL" : "AL"}</div>
+                    <div className="integration-provider-info">
+                      <h3>{label}</h3>
+                      <p>
+                        {integrationStatusLoading && !status
+                          ? "Проверяем подключение..."
+                          : !integrationStatus
+                            ? "Локальный API-сервер не отвечает."
+                            : !status?.configured
+                              ? "Нужно добавить Client ID в .env.local."
+                              : status.connected
+                                ? "Подключён аккаунт: " + (status.username || "пользователь")
+                                : "Приложение настроено, аккаунт ещё не подключён."}
+                      </p>
+                    </div>
+                    <div className={"integration-state " + (status?.connected ? "connected" : "")}>
+                      {status?.connected ? "Подключён" : status?.configured ? "Не подключён" : "Не настроен"}
+                    </div>
+                    {status?.connected ? (
+                      <button className="secondary-button" onClick={() => {
+                        void disconnectIntegration(routeProvider)
+                          .then(() => getIntegrationStatus())
+                          .then(setIntegrationStatus)
+                          .catch((err: unknown) => setIntegrationStatusError(err instanceof Error ? err.message : "Не удалось отключить аккаунт."));
+                      }}>Отключить</button>
+                    ) : (
+                      <button className="add-button" disabled={!status?.configured || integrationStatusLoading} onClick={() => connectIntegration(routeProvider)}>
+                        Подключить аккаунт
+                      </button>
+                    )}
+                  </article>
+                );
+              })}
+              <div className="integration-security-note">
+                <strong>Безопасность:</strong> токены сохраняются локально в зашифрованном виде. Не публикуй .env.local и папку .local-data.
+              </div>
+            </section>
+          )}
           <section className="welcome">
             <div>
               <div className="eyebrow">ТВОЯ АНИМЕ-ВСЕЛЕННАЯ</div>
@@ -907,14 +989,14 @@ function App() {
             <div className="sync-symbol">⇄</div>
             <div className="sync-info">
               <h3>Синхронизация библиотек</h3>
-              <p>Подключение внешних сервисов появится на следующем этапе.</p>
+              <p>Подключи MyAnimeList и AniList, чтобы читать и синхронизировать личные списки.</p>
             </div>
             <div className="sync-status">
               <span className="status-dot" />
               Локальная библиотека
             </div>
-            <button className="secondary-button" disabled>
-              Скоро →
+            <button className="secondary-button" onClick={() => setSettingsOpen(true)}>
+              Подключить →
             </button>
           </section>
 

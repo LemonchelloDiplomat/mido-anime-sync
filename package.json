@@ -6,8 +6,11 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "dev": "vite",
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "vite",
+    "dev:api": "node server/index.mjs",
     "build": "tsc --noEmit && vite build",
+    "start": "node server/index.mjs",
     "preview": "vite preview"
   },
   "devDependencies": {

@@ -1363,3 +1363,83 @@ button:disabled {
 .metadata-progress .metadata-progress-success {
   color: #9de4bd;
 }
+
+
+.integration-settings {
+  margin-bottom: 28px;
+  padding: 24px;
+  border: 1px solid #302b42;
+  border-radius: 16px;
+  background: linear-gradient(145deg, #1b1927, #171720);
+}
+.integration-settings .section-heading {
+  margin-bottom: 18px;
+}
+.integration-settings .section-heading h2 {
+  margin: 6px 0;
+}
+.integration-settings .section-heading p {
+  color: #a6a5b5;
+  font-size: 13px;
+  margin: 0;
+}
+.integration-provider {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 0;
+  border-top: 1px solid #302d3a;
+}
+.integration-provider-mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  background: linear-gradient(135deg, #8d6be8, #563bb2);
+}
+.integration-provider-info {
+  flex: 1;
+  min-width: 180px;
+}
+.integration-provider-info h3 {
+  margin: 0 0 5px;
+  font-size: 15px;
+}
+.integration-provider-info p {
+  margin: 0;
+  color: #a6a5b5;
+  font-size: 12px;
+}
+.integration-state {
+  color: #d6b66b;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.integration-state.connected {
+  color: #70d6a0;
+}
+.integration-security-note {
+  margin-top: 12px;
+  padding: 13px 15px;
+  border-radius: 10px;
+  background: #211f2c;
+  color: #aaa8ba;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.integration-security-note strong {
+  color: #d3c3ff;
+}
+@media (max-width: 1000px) {
+  .integration-provider {
+    flex-wrap: wrap;
+  }
+  .integration-provider-info {
+    flex-basis: calc(100% - 70px);
+  }
+}

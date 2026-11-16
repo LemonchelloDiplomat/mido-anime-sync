@@ -1,0 +1,401 @@
+import { createServer } from "node:http";
+import { randomBytes, createCipheriv, createDecipheriv } from "node:crypto";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+
+const ROOT = process.cwd();
+const DATA_DIR = path.join(ROOT, ".local-data");
+const TOKEN_FILE = path.join(DATA_DIR, "tokens.enc.json");
+const KEY_FILE = path.join(DATA_DIR, "local.key");
+const PORT = Number(process.env.PORT || 3001);
+const HOST = process.env.HOST || "127.0.0.1";
+const MAL_API = "https://api.myanimelist.net/v2";
+const MAL_OAUTH = "https://myanimelist.net/v1/oauth2";
+const ANILIST_GRAPHQL = "https://graphql.anilist.co";
+const sessions = new Map();
+
+async function loadLocalEnv() {
+  try {
+    const content = await fs.readFile(path.join(ROOT, ".env.local"), "utf8");
+    for (const line of content.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const separator = trimmed.indexOf("=");
+      if (separator < 1) continue;
+      const key = trimmed.slice(0, separator).trim();
+      const value = trimmed.slice(separator + 1).trim().replace(/^(['"])(.*)\1$/, "$2");
+      if (!(key in process.env)) process.env[key] = value;
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+}
+
+async function getEncryptionKey() {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  try {
+    const key = await fs.readFile(KEY_FILE);
+    if (key.length !== 32) throw new Error("Локальный ключ шифрования повреждён. Удали .local-data/local.key и подключи аккаунты заново.");
+    return key;
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    const key = randomBytes(32);
+    await fs.writeFile(KEY_FILE, key, { mode: 0o600, flag: "wx" });
+    try { await fs.chmod(KEY_FILE, 0o600); } catch {}
+    return key;
+  }
+}
+
+async function readTokens() {
+  try {
+    const envelope = JSON.parse(await fs.readFile(TOKEN_FILE, "utf8"));
+    if (envelope.version !== 1) throw new Error("Unknown token store version");
+    const key = await getEncryptionKey();
+    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(envelope.iv, "base64"));
+    decipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
+    const plain = Buffer.concat([
+      decipher.update(Buffer.from(envelope.data, "base64")),
+      decipher.final(),
+    ]);
+    return JSON.parse(plain.toString("utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return {};
+    throw new Error("Не удалось прочитать зашифрованные токены. Проверь папку .local-data.");
+  }
+}
+
+async function writeTokens(tokens) {
+  const key = await getEncryptionKey();
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify(tokens), "utf8"), cipher.final()]);
+  const envelope = { version: 1, iv: iv.toString("base64"), tag: cipher.getAuthTag().toString("base64"), data: encrypted.toString("base64") };
+  const temporary = TOKEN_FILE + ".tmp";
+  await fs.writeFile(temporary, JSON.stringify(envelope, null, 2), { mode: 0o600 });
+  await fs.rename(temporary, TOKEN_FILE);
+  try { await fs.chmod(TOKEN_FILE, 0o600); } catch {}
+}
+
+function sendJson(response, status, value) {
+  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
+  response.end(JSON.stringify(value));
+}
+
+function sendHtml(response, status, html) {
+  response.writeHead(status, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; connect-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+    "X-Content-Type-Options": "nosniff",
+  });
+  response.end(html);
+}
+
+async function readJson(request, maxBytes = 16384) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > maxBytes) throw new Error("Слишком большой запрос.");
+    chunks.push(chunk);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+}
+
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, options);
+  const text = await response.text();
+  let payload;
+  try { payload = text ? JSON.parse(text) : {}; } catch { payload = { message: text.slice(0, 500) }; }
+  if (!response.ok) {
+    const message = payload?.message || payload?.error_description || payload?.error || ("HTTP " + response.status);
+    const error = new Error(String(message));
+    error.status = response.status;
+    throw error;
+  }
+  return payload;
+}
+
+function getRedirectUri(provider) {
+  const configured = provider === "mal" ? process.env.MAL_REDIRECT_URI : process.env.ANILIST_REDIRECT_URI;
+  return configured || ("http://127.0.0.1:" + PORT + "/api/auth/" + provider + "/callback");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[char]);
+}
+
+async function exchangeMalCode(code, verifier, redirectUri) {
+  const form = new URLSearchParams({
+    client_id: process.env.MAL_CLIENT_ID,
+    grant_type: "authorization_code",
+    code,
+    code_verifier: verifier,
+    redirect_uri: redirectUri,
+  });
+  if (process.env.MAL_CLIENT_SECRET) form.set("client_secret", process.env.MAL_CLIENT_SECRET);
+  return fetchJson(MAL_OAUTH + "/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: form,
+  });
+}
+
+async function getMalAccessToken(tokens) {
+  const mal = tokens.mal;
+  if (!mal?.accessToken) throw new Error("MyAnimeList ещё не подключён.");
+  if (Number(mal.expiresAt) > Date.now() + 60000) return mal.accessToken;
+  if (!mal.refreshToken) throw new Error("Сессия MyAnimeList истекла. Подключи аккаунт заново.");
+  const form = new URLSearchParams({
+    client_id: process.env.MAL_CLIENT_ID,
+    grant_type: "refresh_token",
+    refresh_token: mal.refreshToken,
+  });
+  if (process.env.MAL_CLIENT_SECRET) form.set("client_secret", process.env.MAL_CLIENT_SECRET);
+  const refreshed = await fetchJson(MAL_OAUTH + "/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: form,
+  });
+  tokens.mal = {
+    ...mal,
+    accessToken: refreshed.access_token,
+    refreshToken: refreshed.refresh_token || mal.refreshToken,
+    expiresAt: Date.now() + Number(refreshed.expires_in || 0) * 1000,
+  };
+  await writeTokens(tokens);
+  return tokens.mal.accessToken;
+}
+
+async function malRequest(url, tokens) {
+  const accessToken = await getMalAccessToken(tokens);
+  return fetchJson(url, {
+    headers: {
+      "X-MAL-CLIENT-ID": process.env.MAL_CLIENT_ID,
+      Authorization: "Bearer " + accessToken,
+      Accept: "application/json",
+    },
+  });
+}
+
+async function anilistRequest(query, variables, token) {
+  const payload = await fetchJson(ANILIST_GRAPHQL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...(token ? { Authorization: "Bearer " + token } : {}),
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (payload.errors?.length) throw new Error(payload.errors[0]?.message || "Ошибка AniList GraphQL.");
+  return payload.data;
+}
+
+async function handleRequest(request, response) {
+  const url = new URL(request.url || "/", "http://" + (request.headers.host || "127.0.0.1"));
+  const method = request.method || "GET";
+
+  if (method === "GET" && url.pathname === "/api/health") {
+    return sendJson(response, 200, { ok: true, mode: "local", apiVersion: 1 });
+  }
+
+  if (method === "GET" && url.pathname === "/api/integrations/status") {
+    const tokens = await readTokens();
+    return sendJson(response, 200, {
+      server: { ok: true, mode: "local" },
+      myanimelist: {
+        configured: Boolean(process.env.MAL_CLIENT_ID),
+        connected: Boolean(tokens.mal?.refreshToken || tokens.mal?.accessToken),
+        username: tokens.mal?.username || null,
+      },
+      anilist: {
+        configured: Boolean(process.env.ANILIST_CLIENT_ID),
+        connected: Boolean(tokens.anilist?.accessToken && tokens.anilist.expiresAt > Date.now()),
+        username: tokens.anilist?.username || null,
+        expiresAt: tokens.anilist?.expiresAt || null,
+      },
+    });
+  }
+
+  if (method === "GET" && url.pathname === "/api/auth/mal/start") {
+    if (!process.env.MAL_CLIENT_ID) return sendJson(response, 400, { error: "Сначала добавь MAL_CLIENT_ID в .env.local." });
+    const state = randomBytes(24).toString("hex");
+    const verifier = randomBytes(48).toString("base64url").slice(0, 64);
+    const redirectUri = getRedirectUri("mal");
+    sessions.set("mal:" + state, { verifier, redirectUri, expiresAt: Date.now() + 600000 });
+    const authorize = new URL(MAL_OAUTH + "/authorize");
+    authorize.searchParams.set("response_type", "code");
+    authorize.searchParams.set("client_id", process.env.MAL_CLIENT_ID);
+    authorize.searchParams.set("code_challenge", verifier);
+    authorize.searchParams.set("code_challenge_method", "plain");
+    authorize.searchParams.set("state", state);
+    authorize.searchParams.set("redirect_uri", redirectUri);
+    response.writeHead(302, { Location: authorize.toString(), "Cache-Control": "no-store" });
+    return response.end();
+  }
+
+  if (method === "GET" && url.pathname === "/api/auth/mal/callback") {
+    const state = url.searchParams.get("state") || "";
+    const pending = sessions.get("mal:" + state);
+    sessions.delete("mal:" + state);
+    if (!pending || pending.expiresAt < Date.now()) {
+      return sendHtml(response, 400, "<h2>Авторизация MyAnimeList не завершена</h2><p>Состояние авторизации устарело. Повтори подключение из приложения.</p><a href='/'>Вернуться</a>");
+    }
+    if (url.searchParams.has("error")) {
+      return sendHtml(response, 400, "<h2>MyAnimeList отклонил подключение</h2><p>" + escapeHtml(url.searchParams.get("error_description") || url.searchParams.get("error")) + "</p><a href='/'>Вернуться</a>");
+    }
+    const code = url.searchParams.get("code");
+    if (!code) return sendHtml(response, 400, "<h2>MyAnimeList не вернул код авторизации.</h2><a href='/'>Вернуться</a>");
+    try {
+      const token = await exchangeMalCode(code, pending.verifier, pending.redirectUri);
+      const tokens = await readTokens();
+      tokens.mal = {
+        accessToken: token.access_token,
+        refreshToken: token.refresh_token,
+        expiresAt: Date.now() + Number(token.expires_in || 0) * 1000,
+        username: null,
+        userId: null,
+      };
+      await writeTokens(tokens);
+      const me = await malRequest(MAL_API + "/users/@me", tokens);
+      tokens.mal.username = me.name || null;
+      tokens.mal.userId = me.id || null;
+      await writeTokens(tokens);
+      return sendHtml(response, 200, "<h2>MyAnimeList подключён ✓</h2><p>Токен сохранён в зашифрованном локальном хранилище.</p><a href='/'>Вернуться в MidaHoshi Anime Sync</a>");
+    } catch (error) {
+      return sendHtml(response, 502, "<h2>Не удалось подключить MyAnimeList</h2><p>" + escapeHtml(error.message) + "</p><a href='/'>Вернуться</a>");
+    }
+  }
+
+  if (method === "GET" && url.pathname === "/api/auth/anilist/start") {
+    if (!process.env.ANILIST_CLIENT_ID) return sendJson(response, 400, { error: "Сначала добавь ANILIST_CLIENT_ID в .env.local." });
+    const state = randomBytes(24).toString("hex");
+    const redirectUri = getRedirectUri("anilist");
+    sessions.set("anilist:" + state, { redirectUri, expiresAt: Date.now() + 600000 });
+    const authorize = new URL("https://anilist.co/api/v2/oauth/authorize");
+    authorize.searchParams.set("client_id", process.env.ANILIST_CLIENT_ID);
+    authorize.searchParams.set("redirect_uri", redirectUri);
+    authorize.searchParams.set("response_type", "token");
+    authorize.searchParams.set("state", state);
+    response.writeHead(302, { Location: authorize.toString(), "Cache-Control": "no-store" });
+    return response.end();
+  }
+
+  if (method === "GET" && url.pathname === "/api/auth/anilist/callback") {
+    const html = String.raw\`<!doctype html><html lang="ru"><meta charset="utf-8"><title>AniList OAuth</title><body><h2>Подключаем AniList…</h2><p id="message">Проверяем ответ AniList.</p><script>
+      (async () => {
+        const params = new URLSearchParams(location.hash.slice(1));
+        const token = params.get("access_token");
+        const state = params.get("state");
+        const error = params.get("error");
+        const message = document.getElementById("message");
+        if (error || !token || !state) {
+          message.textContent = "AniList не вернул токен. Вернись в приложение и повтори подключение.";
+          return;
+        }
+        try {
+          const result = await fetch("/api/auth/anilist/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ accessToken: token, expiresIn: Number(params.get("expires_in") || 0), state })
+          });
+          const payload = await result.json();
+          if (!result.ok) throw new Error(payload.error || "Не удалось сохранить токен.");
+          message.textContent = "AniList подключён. Возвращаемся в приложение…";
+          location.replace("/");
+        } catch (error) {
+          message.textContent = error.message || "Не удалось подключить AniList.";
+        }
+      })();
+    </script></body></html>\`;
+    return sendHtml(response, 200, html);
+  }
+
+  if (method === "POST" && url.pathname === "/api/auth/anilist/token") {
+    const body = await readJson(request);
+    const state = String(body.state || "");
+    const pending = sessions.get("anilist:" + state);
+    sessions.delete("anilist:" + state);
+    if (!pending || pending.expiresAt < Date.now()) return sendJson(response, 400, { error: "Состояние авторизации AniList устарело. Повтори подключение." });
+    const accessToken = String(body.accessToken || "");
+    const expiresIn = Number(body.expiresIn);
+    if (accessToken.length < 20 || !Number.isFinite(expiresIn) || expiresIn <= 0) return sendJson(response, 400, { error: "AniList вернул некорректный токен." });
+    try {
+      const data = await anilistRequest("query { Viewer { id name } }", {}, accessToken);
+      const tokens = await readTokens();
+      tokens.anilist = { accessToken, expiresAt: Date.now() + expiresIn * 1000, username: data.Viewer.name, userId: data.Viewer.id };
+      await writeTokens(tokens);
+      return sendJson(response, 200, { ok: true });
+    } catch (error) {
+      return sendJson(response, 401, { error: "Не удалось проверить токен AniList: " + error.message });
+    }
+  }
+
+  if (method === "POST" && url.pathname === "/api/integrations/disconnect") {
+    const body = await readJson(request);
+    const provider = body.provider;
+    if (provider !== "mal" && provider !== "anilist") return sendJson(response, 400, { error: "Неизвестный сервис." });
+    const tokens = await readTokens();
+    delete tokens[provider];
+    await writeTokens(tokens);
+    return sendJson(response, 200, { ok: true });
+  }
+
+  if (method === "GET" && url.pathname === "/api/mal/list") {
+    if (!process.env.MAL_CLIENT_ID) return sendJson(response, 400, { error: "MyAnimeList API не настроен." });
+    const tokens = await readTokens();
+    try {
+      let next = MAL_API + "/users/@me/animelist?fields=list_status&limit=1000&nsfw=true";
+      const items = [];
+      let pages = 0;
+      while (next && pages < 100) {
+        const parsed = new URL(next);
+        if (parsed.hostname !== "api.myanimelist.net" || !parsed.pathname.startsWith("/v2/users/")) throw new Error("MyAnimeList вернул недопустимую ссылку пагинации.");
+        const page = await malRequest(parsed.toString(), tokens);
+        items.push(...(page.data || []));
+        next = page.paging?.next || null;
+        pages += 1;
+      }
+      if (next) throw new Error("Список MyAnimeList слишком большой: достигнут лимит страниц.");
+      return sendJson(response, 200, { data: items, count: items.length });
+    } catch (error) {
+      return sendJson(response, error.status || 502, { error: error.message });
+    }
+  }
+
+  if (method === "GET" && url.pathname === "/api/anilist/list") {
+    const tokens = await readTokens();
+    if (!tokens.anilist?.accessToken) return sendJson(response, 401, { error: "AniList ещё не подключён." });
+    const query = "query UserAnimeList($userId: Int!) { MediaListCollection(userId: $userId, type: ANIME) { lists { name isCustomList entries { id status score progress repeat updatedAt startedAt { year month day } completedAt { year month day } media { id idMal title { romaji english native } synonyms format status episodes seasonYear startDate { year month day } averageScore genres coverImage { extraLarge large } } } } } }";
+    try {
+      const data = await anilistRequest(query, { userId: tokens.anilist.userId }, tokens.anilist.accessToken);
+      const lists = data.MediaListCollection?.lists || [];
+      const entries = lists.flatMap((list) => list.entries || []);
+      return sendJson(response, 200, { lists, data: entries, count: entries.length });
+    } catch (error) {
+      return sendJson(response, error.status || 502, { error: error.message });
+    }
+  }
+
+  return sendJson(response, 404, { error: "Маршрут не найден." });
+}
+
+await loadLocalEnv();
+const server = createServer((request, response) => {
+  void handleRequest(request, response).catch((error) => {
+    console.error("[api]", error);
+    if (!response.headersSent) sendJson(response, 500, { error: error.message || "Внутренняя ошибка сервера." });
+    else response.destroy();
+  });
+});
+server.listen(PORT, HOST, () => {
+  console.log("MidaHoshi API: http://" + HOST + ":" + PORT);
+  console.log("MyAnimeList: " + (process.env.MAL_CLIENT_ID ? "configured" : "not configured"));
+  console.log("AniList: " + (process.env.ANILIST_CLIENT_ID ? "configured" : "not configured"));
+});
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => server.close(() => process.exit(0)));
+}
