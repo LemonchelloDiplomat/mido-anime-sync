@@ -508,6 +508,29 @@ function App() {
     }, 1000);
   }
 
+  function downloadSyncHistory(operations: SyncOperation[]) {
+    const exportedAt = new Date().toISOString();
+    const payload = {
+      format: "midahoshi-sync-history",
+      schemaVersion: 1,
+      exportedAt,
+      operations,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const timestamp = exportedAt.replace(/[:.]/g, "-");
+
+    link.href = url;
+    link.download = `midahoshi-sync-history-${timestamp}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   async function handleExport() {
     if (!repository) return;
 
@@ -941,6 +964,13 @@ function App() {
       setIntegrationStatusError(err instanceof Error ? err.message : "Не удалось выполнить двустороннюю синхронизацию.");
     } finally {
       setAccountSyncing(null);
+      if (historyOpen && activeRepository) {
+        void activeRepository.getSyncOperations()
+          .then(setHistoryOperations)
+          .catch((err: unknown) => {
+            setHistoryError(err instanceof Error ? err.message : "Не удалось обновить историю после синхронизации.");
+          });
+      }
     }
   }
 
@@ -1408,9 +1438,20 @@ function App() {
                   <h1>История синхронизации</h1>
                   <p>Все операции, которые приложение записало в журнал перед изменением библиотеки или аккаунта</p>
                 </div>
-                <button className="secondary-button" type="button" onClick={refreshHistory} disabled={historyLoading || !repository}>
-                  {historyLoading ? "Обновляем..." : "↻ Обновить"}
-                </button>
+                <div className="history-heading-actions">
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => downloadSyncHistory(historyOperations)}
+                    disabled={historyOperations.length === 0}
+                    title="Экспортировать все операции, включая скрытые текущими фильтрами"
+                  >
+                    ↓ Экспорт JSON
+                  </button>
+                  <button className="secondary-button" type="button" onClick={refreshHistory} disabled={historyLoading || !repository}>
+                    {historyLoading ? "Обновляем..." : "↻ Обновить"}
+                  </button>
+                </div>
               </div>
 
               {historyError && <div className="error-message" role="alert">{historyError}</div>}
@@ -1459,6 +1500,8 @@ function App() {
                     const failed = session.operations.filter((item) => item.status === "failed").length;
                     const pending = session.operations.filter((item) => item.status === "pending" || item.status === "in_progress").length;
                     const providers = [...new Set(session.operations.map((item) => item.provider))];
+                    const retryProvider = providers.length === 1 ? providers[0] : null;
+                    const hasUnfinished = failed > 0 || pending > 0;
                     return (
                       <section className="history-session" key={session.sessionId}>
                         <header className="history-session-header">
@@ -1472,6 +1515,17 @@ function App() {
                             {pending > 0 && <span className="history-count-pending">◷ {pending}</span>}
                             {failed > 0 && <span className="history-count-failed">! {failed}</span>}
                             <span>{session.operations.length} всего</span>
+                            {hasUnfinished && retryProvider && (
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                disabled={accountSyncing !== null}
+                                onClick={() => void handleSyncToAccount(retryProvider)}
+                                title="Сначала заново сверить текущее состояние сервиса, затем построить новый план"
+                              >
+                                {accountSyncing === retryProvider ? "Сверяем..." : "Пересверить и продолжить"}
+                              </button>
+                            )}
                           </div>
                         </header>
                         <div className="history-operation-list">
