@@ -117,10 +117,14 @@ function validateAnimeList(value: unknown): AnimeIdentity[] {
       throw new Error(`Invalid anime average score: ${item.id}`);
     }
 
-    if (item.startDate !== undefined && item.startDate !== null &&
-      (!/^\\d{4}-\\d{2}-\\d{2}$/.test(item.startDate) ||
-       !Number.isFinite(Date.parse(`${item.startDate}T00:00:00Z`)))) {
-      throw new Error(`Invalid anime start date: ${item.id}`);
+    if (item.startDate !== undefined && item.startDate !== null) {
+      const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(item.startDate);
+      const parsedDate = new Date(`${item.startDate}T00:00:00Z`);
+      const validDate = dateMatch !== null &&
+        parsedDate.getUTCFullYear() === Number(dateMatch[1]) &&
+        parsedDate.getUTCMonth() + 1 === Number(dateMatch[2]) &&
+        parsedDate.getUTCDate() === Number(dateMatch[3]);
+      if (!validDate) throw new Error(`Invalid anime start date: ${item.id}`);
     }
 
     if (item.releaseStatus !== undefined &&
