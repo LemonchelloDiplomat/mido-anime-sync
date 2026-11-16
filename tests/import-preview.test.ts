@@ -126,6 +126,21 @@ describe("import preview", () => {
     );
   });
 
+  it("rejects exact matches with conflicting external IDs", () => {
+    const imported = createAnime({
+      id: "mal:1",
+      externalIds: { myanimelist: "1", anilist: "99" },
+    });
+    const existing = createAnime({
+      id: "anilist:2",
+      externalIds: { myanimelist: "1", anilist: "2" },
+    });
+
+    expect(() => createImportPreview([imported], [existing])).toThrow(
+      "различаются внешние ID сервисов anilist",
+    );
+  });
+
   it("does not modify original anime records", () => {
     const imported = createAnime({ id: "imported" });
     const existing = createAnime({ id: "existing" });
