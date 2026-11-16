@@ -430,7 +430,7 @@ function App() {
       (score !== null && (!Number.isFinite(score) || score < 0 || score > 100)) ||
       (year !== null && (!Number.isInteger(year) || year < 1900 || year > 2100)) ||
       (averageScore !== null && (!Number.isFinite(averageScore) || averageScore < 0 || averageScore > 10)) ||
-      (posterUrl !== "" && !/^https?:\\/\\//i.test(posterUrl))
+      (posterUrl !== "" && !/^https?:\/\//i.test(posterUrl))
     ) {
       setError("Проверь количество серий и оценку.");
       return;
