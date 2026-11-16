@@ -381,19 +381,6 @@ export const aniListMetadataProvider: CatalogMetadataProvider = {
   name: "AniList",
 
   async enrich(identities, options = {}) {
-    const localByMalId = new Map<string, AnimeIdentity[]>();
-
-    for (const anime of identities) {
-      const malId = anime.externalIds.myanimelist;
-      if (!malId || !/^\d+$/.test(malId) || !Number.isSafeInteger(Number(malId)) || Number(malId) <= 0) {
-        continue;
-      }
-
-      const group = localByMalId.get(malId) ?? [];
-      group.push(anime);
-      localByMalId.set(malId, group);
-    }
-
     const candidates = getAniListMetadataCandidates(identities);
     const pendingByMalId = new Map<string, AnimeIdentity[]>();
     for (const anime of candidates) {
