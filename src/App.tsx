@@ -413,6 +413,7 @@ function App() {
         : undefined;
 
       const anime: AnimeIdentity = {
+        ...(previous?.anime ?? {}),
         id,
         titles: {
           english: title,
@@ -661,6 +662,7 @@ function App() {
           <div className="breadcrumb">
             Рабочее пространство <span>/</span> Главная
           </div>
+          <button className="search-launch" onClick={() => setSearchPageOpen(true)} aria-label="Открыть поиск" title="Поиск">⌕</button>
           <div className="profile">
             <div className="avatar">M</div>
             <span>Моя библиотека</span>
