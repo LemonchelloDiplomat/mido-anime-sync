@@ -1107,7 +1107,7 @@ function App() {
                 </div>
                 <div className="filter-section">
                   <h3>Количество эпизодов <span title="Короткие: до 13. Средние: 14–26. Длинные: 27–100. Очень длинные: более 100.">ⓘ</span></h3>
-                  <div className="filter-options">{([["SHORT","Короткие (до 13)"],["MEDIUM","Средние (14–26)"],["LONG","Длинные (27–100)"],["VERY_LONG","Очень длинные (100+)"]] as const).map(([value,label]) => <label key={value}><input type="checkbox" checked={filters.episodeRanges.includes(value)} onChange={() => toggleArrayFilter("episodeRanges", value)} /> {label}</label>)}</div>
+                  <div className="filter-options">{([["SHORT","Короткие (до 13)"],["MEDIUM","Средние (14–26)"],["LONG","Длинные (27–100)"],["VERY_LONG","Очень длинные (более 100)"]] as const).map(([value,label]) => <label key={value}><input type="checkbox" checked={filters.episodeRanges.includes(value)} onChange={() => toggleArrayFilter("episodeRanges", value)} /> {label}</label>)}</div>
                 </div>
                 <div className="filter-actions"><button className="cancel-button" onClick={() => setFilters(DEFAULT_LIBRARY_FILTERS)}>Сбросить фильтры</button><button className="add-button" onClick={() => setFiltersOpen(false)}>Применить</button></div>
               </div>
