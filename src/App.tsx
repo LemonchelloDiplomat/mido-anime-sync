@@ -587,6 +587,7 @@ function App() {
 
       // Each conflicting anime is resolved explicitly. Cancel or S keeps it untouched.
       const conflictAnimeIds = [...new Set(plan.conflicts.map((conflict) => conflict.animeId))];
+      const resolvedConflictAnimeIds = new Set<string>();
       for (const animeId of conflictAnimeIds) {
         const local = localItems.find((item) => item.anime.id === animeId);
         if (!local?.entry) continue;
@@ -615,8 +616,10 @@ function App() {
           "S",
         );
         if (choice?.trim().toLowerCase() === "l") {
+          resolvedConflictAnimeIds.add(animeId);
           remoteUpdates.push({ externalId, entry: local.entry });
         } else if (choice?.trim().toLowerCase() === "r") {
+          resolvedConflictAnimeIds.add(animeId);
           localUpdates.push({
             animeId: local.anime.id,
             entry: {
@@ -630,9 +633,6 @@ function App() {
 
       const remoteChanges = remoteCreates.length + remoteUpdates.length;
       const localChanges = localCreates.length + localUpdates.length;
-      const unresolved = conflictAnimeIds.length -
-        plan.conflicts.filter((conflict) => conflictAnimeIds.includes(conflict.animeId)).length +
-        0;
       if (remoteChanges === 0 && localChanges === 0) {
         window.alert(
           "Синхронизация завершена без изменений.\n" +
@@ -651,13 +651,7 @@ function App() {
         "\nНовые записи в локальной библиотеке: " + localCreates.length +
         "\nОбновления локальной библиотеки: " + localUpdates.length +
         "\nНеразрешённых конфликтных тайтлов пропущено: " +
-          Math.max(0, conflictAnimeIds.length - plan.conflicts.filter((conflict) => {
-            const local = localItems.find((item) => item.anime.id === conflict.animeId);
-            return local?.entry && (
-              remoteUpdates.some((change) => change.externalId === (provider === "mal" ? local.anime.externalIds.myanimelist : local.anime.externalIds.anilist)) ||
-              localUpdates.some((change) => change.animeId === conflict.animeId)
-            );
-          }).length) +
+          conflictAnimeIds.filter((id) => !resolvedConflictAnimeIds.has(id)).length +
         "\n\nПеред изменениями будет скачана резервная копия. Продолжить?"
       );
       if (!confirmed) return;
