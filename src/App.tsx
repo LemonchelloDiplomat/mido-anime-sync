@@ -1208,8 +1208,8 @@ function App() {
             <h1>Поиск</h1>
           </header>
           <div className="search-page-content">
-            <input autoFocus className="search-input" type="search" placeholder="Аниме" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
-            <div className="search-results-heading"><h2>Аниме</h2><span>{searchResults.length}</span></div>
+            <input autoFocus className="search-input" type="search" aria-label="Поиск по моей библиотеке" placeholder="Аниме" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
+            <div className="search-results-heading"><h2>Аниме в моей библиотеке</h2><span>{searchResults.length}</span></div>
             {searchResults.length === 0 ? <div className="empty-state"><div className="empty-icon">⌕</div><h3>Ничего не найдено</h3><p>Попробуй изменить поисковый запрос.</p></div> : <div className="search-results-list">
               {searchResults.map(({ anime, entry }) => <article className="search-result-card" key={anime.id}>
                 <div className="search-result-poster">{anime.posterUrl ? <img src={anime.posterUrl} alt="" loading="lazy" /> : <span>✦</span>}{anime.averageScore != null && <b className={`poster-score ${anime.averageScore >= 8 ? "excellent" : anime.averageScore >= 7 ? "good" : anime.averageScore >= 5 ? "average" : "poor"}`}>{anime.averageScore.toFixed(1)}</b>}</div>
