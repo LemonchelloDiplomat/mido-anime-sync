@@ -29,7 +29,7 @@ function makeAnime(id: string, malId: string): AnimeIdentity {
   };
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {\n  vi.useRealTimers();\n  vi.restoreAllMocks();\n});
 
 describe("AniList metadata provider", () => {
   it("looks up exact MAL IDs in one batch and reports matches and missing records", async () => {
@@ -111,6 +111,71 @@ describe("AniList metadata provider", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(request.variables).toEqual({ malId0: 99999 });
+  });
+
+  it("isolates a missing MAL ID after a batch-level HTTP 404 and keeps valid matches", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-17T00:00:00Z"));
+
+    const requestedIds: number[][] = [];
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (_input, init) => {
+        const request = JSON.parse(String(init?.body)) as {
+          variables: Record<string, number>;
+        };
+        const ids = Object.values(request.variables);
+        requestedIds.push(ids);
+
+        if (ids.includes(99999)) {
+          return new Response(JSON.stringify({
+            errors: [{
+              message: "Not Found.",
+              status: 404,
+              locations: [{ line: 3, column: 1 }],
+            }],
+            data: Object.fromEntries(ids.map((_, index) => [`anime${index}`, null])),
+          }), {
+            status: 404,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        const data: Record<string, typeof frieren> = {};
+        ids.forEach((malId, index) => {
+          data[`anime${index}`] = { ...frieren, id: 200000 + malId, idMal: malId };
+        });
+        return new Response(JSON.stringify({ data }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+    );
+
+    const batches: Array<{
+      completed: number;
+      total: number;
+      matched: number;
+      missing: number;
+      matches: Array<{ animeId: string; metadata: AnimeIdentity }>;
+    }> = [];
+
+    const enrichment = aniListMetadataProvider.enrich(
+      [makeAnime("mal:52991", "52991"), makeAnime("mal:99999", "99999")],
+      { onBatch: (batch) => { batches.push(batch); } },
+    );
+    await vi.runAllTimersAsync();
+    await enrichment;
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(requestedIds).toEqual([[52991, 99999], [52991], [99999]]);
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toMatchObject({
+      completed: 2,
+      total: 2,
+      matched: 1,
+      missing: 1,
+    });
+    expect(batches[0]?.matches[0]?.animeId).toBe("mal:52991");
   });
 
   it("splits large libraries into batches of twenty", async () => {
