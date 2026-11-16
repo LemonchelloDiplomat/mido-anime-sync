@@ -1441,8 +1441,8 @@ function App() {
                         <p>{anime.titles.romaji ?? anime.titles.native ?? ""}</p>
                         <div>{anime.format ?? "Формат не указан"}{anime.year ? ` · ${anime.year}` : ""}{anime.episodes ? ` · ${anime.episodes} эп.` : ""}</div>
                         <small>{(anime.genres ?? []).join(" · ")}</small>
-                        <button className="catalog-add-button" disabled={addingCatalogId !== null || Boolean(existing?.entry)} onClick={() => void addCatalogAnime(anime)}>
-                          {addingCatalogId === anime.id ? "Добавляем..." : existing?.entry ? "Уже в моей библиотеке" : existing ? "Добавить в список" : "＋ Добавить в библиотеку"}
+                        <button className="catalog-add-button" disabled={addingCatalogId !== null} onClick={() => void addCatalogAnime(anime)}>
+                          {addingCatalogId === anime.id ? "Сохраняем..." : existing?.entry ? "Обновить данные" : existing ? "Добавить в список" : "＋ Добавить в библиотеку"}
                         </button>
                       </div>
                     </article>;
