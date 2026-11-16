@@ -1083,3 +1083,92 @@ describe("BrowserAnimeRepository relations", () => {
     });
   });
 });
+
+describe("BrowserAnimeRepository catalog metadata", () => {
+  it("enriches anime metadata without changing personal watch-list data", async () => {
+    const repo = await createRepository();
+    const anime = makeAnime("mal:100");
+    anime.externalIds = { myanimelist: "100" };
+    await repo.saveAnime(anime);
+    await repo.saveEntry({
+      animeId: "mal:100",
+      source: "myanimelist",
+      status: "WATCHING",
+      progress: 7,
+      score: 90,
+      favorite: true,
+      updatedAt: "2026-11-16T12:00:00.000Z",
+    });
+
+    await repo.updateAnimeMetadata("mal:100", {
+      id: "anilist:123",
+      titles: {
+        english: "Example Anime",
+        romaji: "Rei Anime",
+        native: "例アニメ",
+        synonyms: ["Example"],
+      },
+      externalIds: { anilist: "123", myanimelist: "100" },
+      year: 2023,
+      format: "TV",
+      episodes: 11,
+      genres: ["Drama", "Mystery"],
+      posterUrl: "https://example.com/poster.jpg",
+      averageScore: 8.7,
+      startDate: "2023-04-01",
+      releaseStatus: "RELEASED",
+    });
+
+    expect(await repo.getAnime("mal:100")).toMatchObject({
+      id: "mal:100",
+      externalIds: { myanimelist: "100", anilist: "123" },
+      titles: {
+        english: "Example Anime",
+        romaji: "Rei Anime",
+        native: "例アニメ",
+        synonyms: ["Example"],
+      },
+      year: 2023,
+      format: "TV",
+      episodes: 11,
+      genres: ["Drama", "Mystery"],
+      posterUrl: "https://example.com/poster.jpg",
+      averageScore: 8.7,
+    });
+
+    expect(await repo.getEntry("mal:100")).toMatchObject({
+      animeId: "mal:100",
+      status: "WATCHING",
+      progress: 7,
+      score: 90,
+      favorite: true,
+    });
+    expect(await repo.getSourceEntries("mal:100")).toMatchObject([
+      {
+        source: "myanimelist",
+        status: "WATCHING",
+        progress: 7,
+        score: 90,
+        favorite: true,
+      },
+    ]);
+  });
+
+  it("rejects catalog metadata with a conflicting external ID", async () => {
+    const repo = await createRepository();
+    const anime = makeAnime("mal:100");
+    anime.externalIds = { myanimelist: "100", anilist: "123" };
+    await repo.saveAnime(anime);
+
+    await expect(repo.updateAnimeMetadata("mal:100", {
+      id: "anilist:999",
+      titles: { english: "Wrong match", synonyms: [] },
+      externalIds: { myanimelist: "100", anilist: "999" },
+    })).rejects.toThrow(/ID conflict for anilist/);
+
+    expect(await repo.getAnime("mal:100")).toMatchObject({
+      externalIds: { myanimelist: "100", anilist: "123" },
+      titles: { english: "Anime mal:100" },
+    });
+  });
+});
