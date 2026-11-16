@@ -10,6 +10,7 @@ import type {
   AnimeStatus,
   ConflictResolution,
   SyncConflict,
+  SyncOperation,
 } from "../core/types.js";
 
 import { validateSnapshot, validateEntry } from "./snapshot-validation.js";
@@ -38,6 +39,12 @@ interface AnimeSyncDB extends DBSchema {
   animeRelations: {
     key: string;
     value: AnimeRelation;
+  };
+
+  syncOperations: {
+    key: string;
+    value: SyncOperation;
+    indexes: { "by-session": string; "by-status": string; "by-provider": string };
   };
 }
 
@@ -405,7 +412,7 @@ export class BrowserAnimeRepository {
   static async open(
     databaseName = "midahoshi-anime-sync",
   ): Promise<BrowserAnimeRepository> {
-    const db = await openDB<AnimeSyncDB>(databaseName, 4, {
+    const db = await openDB<AnimeSyncDB>(databaseName, 5, {
       upgrade(database, oldVersion, _newVersion, transaction) {
         if (oldVersion < 1) {
           database.createObjectStore("anime", {
@@ -442,10 +449,72 @@ export class BrowserAnimeRepository {
             keyPath: "id",
           });
         }
+
+        if (oldVersion < 5) {
+          const operations = database.createObjectStore("syncOperations", {
+            keyPath: "id",
+          });
+          operations.createIndex("by-session", "sessionId");
+          operations.createIndex("by-status", "status");
+          operations.createIndex("by-provider", "provider");
+        }
       },
     });
 
     return new BrowserAnimeRepository(db);
+  }
+
+
+  /**
+   * Persists a complete sync plan before any local or remote writes begin.
+   * This is an operation journal, not a distributed transaction.
+   */
+  async saveSyncOperations(operations: SyncOperation[]): Promise<void> {
+    if (operations.length === 0) return;
+    const transaction = this.db.transaction("syncOperations", "readwrite");
+    const store = transaction.objectStore("syncOperations");
+    for (const operation of operations) {
+      await store.put(structuredClone(operation));
+    }
+    await transaction.done;
+  }
+
+  async updateSyncOperation(
+    id: string,
+    changes: Partial<Pick<SyncOperation, "status" | "attempts" | "error">>,
+  ): Promise<void> {
+    const transaction = this.db.transaction("syncOperations", "readwrite");
+    const store = transaction.objectStore("syncOperations");
+    const existing = await store.get(id);
+    if (!existing) {
+      await transaction.done;
+      throw new Error(`Unknown sync operation: ${id}`);
+    }
+    const updated: SyncOperation = {
+      ...existing,
+      ...changes,
+      updatedAt: new Date().toISOString(),
+    };
+    if (changes.error === undefined && changes.status !== "failed") {
+      delete updated.error;
+    }
+    await store.put(updated);
+    await transaction.done;
+  }
+
+  async getSyncOperations(): Promise<SyncOperation[]> {
+    const operations = await this.db.getAll("syncOperations");
+    return operations
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map((operation) => structuredClone(operation));
+  }
+
+  async getUnfinishedSyncOperations(provider?: "mal" | "anilist"): Promise<SyncOperation[]> {
+    const operations = await this.getSyncOperations();
+    return operations.filter((operation) =>
+      operation.status !== "succeeded" &&
+      (provider === undefined || operation.provider === provider),
+    );
   }
 
   async saveAnime(anime: AnimeIdentity): Promise<void> {
