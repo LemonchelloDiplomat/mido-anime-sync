@@ -1319,3 +1319,47 @@ button:disabled {
   .anime-detail-body { padding: 24px 16px 32px; }
   .anime-detail-facts dl, .anime-relations-grid { grid-template-columns: 1fr; }
 }
+
+
+/* ===== Catalog metadata enrichment ===== */
+.metadata-refresh-button {
+  margin: 0 0 14px;
+}
+.metadata-progress {
+  display: grid;
+  gap: 9px;
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border: 1px solid #393747;
+  border-radius: 10px;
+  background: #191923;
+}
+.metadata-progress-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #e8e4f3;
+  font-size: 12px;
+}
+.metadata-progress-heading span {
+  color: #c4aaff;
+  font-variant-numeric: tabular-nums;
+}
+.metadata-progress progress {
+  width: 100%;
+  height: 8px;
+  accent-color: #9872ee;
+}
+.metadata-progress p {
+  margin: 0;
+  color: #aaa9b9;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.metadata-progress .metadata-progress-error {
+  color: #ffb1b8;
+}
+.metadata-progress .metadata-progress-success {
+  color: #9de4bd;
+}
