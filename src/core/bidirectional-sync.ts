@@ -8,9 +8,9 @@ export type SyncProvider = "mal" | "anilist";
 
 export interface LocalSyncItem {
   anime: AnimeIdentity;
-  entry?: AnimeListEntry;
+  entry?: AnimeListEntry | undefined;
   /** Last known copy of this provider's entry, persisted after a successful sync/import. */
-  baseline?: AnimeListEntry;
+  baseline?: AnimeListEntry | undefined;
 }
 
 export interface SyncFieldConflict {
