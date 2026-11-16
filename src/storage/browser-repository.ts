@@ -69,7 +69,7 @@ function mergeAnimeIdentity(
   incoming: AnimeIdentity,
 ): AnimeIdentity {
   const episodes =
-    incoming.episodes !== undefined ? incoming.episodes : existing.episodes;
+    incoming.episodes != null ? incoming.episodes : existing.episodes;
 
   const year =
     incoming.year !== undefined && incoming.year !== null
@@ -473,7 +473,7 @@ export class BrowserAnimeRepository {
       const existingId =
         existing.externalIds[service as keyof AnimeIdentity["externalIds"]];
       if (existingId && incomingId && existingId !== incomingId) {
-        transaction.abort();
+        await transaction.done;
         throw new Error(
           `Catalog metadata ID conflict for ${service}: ${existingId} vs ${incomingId}`,
         );
