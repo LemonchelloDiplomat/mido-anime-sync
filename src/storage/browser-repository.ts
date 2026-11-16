@@ -11,6 +11,7 @@ import type {
   ConflictResolution,
   SyncConflict,
   SyncOperation,
+  SyncSession,
 } from "../core/types.js";
 
 import { validateSnapshot, validateEntry } from "./snapshot-validation.js";
@@ -45,6 +46,12 @@ interface AnimeSyncDB extends DBSchema {
     key: string;
     value: SyncOperation;
     indexes: { "by-session": string; "by-status": string; "by-provider": string };
+  };
+
+  syncSessions: {
+    key: string;
+    value: SyncSession;
+    indexes: { "by-started-at": string; "by-provider": string; "by-status": string };
   };
 }
 
@@ -412,7 +419,7 @@ export class BrowserAnimeRepository {
   static async open(
     databaseName = "midahoshi-anime-sync",
   ): Promise<BrowserAnimeRepository> {
-    const db = await openDB<AnimeSyncDB>(databaseName, 5, {
+    const db = await openDB<AnimeSyncDB>(databaseName, 6, {
       upgrade(database, oldVersion, _newVersion, transaction) {
         if (oldVersion < 1) {
           database.createObjectStore("anime", {
@@ -457,6 +464,15 @@ export class BrowserAnimeRepository {
           operations.createIndex("by-session", "sessionId");
           operations.createIndex("by-status", "status");
           operations.createIndex("by-provider", "provider");
+        }
+
+        if (oldVersion < 6) {
+          const sessions = database.createObjectStore("syncSessions", {
+            keyPath: "sessionId",
+          });
+          sessions.createIndex("by-started-at", "startedAt");
+          sessions.createIndex("by-provider", "provider");
+          sessions.createIndex("by-status", "status");
         }
       },
     });
@@ -507,6 +523,35 @@ export class BrowserAnimeRepository {
     return operations
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
       .map((operation) => structuredClone(operation));
+  }
+
+  async saveSyncSession(session: SyncSession): Promise<void> {
+    await this.db.put("syncSessions", structuredClone(session));
+  }
+
+  async updateSyncSession(
+    sessionId: string,
+    changes: Partial<Omit<SyncSession, "sessionId" | "provider" | "startedAt">>,
+  ): Promise<void> {
+    const transaction = this.db.transaction("syncSessions", "readwrite");
+    const store = transaction.objectStore("syncSessions");
+    const existing = await store.get(sessionId);
+    if (!existing) {
+      await transaction.done;
+      throw new Error(`Unknown sync session: ${sessionId}`);
+    }
+    await store.put({
+      ...existing,
+      ...changes,
+    });
+    await transaction.done;
+  }
+
+  async getSyncSessions(): Promise<SyncSession[]> {
+    const sessions = await this.db.getAll("syncSessions");
+    return sessions
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+      .map((session) => structuredClone(session));
   }
 
   async getUnfinishedSyncOperations(provider?: "mal" | "anilist"): Promise<SyncOperation[]> {
