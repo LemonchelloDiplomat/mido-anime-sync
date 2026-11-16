@@ -1277,13 +1277,12 @@ describe("BrowserAnimeRepository sync operation journal", () => {
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
-    oldDatabase.transaction("anime", "readwrite")
-      .objectStore("anime")
-      .put(makeAnime("preserved-anime"));
     await new Promise<void>((resolve, reject) => {
       const transaction = oldDatabase.transaction("anime", "readwrite");
+      transaction.objectStore("anime").put(makeAnime("preserved-anime"));
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
     });
     oldDatabase.close();
 
