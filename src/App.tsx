@@ -685,6 +685,24 @@ function App() {
         }
       }
 
+      const recoveredSessionIds = [...new Set(unfinishedOperations.map((operation) => operation.sessionId))];
+      if (recoveredSessionIds.length > 0) {
+        const allJournalOperations = await activeRepository.getSyncOperations();
+        for (const recoveredSessionId of recoveredSessionIds) {
+          const sessionOperations = allJournalOperations.filter((operation) => operation.sessionId === recoveredSessionId);
+          const sessionPending = sessionOperations.filter((operation) => operation.status === "pending" || operation.status === "in_progress").length;
+          const sessionFailed = sessionOperations.filter((operation) => operation.status === "failed").length;
+          await activeRepository.updateSyncSession(recoveredSessionId, {
+            status: sessionPending > 0 ? "running" : sessionFailed > 0 ? "failed" : "succeeded",
+            ...(sessionPending === 0 ? { finishedAt: new Date().toISOString() } : {}),
+            operationCount: sessionOperations.length,
+            succeededCount: sessionOperations.filter((operation) => operation.status === "succeeded").length,
+            failedCount: sessionFailed,
+            pendingCount: sessionPending,
+          });
+        }
+      }
+
       const baseItems = await activeRepository.getAll();
       const providerSource = provider === "mal" ? "myanimelist" : "anilist";
       const localItems = await Promise.all(baseItems.map(async (item) => {
