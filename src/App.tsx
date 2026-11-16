@@ -571,6 +571,7 @@ function App() {
 
   async function handleSyncToAccount(provider: "mal" | "anilist") {
     if (!repository || accountSyncing) return;
+    const activeRepository = repository;
     setAccountSyncing(provider);
     setIntegrationStatusError("");
     try {
@@ -581,7 +582,7 @@ function App() {
 
       // Reconcile unfinished journal records against the freshly fetched state.
       // This handles the case where a write reached the provider just before the app closed.
-      const unfinishedOperations = await repository.getUnfinishedSyncOperations(provider);
+      const unfinishedOperations = await activeRepository.getUnfinishedSyncOperations(provider);
       let recoveredOperations = 0;
       for (const operation of unfinishedOperations) {
         const actualEntry = operation.direction === "remote"
@@ -593,7 +594,7 @@ function App() {
                 ? remoteSnapshot.entries.find((entry) => entry.animeId === remoteAnime.id)
                 : undefined;
             })()
-          : (await repository.getSourceEntries(operation.animeId)).find(
+          : (await activeRepository.getSourceEntries(operation.animeId)).find(
               (entry) => entry.source === operation.entry.source,
             );
         // MAL stores integer scores from 1 to 10, so compare against its
@@ -611,15 +612,15 @@ function App() {
           (provider === "mal" || actualEntry.favorite === operation.entry.favorite),
         );
         if (matchesTarget) {
-          await repository.updateSyncOperation(operation.id, { status: "succeeded" });
+          await activeRepository.updateSyncOperation(operation.id, { status: "succeeded" });
           recoveredOperations += 1;
         }
       }
 
-      const baseItems = await repository.getAll();
+      const baseItems = await activeRepository.getAll();
       const providerSource = provider === "mal" ? "myanimelist" : "anilist";
       const localItems = await Promise.all(baseItems.map(async (item) => {
-        const sourceEntries = await repository.getSourceEntries(item.anime.id);
+        const sourceEntries = await activeRepository.getSourceEntries(item.anime.id);
         return {
           ...item,
           baseline: sourceEntries.find((entry) => entry.source === providerSource),
@@ -648,7 +649,7 @@ function App() {
             source: providerSource,
           });
         }
-        await repository.saveSourceEntries(baselines);
+        await activeRepository.saveSourceEntries(baselines);
       }
 
       const remoteCreates = [...plan.remoteCreates];
@@ -750,7 +751,7 @@ function App() {
       if (!confirmed) return;
 
       // Backup is created before the first write to either side.
-      downloadSnapshot(await repository.snapshot());
+      downloadSnapshot(await activeRepository.snapshot());
 
       const sessionId = `sync-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const journalCreatedAt = new Date().toISOString();
@@ -802,7 +803,7 @@ function App() {
         updatedAt: journalCreatedAt,
       }));
       // The entire plan is durable before the first write starts.
-      await repository.saveSyncOperations([
+      await activeRepository.saveSyncOperations([
         ...remoteJournalOperations,
         ...localJournalOperations,
       ]);
@@ -814,7 +815,7 @@ function App() {
       for (let index = 0; index < remoteChangesToApply.length; index += 1) {
         const change = remoteChangesToApply[index]!;
         const operation = remoteJournalOperations[index]!;
-        await repository.updateSyncOperation(operation.id, {
+        await activeRepository.updateSyncOperation(operation.id, {
           status: "in_progress",
           attempts: operation.attempts + 1,
         });
@@ -828,7 +829,7 @@ function App() {
           });
         } catch (err) {
           const message = err instanceof Error ? err.message : "ошибка записи";
-          await repository.updateSyncOperation(operation.id, {
+          await activeRepository.updateSyncOperation(operation.id, {
             status: "failed",
             error: message,
           });
@@ -837,26 +838,26 @@ function App() {
         }
         // If this journal update itself fails, the operation remains in_progress.
         // The next run will verify the provider state before deciding what happened.
-        await repository.updateSyncOperation(operation.id, { status: "succeeded" });
+        await activeRepository.updateSyncOperation(operation.id, { status: "succeeded" });
         remoteSucceeded += 1;
       }
 
       for (let index = 0; index < localChangesToApply.length; index += 1) {
         const change = localChangesToApply[index]!;
         const operation = localJournalOperations[index]!;
-        await repository.updateSyncOperation(operation.id, {
+        await activeRepository.updateSyncOperation(operation.id, {
           status: "in_progress",
           attempts: operation.attempts + 1,
         });
         try {
           if (change.kind === "create") {
-            await repository.saveAnimeWithEntry(change.anime, change.entry);
+            await activeRepository.saveAnimeWithEntry(change.anime, change.entry);
           } else {
-            await repository.saveEntry(change.entry);
+            await activeRepository.saveEntry(change.entry);
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : "ошибка";
-          await repository.updateSyncOperation(operation.id, {
+          await activeRepository.updateSyncOperation(operation.id, {
             status: "failed",
             error: message,
           });
@@ -867,7 +868,7 @@ function App() {
           );
           continue;
         }
-        await repository.updateSyncOperation(operation.id, { status: "succeeded" });
+        await activeRepository.updateSyncOperation(operation.id, { status: "succeeded" });
         localSucceeded += 1;
       }
 
