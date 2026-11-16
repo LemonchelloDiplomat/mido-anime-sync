@@ -60,9 +60,16 @@ export interface AccountEntryUpdate {
   favorite?: boolean;
 }
 
-export function updateAccountEntry(provider: "mal" | "anilist", entry: AccountEntryUpdate): Promise<{ ok: boolean }> {
-  return request<{ ok: boolean }>(provider === "mal" ? "/api/mal/entry" : "/api/anilist/entry", {
-    method: "POST",
-    body: JSON.stringify(entry),
-  });
+export async function updateAccountEntry(provider: "mal" | "anilist", entry: AccountEntryUpdate): Promise<{ ok: boolean }> {
+  const result = await request<{ ok: boolean }>(
+    provider === "mal" ? "/api/mal/entry" : "/api/anilist/entry",
+    {
+      method: "POST",
+      body: JSON.stringify(entry),
+    },
+  );
+  if (!result.ok) {
+    throw new Error("Сервис не подтвердил сохранение записи.");
+  }
+  return result;
 }
