@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createBidirectionalSyncPlan } from "../src/core/bidirectional-sync.js";
+import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "../src/core/bidirectional-sync.js";
 import type { AnimeIdentity, AnimeListEntry, AnimeSnapshotV4 } from "../src/core/types.js";
 
 function anime(id: string, mal = "10", al = "20"): AnimeIdentity {
@@ -26,6 +26,18 @@ function remoteSnapshot(animeItems: AnimeIdentity[], entries: AnimeListEntry[]):
 }
 
 describe("bidirectional sync planner", () => {
+  it("does not advance the baseline after partial writes", () => {
+    expect(canAdvanceSyncBaseline(1, 0)).toBe(false);
+  });
+
+  it("does not advance the baseline while conflicts remain unresolved", () => {
+    expect(canAdvanceSyncBaseline(0, 1)).toBe(false);
+  });
+
+  it("advances the baseline only after a clean, fully resolved sync", () => {
+    expect(canAdvanceSyncBaseline(0, 0)).toBe(true);
+  });
+
   it("sends a newer local entry to the remote service", () => {
     const localAnime = anime("local:10");
     const plan = createBidirectionalSyncPlan(
