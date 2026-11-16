@@ -55,6 +55,23 @@ function timestamp(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/**
+ * MAL stores integer scores from 1 to 10. Values in the app are 0–100,
+ * so compare scores at MAL's actual precision to avoid perpetual updates
+ * for values such as 84 that MAL necessarily stores as 80.
+ */
+function comparableFieldValue(
+  provider: SyncProvider,
+  field: SyncField | "favorite",
+  value: unknown,
+): unknown {
+  if (provider !== "mal" || field !== "score") return value;
+  if (value == null || value === 0) return null;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return value;
+  return Math.max(10, Math.min(100, Math.round(numeric / 10) * 10));
+}
+
 function titleOf(anime: AnimeIdentity): string {
   return anime.titles.english || anime.titles.romaji || anime.titles.native || anime.id;
 }
@@ -133,12 +150,15 @@ export function createBidirectionalSyncPlan(
     for (const field of fields) {
       const localValue = local.entry[field];
       const remoteValue = remote.entry[field];
-      if (localValue === remoteValue) continue;
+      const comparableLocalValue = comparableFieldValue(provider, field, localValue);
+      const comparableRemoteValue = comparableFieldValue(provider, field, remoteValue);
+      if (comparableLocalValue === comparableRemoteValue) continue;
 
       if (local.baseline) {
         const baselineValue = local.baseline[field];
-        const localChanged = localValue !== baselineValue;
-        const remoteChanged = remoteValue !== baselineValue;
+        const comparableBaselineValue = comparableFieldValue(provider, field, baselineValue);
+        const localChanged = comparableLocalValue !== comparableBaselineValue;
+        const remoteChanged = comparableRemoteValue !== comparableBaselineValue;
 
         if (localChanged && remoteChanged) {
           conflicts.push({
@@ -204,8 +224,14 @@ export function createBidirectionalSyncPlan(
       desired.updatedAt = new Date(newestChangedTime).toISOString();
     }
 
-    const localDiffers = fields.some((field) => local.entry?.[field] !== desired[field]);
-    const remoteDiffers = fields.some((field) => remote.entry[field] !== desired[field]);
+    const localDiffers = fields.some((field) =>
+      comparableFieldValue(provider, field, local.entry?.[field]) !==
+      comparableFieldValue(provider, field, desired[field])
+    );
+    const remoteDiffers = fields.some((field) =>
+      comparableFieldValue(provider, field, remote.entry[field]) !==
+      comparableFieldValue(provider, field, desired[field])
+    );
 
     if (localDiffers) {
       plan.localUpdates.push({
