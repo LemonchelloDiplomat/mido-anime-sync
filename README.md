@@ -29,8 +29,9 @@ npm run dev
 ### AniList
 1. Создай приложение на https://anilist.co/settings/developer.
 2. В качестве redirect URL укажи http://127.0.0.1:3001/api/auth/anilist/callback.
-3. Перенеси Client ID в .env.local:
+3. Перенеси Client ID и Client Secret в .env.local:
    - ANILIST_CLIENT_ID=...
+   - ANILIST_CLIENT_SECRET=...
 
 Не отправляй Client Secret, access token или refresh token в чат и не добавляй их в Git. Файл .env.local и папка .local-data исключены из Git.
 
@@ -38,7 +39,7 @@ npm run dev
 - API по умолчанию привязан к 127.0.0.1, а не доступен всей локальной сети.
 - OAuth-токены хранятся в .local-data/tokens.enc.json и шифруются AES-256-GCM отдельным локальным ключом.
 - MAL OAuth использует PKCE; обмен кода на токен выполняет локальный сервер.
-- AniList public catalog продолжает работать без авторизации; подключение аккаунта требуется для чтения и изменения личного списка.
+- AniList public catalog продолжает работать без авторизации; подключение аккаунта требуется для чтения и изменения личного списка. OAuth использует Authorization Code Grant, а обмен кода на токен выполняет локальный сервер.
 - Для публичного размещения понадобится HTTPS, серверное хранилище токенов и настройка redirect URI под домен. Локальную папку данных нельзя переносить на публичный сервер.
 
 ## Уже реализовано
