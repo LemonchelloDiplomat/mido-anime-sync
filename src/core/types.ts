@@ -80,6 +80,24 @@ export interface SyncOperation {
   error?: string;
 }
 
+export type SyncSessionStatus = "running" | "succeeded" | "failed" | "cancelled";
+
+export interface SyncSession {
+  sessionId: string;
+  provider: "mal" | "anilist";
+  status: SyncSessionStatus;
+  startedAt: string;
+  finishedAt?: string;
+  operationCount: number;
+  succeededCount: number;
+  failedCount: number;
+  pendingCount: number;
+  unchangedCount: number;
+  conflictCount: number;
+  recoveredCount: number;
+  error?: string;
+}
+
 export type AnimeRelationType =
   | "SEQUEL"
   | "PREQUEL"
