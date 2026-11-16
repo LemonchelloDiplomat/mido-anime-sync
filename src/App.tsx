@@ -167,6 +167,19 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!searchPageOpen) return;
+
+    function handleSearchKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setSearchPageOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleSearchKeyDown);
+    return () => window.removeEventListener("keydown", handleSearchKeyDown);
+  }, [searchPageOpen]);
+
   async function refreshLibrary() {
     if (!repository) return;
     setLibrary(await repository.getAll());
@@ -704,7 +717,12 @@ function App() {
           <div className="breadcrumb">
             Рабочее пространство <span>/</span> Главная
           </div>
-          <button className="search-launch" onClick={() => setSearchPageOpen(true)} aria-label="Открыть поиск" title="Поиск">⌕</button>
+          <button className="search-launch" onClick={() => setSearchPageOpen(true)} aria-label="Открыть поиск" title="Поиск">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="10.8" cy="10.8" r="6.8" />
+              <path d="m16 16 5 5" />
+            </svg>
+          </button>
           <div className="profile">
             <div className="avatar">M</div>
             <span>Моя библиотека</span>
@@ -1248,11 +1266,16 @@ function App() {
       {searchPageOpen && (
         <div className="search-page">
           <header className="search-page-header">
-            <button className="modal-close" onClick={() => setSearchPageOpen(false)} aria-label="Назад">←</button>
             <h1>Поиск</h1>
           </header>
           <div className="search-page-content">
-            <input autoFocus className="search-input" type="search" aria-label="Поиск по моей библиотеке" placeholder="Аниме" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
+            <div className="search-input-wrap">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="10.8" cy="10.8" r="6.8" />
+                <path d="m16 16 5 5" />
+              </svg>
+              <input autoFocus className="search-input" type="search" aria-label="Поиск по моей библиотеке" placeholder="Аниме" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
+            </div>
             <div className="search-results-heading"><h2>Аниме в моей библиотеке</h2><span>{searchResults.length}</span></div>
             {searchResults.length === 0 ? <div className="empty-state"><div className="empty-icon">⌕</div><h3>Ничего не найдено</h3><p>Попробуй изменить поисковый запрос.</p></div> : <div className="search-results-list">
               {searchResults.map(({ anime, entry }) => <article className="search-result-card" key={anime.id}>
