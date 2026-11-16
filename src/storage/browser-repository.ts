@@ -517,6 +517,62 @@ export class BrowserAnimeRepository {
     );
   }
 
+  /**
+   * Atomically creates an anime and its first provider entry.
+   * Prevents interrupted syncs from leaving an anime without its list entry.
+   */
+  async saveAnimeWithEntry(
+    anime: AnimeIdentity,
+    entry: AnimeSourceEntry,
+  ): Promise<void> {
+    validateEntry(entry);
+    if (anime.id !== entry.animeId) {
+      throw new Error("Anime and entry IDs must match");
+    }
+
+    const transaction = this.db.transaction(
+      ["anime", "entries", "sourceEntries", "conflictResolutions"],
+      "readwrite",
+    );
+    const transactionDone = transaction.done;
+    void transactionDone.catch(() => undefined);
+
+    try {
+      const animeStore = transaction.objectStore("anime");
+      const entriesStore = transaction.objectStore("entries");
+      const sourceStore = transaction.objectStore("sourceEntries");
+      const resolutionStore = transaction.objectStore("conflictResolutions");
+
+      await animeStore.put(structuredClone(anime));
+      await sourceStore.put(structuredClone(entry));
+
+      const sourceEntries = await sourceStore.getAll(
+        IDBKeyRange.bound([anime.id, ""], [anime.id, "\uffff"]),
+      );
+      const resolution = await resolutionStore.get(anime.id);
+      const validResolutions = mergeConflictResolutions(
+        sourceEntries,
+        resolution ? [resolution] : [],
+      );
+      const mergedEntry = buildMergedEntries(sourceEntries, validResolutions)[0];
+
+      if (mergedEntry) await entriesStore.put(mergedEntry);
+      if (resolution && validResolutions.length === 0) {
+        await resolutionStore.delete(anime.id);
+      }
+
+      await transactionDone;
+    } catch (error) {
+      try {
+        transaction.abort();
+      } catch {
+        // The transaction may already have completed or aborted.
+      }
+      await transactionDone.catch(() => undefined);
+      throw error;
+    }
+  }
+
   async saveAnime(anime: AnimeIdentity): Promise<void> {
     await this.db.put("anime", structuredClone(anime));
   }
