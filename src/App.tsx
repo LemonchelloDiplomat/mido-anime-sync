@@ -1347,7 +1347,11 @@ function App() {
       sessions.push({
         sessionId,
         provider: operations[0]!.provider,
-        status: "succeeded" as const,
+        status: operations.some((item) => item.status === "failed")
+          ? "failed" as const
+          : operations.some((item) => item.status === "pending" || item.status === "in_progress")
+            ? "running" as const
+            : "succeeded" as const,
         startedAt: operations[0]!.createdAt,
         createdAt: operations[0]!.createdAt,
         operationCount: operations.length,
@@ -1605,7 +1609,7 @@ function App() {
                     const succeeded = session.operations.filter((item) => item.status === "succeeded").length;
                     const failed = session.operations.filter((item) => item.status === "failed").length;
                     const pending = session.operations.filter((item) => item.status === "pending" || item.status === "in_progress").length;
-                    const hasUnfinished = failed > 0 || pending > 0;
+                    const hasUnfinished = failed > 0 || pending > 0 || session.status === "running" || session.status === "failed";
                     return (
                       <section className="history-session" key={session.sessionId}>
                         <header className="history-session-header">
