@@ -3,6 +3,7 @@ import type {
   AnimeIdentity,
   AnimeReleaseStatus,
 } from "../core/types.js";
+import type { CatalogMetadataProvider } from "./catalog-provider.js";
 
 const ANILIST_ENDPOINT = "https://graphql.anilist.co";
 const SEARCH_QUERY = `
@@ -216,6 +217,183 @@ export async function searchAniListAnime(
 
   return media.map(mapMedia);
 }
+
+
+const MAL_METADATA_BATCH_SIZE = 20;
+
+const MAL_METADATA_FRAGMENT = `
+  fragment AnimeMetadata on Media {
+    id
+    idMal
+    title { romaji english native }
+    synonyms
+    format
+    status
+    episodes
+    seasonYear
+    startDate { year month day }
+    averageScore
+    genres
+    coverImage { extraLarge large }
+  }
+`;
+
+interface AniListMetadataResponse {
+  data?: Record<string, AniListMedia | null>;
+  errors?: Array<{ message?: string }>;
+}
+
+interface AniListMetadataMatch {
+  malId: string;
+  anime: AnimeIdentity;
+}
+
+function createMalMetadataQuery(malIds: string[]) {
+  const variableDefinitions = malIds
+    .map((_, index) => `$malId${index}: Int!`)
+    .join(", ");
+  const fields = malIds
+    .map((_, index) =>
+      `anime${index}: Media(idMal: $malId${index}, type: ANIME) { ...AnimeMetadata }`,
+    )
+    .join("\n");
+
+  return {
+    query: `query EnrichAnimeByMalIds(${variableDefinitions}) {
+      ${fields}
+    }
+    ${MAL_METADATA_FRAGMENT}`,
+    variables: Object.fromEntries(
+      malIds.map((malId, index) => [`malId${index}`, Number(malId)]),
+    ),
+  };
+}
+
+function waitForRetry(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("The operation was aborted.", "AbortError"));
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    }, ms);
+
+    const abort = () => {
+      clearTimeout(timeoutId);
+      reject(new DOMException("The operation was aborted.", "AbortError"));
+    };
+
+    signal?.addEventListener("abort", abort, { once: true });
+  });
+}
+
+async function fetchAniListMetadataBatch(
+  malIds: string[],
+  signal?: AbortSignal,
+): Promise<AniListMetadataResponse> {
+  const request = createMalMetadataQuery(malIds);
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await fetch(ANILIST_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(request),
+      ...(signal ? { signal } : {}),
+    });
+
+    if (response.status === 429 && attempt < 2) {
+      const retryAfter = Number(response.headers.get("Retry-After"));
+      const delay = Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.min(retryAfter * 1000, 15_000)
+        : 3_000;
+      await waitForRetry(delay, signal);
+      continue;
+    }
+
+    if (response.status === 429) {
+      throw new Error("AniList временно ограничил частоту запросов. Повтори обогащение немного позже.");
+    }
+    if (!response.ok) {
+      throw new Error(`AniList вернул ошибку HTTP ${response.status}.`);
+    }
+
+    const payload = (await response.json()) as AniListMetadataResponse;
+    if (payload.errors?.length && !payload.data) {
+      throw new Error(payload.errors[0]?.message ?? "AniList не смог обогатить библиотеку.");
+    }
+    if (!payload.data) {
+      throw new Error("AniList вернул ответ в неожиданном формате.");
+    }
+
+    return payload;
+  }
+
+  throw new Error("Не удалось получить данные из AniList.");
+}
+
+/**
+ * AniList provider. It resolves MAL records by exact MAL ID, never by title.
+ * Several IDs are queried in one GraphQL request to avoid one request per anime.
+ */
+export const aniListMetadataProvider: CatalogMetadataProvider = {
+  id: "anilist",
+  name: "AniList",
+
+  async enrich(identities, options = {}) {
+    const localByMalId = new Map<string, AnimeIdentity[]>();
+
+    for (const anime of identities) {
+      const malId = anime.externalIds.myanimelist;
+      if (!malId || !/^\\d+$/.test(malId) || !Number.isSafeInteger(Number(malId)) || Number(malId) <= 0) {
+        continue;
+      }
+
+      const group = localByMalId.get(malId) ?? [];
+      group.push(anime);
+      localByMalId.set(malId, group);
+    }
+
+    const malIds = [...localByMalId.keys()];
+    for (let offset = 0; offset < malIds.length; offset += MAL_METADATA_BATCH_SIZE) {
+      if (options.signal?.aborted) {
+        throw new DOMException("The operation was aborted.", "AbortError");
+      }
+
+      const batchIds = malIds.slice(offset, offset + MAL_METADATA_BATCH_SIZE);
+      const payload = await fetchAniListMetadataBatch(batchIds, options.signal);
+      const matches: Array<{ animeId: string; metadata: AnimeIdentity }> = [];
+      const missingIds: string[] = [];
+
+      batchIds.forEach((malId, index) => {
+        const media = payload.data?.[`anime${index}`];
+        if (!media || String(media.idMal ?? "") !== malId) {
+          missingIds.push(malId);
+          return;
+        }
+
+        const metadata = mapMedia(media);
+        for (const localAnime of localByMalId.get(malId) ?? []) {
+          matches.push({ animeId: localAnime.id, metadata });
+        }
+      });
+
+      await options.onBatch?.({
+        completed: offset + batchIds.length,
+        total: malIds.length,
+        matched: batchIds.length - missingIds.length,
+        missing: missingIds.length,
+        matches,
+      });
+    }
+  },
+};
+
 
 export interface AniListAnimeDetails {
   anime: AnimeIdentity;
