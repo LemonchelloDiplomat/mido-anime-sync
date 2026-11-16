@@ -7,6 +7,7 @@ import type {
   AnimeListEntry,
   AnimeRelation,
   AnimeSnapshot,
+  SyncOperation,
 } from "../src/core/types.js";
 
 const repositories: BrowserAnimeRepository[] = [];
@@ -1196,5 +1197,102 @@ describe("BrowserAnimeRepository catalog metadata", () => {
       externalIds: { myanimelist: "100", anilist: "123" },
       titles: { english: "Anime mal:100" },
     });
+  });
+});
+
+
+describe("BrowserAnimeRepository sync operation journal", () => {
+  it("persists operations and tracks independent completion states", async () => {
+    const repo = await createRepository();
+    const now = "2026-11-17T12:00:00.000Z";
+    const operation: SyncOperation = {
+      id: "session-1-local-1",
+      sessionId: "session-1",
+      provider: "mal",
+      direction: "local",
+      kind: "create",
+      animeId: "anime-1",
+      anime: makeAnime("anime-1"),
+      entry: makeEntry("anime-1", 4, now),
+      status: "pending",
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await repo.saveSyncOperations([operation]);
+
+    expect(await repo.getUnfinishedSyncOperations("mal")).toEqual([operation]);
+    expect(await repo.getUnfinishedSyncOperations("anilist")).toEqual([]);
+
+    await repo.updateSyncOperation(operation.id, {
+      status: "in_progress",
+      attempts: 1,
+    });
+    await repo.updateSyncOperation(operation.id, {
+      status: "failed",
+      error: "Network interrupted",
+    });
+
+    expect(await repo.getUnfinishedSyncOperations()).toMatchObject([
+      {
+        id: operation.id,
+        status: "failed",
+        attempts: 1,
+        error: "Network interrupted",
+      },
+    ]);
+
+    await repo.updateSyncOperation(operation.id, { status: "succeeded" });
+
+    expect(await repo.getUnfinishedSyncOperations()).toEqual([]);
+    expect(await repo.getSyncOperations()).toMatchObject([
+      {
+        id: operation.id,
+        status: "succeeded",
+        attempts: 1,
+      },
+    ]);
+  });
+
+  it("rejects updates for unknown journal operations", async () => {
+    const repo = await createRepository();
+    await expect(
+      repo.updateSyncOperation("missing-operation", { status: "succeeded" }),
+    ).rejects.toThrow("Unknown sync operation: missing-operation");
+  });
+
+  it("upgrades an existing version 4 database without losing its anime records", async () => {
+    const name = `anime-sync-v4-upgrade-${Date.now()}-${Math.random()}`;
+    const request = indexedDB.open(name, 4);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      database.createObjectStore("anime", { keyPath: "id" });
+      database.createObjectStore("entries", { keyPath: "animeId" });
+      database.createObjectStore("sourceEntries", { keyPath: ["animeId", "source"] });
+      database.createObjectStore("conflictResolutions", { keyPath: "animeId" });
+      database.createObjectStore("animeRelations", { keyPath: "id" });
+    };
+    const oldDatabase = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    oldDatabase.transaction("anime", "readwrite")
+      .objectStore("anime")
+      .put(makeAnime("preserved-anime"));
+    await new Promise<void>((resolve, reject) => {
+      const transaction = oldDatabase.transaction("anime", "readwrite");
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+    oldDatabase.close();
+
+    const upgraded = await BrowserAnimeRepository.open(name);
+    repositories.push(upgraded);
+
+    expect(await upgraded.getAnime("preserved-anime")).toMatchObject({
+      id: "preserved-anime",
+    });
+    expect(await upgraded.getUnfinishedSyncOperations()).toEqual([]);
   });
 });
