@@ -220,6 +220,24 @@ export async function searchAniListAnime(
 
 
 const MAL_METADATA_BATCH_SIZE = 20;
+const ANILIST_METADATA_MIN_INTERVAL_MS = 2_200;
+let lastAniListMetadataRequestAt = 0;
+
+/** Returns only MAL entries that have not already been resolved to AniList. */
+export function getAniListMetadataCandidates(
+  identities: AnimeIdentity[],
+): AnimeIdentity[] {
+  return identities.filter((anime) => {
+    const malId = anime.externalIds.myanimelist;
+    return Boolean(
+      malId &&
+      /^\\d+$/.test(malId) &&
+      Number.isSafeInteger(Number(malId)) &&
+      Number(malId) > 0 &&
+      !anime.externalIds.anilist,
+    );
+  });
+}
 
 const MAL_METADATA_FRAGMENT = `
   fragment AnimeMetadata on Media {
@@ -297,6 +315,13 @@ async function fetchAniListMetadataBatch(
   const request = createMalMetadataQuery(malIds);
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    const waitMs = Math.max(
+      0,
+      ANILIST_METADATA_MIN_INTERVAL_MS - (Date.now() - lastAniListMetadataRequestAt),
+    );
+    if (waitMs > 0) await waitForRetry(waitMs, signal);
+    lastAniListMetadataRequestAt = Date.now();
+
     const response = await fetch(ANILIST_ENDPOINT, {
       method: "POST",
       headers: {
@@ -309,10 +334,14 @@ async function fetchAniListMetadataBatch(
 
     if (response.status === 429 && attempt < 2) {
       const retryAfter = Number(response.headers.get("Retry-After"));
+      const resetAt = Number(response.headers.get("X-RateLimit-Reset"));
+      const resetDelay = Number.isFinite(resetAt) && resetAt > 0
+        ? resetAt * 1000 - Date.now() + 1_000
+        : 61_000;
       const delay = Number.isFinite(retryAfter) && retryAfter > 0
-        ? Math.min(retryAfter * 1000, 15_000)
-        : 3_000;
-      await waitForRetry(delay, signal);
+        ? retryAfter * 1000 + 1_000
+        : Math.max(1_000, resetDelay);
+      await waitForRetry(Math.min(delay, 120_000), signal);
       continue;
     }
 
@@ -320,7 +349,13 @@ async function fetchAniListMetadataBatch(
       throw new Error("AniList временно ограничил частоту запросов. Повтори обогащение немного позже.");
     }
     if (!response.ok) {
-      throw new Error(`AniList вернул ошибку HTTP ${response.status}.`);
+      const responseBody = (await response.text()).slice(0, 500).trim();
+      const detail = responseBody
+        ? ` Ответ сервера: ${responseBody.replace(/\\s+/g, " ")}`
+        : "";
+      throw new Error(
+        `AniList вернул HTTP ${response.status} для пакета MAL ID ${malIds[0]}–${malIds[malIds.length - 1]}.${detail}`,
+      );
     }
 
     const payload = (await response.json()) as AniListMetadataResponse;
@@ -359,7 +394,17 @@ export const aniListMetadataProvider: CatalogMetadataProvider = {
       localByMalId.set(malId, group);
     }
 
-    const malIds = [...localByMalId.keys()];
+    const candidates = getAniListMetadataCandidates(identities);
+    const pendingByMalId = new Map<string, AnimeIdentity[]>();
+    for (const anime of candidates) {
+      const malId = anime.externalIds.myanimelist;
+      if (!malId) continue;
+      const group = pendingByMalId.get(malId) ?? [];
+      group.push(anime);
+      pendingByMalId.set(malId, group);
+    }
+
+    const malIds = [...pendingByMalId.keys()];
     for (let offset = 0; offset < malIds.length; offset += MAL_METADATA_BATCH_SIZE) {
       if (options.signal?.aborted) {
         throw new DOMException("The operation was aborted.", "AbortError");
@@ -378,7 +423,7 @@ export const aniListMetadataProvider: CatalogMetadataProvider = {
         }
 
         const metadata = mapMedia(media);
-        for (const localAnime of localByMalId.get(malId) ?? []) {
+        for (const localAnime of pendingByMalId.get(malId) ?? []) {
           matches.push({ animeId: localAnime.id, metadata });
         }
       });
