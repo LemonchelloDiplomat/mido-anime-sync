@@ -1204,7 +1204,10 @@ export class BrowserAnimeRepository {
       const entriesStore = transaction.objectStore("entries");
       const sourceStore = transaction.objectStore("sourceEntries");
       const resolutionStore = transaction.objectStore("conflictResolutions");
-      await sourceStore.delete([animeId, source]);
+      await Promise.all([
+        sourceStore.delete([animeId, source]),
+        sourceStore.delete([animeId, "local"]),
+      ]);
       const remaining = await sourceStore.getAll(
         IDBKeyRange.bound([animeId, ""], [animeId, "\uffff"]),
       );
