@@ -325,6 +325,14 @@ export function validateSnapshot(value: unknown): AnimeSnapshotV4 {
   const v = value as Record<string, unknown>;
 
   if (
+    v.exportedAt !== undefined &&
+    (typeof v.exportedAt !== "string" ||
+      !Number.isFinite(Date.parse(v.exportedAt)))
+  ) {
+    throw new Error("Invalid snapshot export date");
+  }
+
+  if (
     (v.schemaVersion !== 1 &&
       v.schemaVersion !== 2 &&
       v.schemaVersion !== 3 &&
