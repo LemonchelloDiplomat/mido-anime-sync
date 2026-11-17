@@ -397,3 +397,57 @@ describe("source metadata validation", () => {
     ).toThrow("Invalid source metadata");
   });
 });
+
+describe("snapshot export date validation", () => {
+  it("accepts a valid export date", () => {
+    const snapshot = validateSnapshot({
+      schemaVersion: 4,
+      exportedAt: "2026-11-15T12:00:00.000Z",
+      anime,
+      entries: [makeEntry()],
+      sourceEntries: [makeEntry()],
+      conflictResolutions: [],
+      animeRelations: [],
+    });
+
+    expect(snapshot.exportedAt).toBe("2026-11-15T12:00:00.000Z");
+  });
+
+  it("rejects an invalid export date", () => {
+    expect(() =>
+      validateSnapshot({
+        schemaVersion: 4,
+        exportedAt: "not-a-date",
+        anime,
+        entries: [makeEntry()],
+        sourceEntries: [makeEntry()],
+        conflictResolutions: [],
+        animeRelations: [],
+      }),
+    ).toThrow("Invalid snapshot export date");
+  });
+
+  it("rejects a non-string export date", () => {
+    expect(() =>
+      validateSnapshot({
+        schemaVersion: 4,
+        exportedAt: 12345,
+        anime,
+        entries: [makeEntry()],
+        sourceEntries: [makeEntry()],
+        conflictResolutions: [],
+        animeRelations: [],
+      }),
+    ).toThrow("Invalid snapshot export date");
+  });
+
+  it("allows a missing export date for legacy compatibility", () => {
+    const snapshot = validateSnapshot({
+      schemaVersion: 1,
+      anime,
+      entries: [makeEntry()],
+    });
+
+    expect(snapshot.exportedAt).toBe("1970-01-01T00:00:00.000Z");
+  });
+});
