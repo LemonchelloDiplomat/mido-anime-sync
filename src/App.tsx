@@ -1380,7 +1380,9 @@ function App() {
       sessions.push({
         sessionId,
         provider: operations[0]!.provider,
-        status: operations.some((item) => item.status === "failed")
+        status: operations.some((item) => item.status === "cancelled")
+          ? "cancelled" as const
+          : operations.some((item) => item.status === "failed")
           ? "failed" as const
           : operations.some((item) => item.status === "pending" || item.status === "in_progress")
             ? "running" as const
@@ -1413,6 +1415,7 @@ function App() {
       in_progress: "Выполняется",
       succeeded: "Успешно",
       failed: "Ошибка",
+      cancelled: "Прервана",
     })[status];
   }
 
@@ -1623,6 +1626,7 @@ function App() {
                     <option value="in_progress">Выполняется</option>
                     <option value="succeeded">Успешно</option>
                     <option value="failed">Ошибка</option>
+                    <option value="cancelled">Прервана</option>
                   </select>
                 </label>
                 <span>{filteredHistoryOperations.length} операций · {historySessions.length} сеансов</span>
