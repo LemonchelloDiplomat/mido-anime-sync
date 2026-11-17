@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 
 import type {
@@ -8,6 +8,7 @@ import type {
   AnimeReleaseStatus,
   AnimeListEntry,
   AnimeSnapshot,
+  AnimeSnapshotV4,
   AnimeStatus,
   SyncOperation,
   SyncSession,
@@ -28,6 +29,10 @@ import {
   createImportPreview,
   type ImportPreview,
 } from "./core/import-preview.js";
+import {
+  createRestorePreview,
+  type RestorePreview,
+} from "./core/restore-preview.js";
 
 type LibraryItem = {
   anime: AnimeIdentity;
@@ -153,6 +158,12 @@ function App() {
   const [importFormat, setImportFormat] = useState("");
 
   const [importing, setImporting] = useState(false);
+  const [restoreBackup, setRestoreBackup] = useState<AnimeSnapshotV4 | null>(null);
+  const [restorePreview, setRestorePreview] = useState<RestorePreview | null>(null);
+  const [restoreFormat, setRestoreFormat] = useState("");
+  const [restoring, setRestoring] = useState(false);
+  const restoreInProgressRef = useRef(false);
+  const syncInProgressRef = useRef(false);
   const [metadataEnriching, setMetadataEnriching] = useState(false);
   const [metadataProgress, setMetadataProgress] = useState<MetadataEnrichmentProgress | null>(null);
   const [metadataEnrichmentError, setMetadataEnrichmentError] = useState("");
@@ -602,6 +613,86 @@ function App() {
     }
   }
 
+  async function handleRestoreFile(event: ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    try {
+      if (!repository) throw new Error("Библиотека ещё не готова.");
+      if (syncInProgressRef.current || accountSyncing) {
+        throw new Error("Дождись завершения синхронизации перед восстановлением.");
+      }
+      if (metadataEnriching || importing || restoring) {
+        throw new Error("Сейчас выполняется другая операция с библиотекой. Попробуй позже.");
+      }
+      if (file.size > 25 * 1024 * 1024) {
+        throw new Error("Файл слишком большой. Максимальный размер: 25 МБ.");
+      }
+
+      const parsed: unknown = JSON.parse(await file.text());
+      const validated = validateSnapshot(parsed);
+      const current = await repository.snapshot();
+      const preview = createRestorePreview(validated, current);
+
+      setRestoreBackup(validated);
+      setRestorePreview(preview);
+      setRestoreFormat(`JSON v${validated.schemaVersion}`);
+      setError("");
+    } catch (err) {
+      setRestoreBackup(null);
+      setRestorePreview(null);
+      setRestoreFormat("");
+      setError(err instanceof Error ? err.message : "Не удалось прочитать резервную копию.");
+    } finally {
+      input.value = "";
+    }
+  }
+
+  async function handleConfirmRestore() {
+    if (!repository || !restoreBackup || !restorePreview || restoring) return;
+    if (syncInProgressRef.current || accountSyncing || metadataEnriching || importing) {
+      setError("Перед восстановлением дождись завершения синхронизации и других операций с библиотекой.");
+      return;
+    }
+
+    restoreInProgressRef.current = true;
+    setRestoring(true);
+    setError("");
+
+    try {
+      // Re-check the preview immediately before replacing anything. If the
+      // library changed since file selection, require the user to review again.
+      const current = await repository.snapshot();
+      const freshPreview = createRestorePreview(restoreBackup, current);
+      if (JSON.stringify(freshPreview) !== JSON.stringify(restorePreview)) {
+        setRestorePreview(freshPreview);
+        throw new Error("Библиотека изменилась после предварительного просмотра. Проверь обновлённые изменения и подтверди восстановление ещё раз.");
+      }
+
+      // The current library is downloaded as a safety backup before any write.
+      downloadSnapshot(current);
+      await repository.restoreSnapshot(restoreBackup);
+      await refreshLibrary();
+
+      const [operations, sessions] = await Promise.all([
+        repository.getSyncOperations(),
+        repository.getSyncSessions(),
+      ]);
+      setHistoryOperations(operations);
+      setHistorySessionRecords(sessions);
+      setRestoreBackup(null);
+      setRestorePreview(null);
+      setRestoreFormat("");
+      window.alert("Восстановление завершено. Перед заменой библиотеки скачана её предыдущая резервная копия.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось восстановить резервную копию.");
+    } finally {
+      restoreInProgressRef.current = false;
+      setRestoring(false);
+    }
+  }
+
   async function handleImportFromAccount(provider: "mal" | "anilist") {
     if (!repository || importing) return;
     setImporting(true);
@@ -628,8 +719,9 @@ function App() {
   }
 
   async function handleSyncToAccount(provider: "mal" | "anilist") {
-    if (!repository || accountSyncing) return;
+    if (!repository || accountSyncing || restoreInProgressRef.current) return;
     const activeRepository = repository;
+    syncInProgressRef.current = true;
     const sessionId = `sync-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const sessionStartedAt = new Date().toISOString();
     setAccountSyncing(provider);
@@ -1065,6 +1157,7 @@ function App() {
         // Preserve the original sync error if the session journal cannot be updated.
       }
     } finally {
+      syncInProgressRef.current = false;
       setAccountSyncing(null);
       void Promise.all([activeRepository.getSyncOperations(), activeRepository.getSyncSessions()])
         .then(([operations, sessions]) => {
@@ -1801,6 +1894,17 @@ function App() {
             </button>
 
             <label className="secondary-button">
+              ↻ Восстановить резервную копию
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={handleRestoreFile}
+                disabled={loading || !repository || importing || restoring || accountSyncing !== null || metadataEnriching}
+                style={{ display: "none" }}
+              />
+            </label>
+
+            <label className="secondary-button">
               ↑ Импорт JSON / MAL XML
               <input
                 type="file"
@@ -1811,6 +1915,85 @@ function App() {
               />
             </label>
           </section>
+
+          {restoreBackup && restorePreview && (
+            <section className="import-preview restore-preview">
+              <div className="import-preview-heading">
+                <div>
+                  <div className="eyebrow">FULL RESTORE</div>
+                  <h2>Предварительный просмотр восстановления</h2>
+                  <p>Это полная замена библиотеки данными из резервной копии, а не обычное добавление или объединение.</p>
+                </div>
+                <button
+                  className="small-action"
+                  onClick={() => {
+                    setRestoreBackup(null);
+                    setRestorePreview(null);
+                    setRestoreFormat("");
+                  }}
+                  disabled={restoring}
+                >
+                  Отменить
+                </button>
+              </div>
+
+              <div className="import-summary restore-summary">
+                <div className="import-summary-card"><span>Всего изменений</span><strong>{restorePreview.summary.total}</strong></div>
+                <div className="import-summary-card new"><span>Добавится</span><strong>{restorePreview.summary.added}</strong></div>
+                <div className="import-summary-card matched"><span>Обновится</span><strong>{restorePreview.summary.updated}</strong></div>
+                <div className="import-summary-card review"><span>Будет удалено</span><strong>{restorePreview.summary.removed}</strong></div>
+                <div className="import-summary-card"><span>Без изменений</span><strong>{restorePreview.summary.unchanged}</strong></div>
+              </div>
+
+              <div className="restore-collections">
+                {([
+                  ["Аниме", restorePreview.collections.anime],
+                  ["Записи сервисов", restorePreview.collections.sourceEntries],
+                  ["Решения конфликтов", restorePreview.collections.conflictResolutions],
+                  ["Связи аниме", restorePreview.collections.animeRelations],
+                ] as const).map(([label, counts]) => (
+                  <div className="restore-collection-row" key={label}>
+                    <strong>{label}</strong>
+                    <span>+{counts.added} · обновится {counts.updated} · удалится {counts.removed}</span>
+                  </div>
+                ))}
+              </div>
+
+              {restorePreview.conflicts.length > 0 && (
+                <div className="import-safety-note">
+                  <strong>Изменения внешних ID: {restorePreview.conflicts.length}</strong>
+                  <p>В резервной копии отличаются внешние идентификаторы MAL/AniList. При полном восстановлении будут использованы значения из резервной копии.</p>
+                </div>
+              )}
+
+              <div className="restore-warning">
+                <strong>Внимание: текущая библиотека будет заменена целиком.</strong>
+                <p>Записи, которых нет в резервной копии, будут удалены. Перед восстановлением приложение автоматически скачает текущую библиотеку отдельным JSON-файлом. Незавершённые операции синхронизации будут отмечены как прерванные.</p>
+                <p>Файл: {restoreFormat}. После проверки нажми «Восстановить библиотеку» для подтверждения.</p>
+              </div>
+
+              <div className="import-actions">
+                <button
+                  className="secondary-button"
+                  onClick={() => {
+                    setRestoreBackup(null);
+                    setRestorePreview(null);
+                    setRestoreFormat("");
+                  }}
+                  disabled={restoring}
+                >
+                  Отмена
+                </button>
+                <button
+                  className="add-button restore-confirm-button"
+                  onClick={() => void handleConfirmRestore()}
+                  disabled={restoring || accountSyncing !== null || metadataEnriching || importing}
+                >
+                  {restoring ? "Восстановление..." : "Восстановить библиотеку"}
+                </button>
+              </div>
+            </section>
+          )}
 
           {importSnapshot && importAnalysis && (
             <section className="import-preview">
