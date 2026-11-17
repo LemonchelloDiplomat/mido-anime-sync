@@ -820,12 +820,49 @@ function App() {
       const providerSource = provider === "mal" ? "myanimelist" : "anilist";
       const localItems = await Promise.all(baseItems.map(async (item) => {
         const sourceEntries = await activeRepository.getSourceEntries(item.anime.id);
+        const providerEntry = sourceEntries.find((entry) => entry.source === providerSource);
         return {
           ...item,
-          baseline: sourceEntries.find((entry) => entry.source === providerSource),
+          baseline: providerEntry,
+          providerEntry,
         };
       }));
       const plan = createBidirectionalSyncPlan(localItems, remoteSnapshot, provider);
+      const deletionDetection = detectRemoteDeletions(localItems, remoteSnapshot, provider);
+      if (deletionDetection.blockedReason) throw new Error(deletionDetection.blockedReason);
+
+      const pendingDeletionIntents = await activeRepository.getDeletionIntents(provider);
+      if (pendingDeletionIntents.length > 0 && remoteSnapshot.entries.length === 0) {
+        throw new Error("Удалённый сервис вернул пустой список при наличии ожидающих удалений. Запросы на удаление сохранены, синхронизация остановлена.");
+      }
+      const remoteDeletionCandidates: Array<{
+        intent: SyncDeletionIntent;
+        entry: AnimeListEntry;
+        entryId?: number;
+      }> = [];
+      for (const intent of pendingDeletionIntents) {
+        const remoteAnime = remoteSnapshot.anime.find(
+          (anime) => anime.externalIds[providerSource] === intent.externalId,
+        );
+        const remoteEntry = remoteAnime
+          ? remoteSnapshot.entries.find((entry) => entry.animeId === remoteAnime.id)
+          : undefined;
+        if (!remoteAnime || !remoteEntry) {
+          await activeRepository.deleteDeletionIntent(intent.id);
+          continue;
+        }
+        const entryId = provider === "anilist"
+          ? Number(remoteEntry.sourceMetadata?.anilistEntryId)
+          : undefined;
+        if (provider === "anilist" && (!Number.isSafeInteger(entryId) || entryId! <= 0)) {
+          throw new Error("Не удалось определить AniList entry ID для безопасного удаления. Запрос сохранён, ничего не удалено.");
+        }
+        remoteDeletionCandidates.push({
+          intent,
+          entry: { ...remoteEntry, animeId: intent.animeId, source: providerSource },
+          ...(entryId !== undefined ? { entryId } : {}),
+        });
+      }
 
       async function saveProviderBaseline(
         snapshot: AnimeSnapshot,
@@ -901,12 +938,13 @@ function App() {
         }
       }
 
-      const remoteChanges = remoteCreates.length + remoteUpdates.length;
-      const localChanges = localCreates.length + localUpdates.length;
+      const remoteChanges = remoteCreates.length + remoteUpdates.length + remoteDeletionCandidates.length;
+      const localChanges = localCreates.length + localUpdates.length + deletionDetection.localRemovals.length;
+      const unresolvedDeletionConflicts = deletionDetection.conflicts.length;
       if (remoteChanges === 0 && localChanges === 0) {
         const unresolved = conflictAnimeIds.filter(
           (id) => !resolvedConflictAnimeIds.has(id),
-        ).length;
+        ).length + unresolvedDeletionConflicts;
         let baselineMessage = "";
         if (canAdvanceSyncBaseline(0, unresolved)) {
           try {
@@ -924,7 +962,7 @@ function App() {
           status: "succeeded",
           finishedAt: new Date().toISOString(),
           unchangedCount: plan.unchanged,
-          conflictCount: plan.conflicts.length,
+          conflictCount: plan.conflicts.length + unresolvedDeletionConflicts,
           recoveredCount: recoveredOperations,
         });
         window.alert(
@@ -932,6 +970,7 @@ function App() {
           "Без изменений: " + plan.unchanged +
           "\nВосстановлено по журналу: " + recoveredOperations +
           "\nКонфликтных полей: " + plan.conflicts.length +
+          "\nКонфликтов удаления: " + unresolvedDeletionConflicts +
           "\nПропущено записей без внешнего ID: " + plan.skippedWithoutExternalId +
           baselineMessage,
         );
