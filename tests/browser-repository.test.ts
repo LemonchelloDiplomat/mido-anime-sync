@@ -1306,17 +1306,17 @@ describe("BrowserAnimeRepository sync operation journal", () => {
       expect.objectContaining({ id: succeeded.id, status: "succeeded" }),
       expect.objectContaining({
         id: pending.id,
-        status: "failed",
+        status: "cancelled",
         error: expect.stringContaining("прервана восстановлением"),
       }),
     ]);
     expect(await repo.getSyncSessions()).toEqual([
       expect.objectContaining({
         sessionId: session.sessionId,
-        status: "failed",
+        status: "cancelled",
         pendingCount: 0,
         succeededCount: 1,
-        failedCount: 1,
+        failedCount: 0,
         error: expect.stringContaining("прервана восстановлением"),
       }),
     ]);
