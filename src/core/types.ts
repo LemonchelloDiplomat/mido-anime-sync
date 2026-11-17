@@ -59,7 +59,7 @@ export interface AnimeListEntry {
 
 export type AnimeSourceEntry = AnimeListEntry;
 
-export type SyncOperationStatus = "pending" | "in_progress" | "succeeded" | "failed";
+export type SyncOperationStatus = "pending" | "in_progress" | "succeeded" | "failed" | "cancelled";
 export type SyncOperationDirection = "local" | "remote";
 export type SyncOperationKind = "create" | "update";
 
