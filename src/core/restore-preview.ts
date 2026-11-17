@@ -123,7 +123,7 @@ function compareCollection<T>(
   return result;
 }
 
-function getCurrentConflictResolutions(
+function getValidConflictResolutions(
   sourceEntries: AnimeSnapshotV4["sourceEntries"],
   resolutions: ConflictResolution[],
 ): ConflictResolution[] {
@@ -230,8 +230,8 @@ export function createRestorePreview(
     ...compareCollection("sourceEntries", current.sourceEntries, backup.sourceEntries),
     ...compareCollection(
       "conflictResolutions",
-      current.conflictResolutions,
-      getCurrentConflictResolutions(backup.sourceEntries, backup.conflictResolutions),
+      getValidConflictResolutions(current.sourceEntries, current.conflictResolutions),
+      getValidConflictResolutions(backup.sourceEntries, backup.conflictResolutions),
     ),
     ...compareCollection("animeRelations", current.animeRelations, backup.animeRelations),
   ];
