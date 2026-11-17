@@ -946,6 +946,26 @@ function App() {
         }
       }
 
+      const unresolvedDeletionConflictItems = [];
+      for (const conflict of deletionDetection.conflicts) {
+        const choice = window.prompt(
+          "На сервисе удалено аниме «" + conflict.title + "», но локальная запись изменилась после последней синхронизации.\n\nВведи LOCAL, чтобы восстановить запись на сервисе.\nВведи REMOTE, чтобы принять удаление на сервисе и удалить локальную запись этого сервиса.\nОставь поле пустым, чтобы пропустить конфликт.",
+        )?.trim().toUpperCase();
+        if (choice === "LOCAL") {
+          remoteCreates.push({ externalId: conflict.externalId, entry: structuredClone(conflict.localEntry) });
+        } else if (choice === "REMOTE") {
+          deletionDetection.localRemovals.push({
+            animeId: conflict.animeId,
+            title: conflict.title,
+            externalId: conflict.externalId,
+            baseline: structuredClone(conflict.baseline),
+          });
+        } else {
+          unresolvedDeletionConflictItems.push(conflict);
+        }
+      }
+      deletionDetection.conflicts.splice(0, deletionDetection.conflicts.length, ...unresolvedDeletionConflictItems);
+
       const remoteChanges = remoteCreates.length + remoteUpdates.length + remoteDeletionCandidates.length;
       const localChanges = localCreates.length + localUpdates.length + deletionDetection.localRemovals.length;
       const unresolvedDeletionConflicts = deletionDetection.conflicts.length;
