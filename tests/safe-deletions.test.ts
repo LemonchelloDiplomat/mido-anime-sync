@@ -39,13 +39,19 @@ function snapshot(animeItems: AnimeIdentity[], entries: AnimeListEntry[]): Anime
   };
 }
 
+function nonEmptyRemoteSnapshot(provider: "mal" | "anilist"): AnimeSnapshotV4 {
+  const remoteAnime = anime("remote:unrelated", "999", "888");
+  const source = provider === "mal" ? "myanimelist" : "anilist";
+  return snapshot([remoteAnime], [entry(remoteAnime.id, source)]);
+}
+
 describe("safe remote deletion detection", () => {
   it("detects a remote deletion when the provider entry still matches its baseline", () => {
     const localAnime = anime("local:10");
     const baseline = entry(localAnime.id, "myanimelist");
     const result = detectRemoteDeletions(
       [{ anime: localAnime, entry: baseline, baseline }],
-      snapshot([], []),
+      nonEmptyRemoteSnapshot("mal"),
       "mal",
     );
 
@@ -113,7 +119,7 @@ describe("safe remote deletion detection", () => {
     const baseline = entry(localAnime.id, "anilist");
     const result = detectRemoteDeletions(
       [{ anime: localAnime, entry: baseline, baseline }],
-      snapshot([], []),
+      nonEmptyRemoteSnapshot("anilist"),
       "anilist",
     );
 
