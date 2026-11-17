@@ -1767,6 +1767,9 @@ export class BrowserAnimeRepository {
         ...snapshot.animeRelations.map((item) =>
           relationStore.put(structuredClone(item)),
         ),
+        ...(snapshot.deletionIntents ?? []).map((item) =>
+          deletionIntentsStore.put(structuredClone(item)),
+        ),
         ...updatedOperations
           .filter((operation, index) => operation !== operations[index])
           .map((operation) => operationsStore.put(operation)),
