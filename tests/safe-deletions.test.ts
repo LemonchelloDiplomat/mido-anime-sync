@@ -44,7 +44,7 @@ describe("safe remote deletion detection", () => {
     const localAnime = anime("local:10");
     const baseline = entry(localAnime.id, "myanimelist");
     const result = detectRemoteDeletions(
-      [{ anime: localAnime, entry: baseline, baseline, providerEntry: baseline }],
+      [{ anime: localAnime, entry: baseline, baseline }],
       snapshot([], []),
       "mal",
     );
@@ -78,7 +78,7 @@ describe("safe remote deletion detection", () => {
     const baseline = entry(localAnime.id, "myanimelist", { progress: 3 });
     const current = entry(localAnime.id, "myanimelist", { progress: 8 });
     const result = detectRemoteDeletions(
-      [{ anime: localAnime, entry: current, baseline, providerEntry: current }],
+      [{ anime: localAnime, entry: current, baseline }],
       snapshot([], []),
       "mal",
     );
