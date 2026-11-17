@@ -64,7 +64,7 @@ describe("safe remote deletion detection", () => {
     const baseline = entry(localAnime.id, "myanimelist");
     const remoteAnime = anime("mal:10");
     const result = detectRemoteDeletions(
-      [{ anime: localAnime, entry: baseline, baseline, providerEntry: baseline }],
+      [{ anime: localAnime, entry: baseline, baseline }],
       snapshot([remoteAnime], [entry(remoteAnime.id, "myanimelist")]),
       "mal",
     );
@@ -98,7 +98,7 @@ describe("safe remote deletion detection", () => {
     const baseline = entry(localAnime.id, "myanimelist", { progress: 3 });
     const localAggregate = entry(localAnime.id, "local", { progress: 8 });
     const result = detectRemoteDeletions(
-      [{ anime: localAnime, entry: localAggregate, baseline, providerEntry: baseline }],
+      [{ anime: localAnime, entry: localAggregate, baseline }],
       snapshot([], []),
       "mal",
     );
@@ -112,7 +112,7 @@ describe("safe remote deletion detection", () => {
     const localAnime = anime("local:10");
     const baseline = entry(localAnime.id, "anilist");
     const result = detectRemoteDeletions(
-      [{ anime: localAnime, entry: baseline, baseline, providerEntry: baseline }],
+      [{ anime: localAnime, entry: baseline, baseline }],
       snapshot([], []),
       "anilist",
     );
@@ -126,7 +126,7 @@ describe("safe remote deletion detection", () => {
     const baseline = entry(localAnime.id, "myanimelist", { score: 80 });
     const current = entry(localAnime.id, "myanimelist", { score: 84 });
     const result = detectRemoteDeletions(
-      [{ anime: localAnime, entry: current, baseline, providerEntry: current }],
+      [{ anime: localAnime, entry: current, baseline }],
       snapshot([], []),
       "mal",
     );
@@ -139,7 +139,7 @@ describe("safe remote deletion detection", () => {
     const items = Array.from({ length: 10 }, (_, index) => {
       const item = anime("local:" + index, String(100 + index), String(200 + index));
       const baseline = entry(item.id, "anilist");
-      return { anime: item, entry: baseline, baseline, providerEntry: baseline };
+      return { anime: item, entry: baseline, baseline };
     });
     const result = detectRemoteDeletions(items, snapshot([], []), "anilist");
 
