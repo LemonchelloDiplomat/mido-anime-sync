@@ -49,7 +49,7 @@ describe("restore preview", () => {
   it("compares all backup collections", () => {
     const current = makeSnapshot([makeAnime("one")]);
     const backup = makeSnapshot([makeAnime("one")]);
-    current.entries.push({
+    current.sourceEntries.push({
       animeId: "one",
       status: "WATCHING",
       progress: 1,
@@ -61,7 +61,7 @@ describe("restore preview", () => {
 
     const preview = createRestorePreview(backup, current);
 
-    expect(preview.collections.entries.removed).toBe(1);
+    expect(preview.collections.sourceEntries.removed).toBe(1);
   });
 
   it("reports an external ID change on the same anime record", () => {
