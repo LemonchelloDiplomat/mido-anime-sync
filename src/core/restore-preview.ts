@@ -236,7 +236,6 @@ export function createRestorePreview(
     ...compareCollection("animeRelations", current.animeRelations, backup.animeRelations),
   ];
 
-  const statuses: RestoreChangeStatus[] = ["added", "updated", "unchanged", "removed"];
   const collections = {
     anime: { added: 0, updated: 0, unchanged: 0, removed: 0 },
     sourceEntries: { added: 0, updated: 0, unchanged: 0, removed: 0 },
