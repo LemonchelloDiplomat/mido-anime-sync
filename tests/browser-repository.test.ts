@@ -1233,6 +1233,95 @@ describe("BrowserAnimeRepository sync operation journal", () => {
     expect(await repo.getAnime("anime-one")).toBeUndefined();
     expect(await repo.getEntry("anime-two")).toBeUndefined();
   });
+  it("restores the library and preserves completed sync history", async () => {
+    const repo = await createRepository();
+    const now = "2026-11-17T12:00:00.000Z";
+    const completedOperation: SyncOperation = {
+      id: "completed-operation",
+      sessionId: "completed-session",
+      provider: "mal",
+      direction: "local",
+      kind: "create",
+      animeId: "old-anime",
+      anime: makeAnime("old-anime"),
+      entry: makeEntry("old-anime", 4, now),
+      status: "succeeded",
+      attempts: 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await repo.saveSyncOperations([completedOperation]);
+    await repo.saveAnime(makeAnime("old-anime"));
+
+    await repo.restoreSnapshot(makeSnapshot(["restored-anime"], 7));
+
+    expect(await repo.getAnime("old-anime")).toBeUndefined();
+    expect(await repo.getAnime("restored-anime")).toBeDefined();
+    expect(await repo.getEntry("restored-anime")).toMatchObject({ progress: 7 });
+    expect(await repo.getSyncOperations()).toEqual([completedOperation]);
+  });
+
+  it("marks unfinished sync operations and their sessions as interrupted by restore", async () => {
+    const repo = await createRepository();
+    const now = "2026-11-17T12:00:00.000Z";
+    const session: SyncSession = {
+      sessionId: "restore-session",
+      provider: "anilist",
+      status: "running",
+      startedAt: now,
+      operationCount: 2,
+      succeededCount: 1,
+      failedCount: 0,
+      pendingCount: 1,
+      unchangedCount: 0,
+      conflictCount: 0,
+      recoveredCount: 0,
+    };
+    const succeeded: SyncOperation = {
+      id: "restore-succeeded",
+      sessionId: session.sessionId,
+      provider: "anilist",
+      direction: "local",
+      kind: "update",
+      animeId: "old-anime",
+      entry: makeEntry("old-anime", 2, now),
+      status: "succeeded",
+      attempts: 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const pending: SyncOperation = {
+      ...succeeded,
+      id: "restore-pending",
+      status: "pending",
+      attempts: 0,
+    };
+    await repo.saveSyncSession(session);
+    await repo.saveSyncOperations([succeeded, pending]);
+
+    await repo.restoreSnapshot(makeSnapshot(["restored-anime"]));
+
+    expect(await repo.getUnfinishedSyncOperations()).toEqual([]);
+    expect(await repo.getSyncOperations()).toEqual([
+      expect.objectContaining({ id: succeeded.id, status: "succeeded" }),
+      expect.objectContaining({
+        id: pending.id,
+        status: "failed",
+        error: expect.stringContaining("прервана восстановлением"),
+      }),
+    ]);
+    expect(await repo.getSyncSessions()).toEqual([
+      expect.objectContaining({
+        sessionId: session.sessionId,
+        status: "failed",
+        pendingCount: 0,
+        succeededCount: 1,
+        failedCount: 1,
+        error: expect.stringContaining("прервана восстановлением"),
+      }),
+    ]);
+  });
+
   it("persists operations and tracks independent completion states", async () => {
     const repo = await createRepository();
     const now = "2026-11-17T12:00:00.000Z";
