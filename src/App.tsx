@@ -831,11 +831,9 @@ function App() {
       const providerSource = provider === "mal" ? "myanimelist" : "anilist";
       const localItems = await Promise.all(baseItems.map(async (item) => {
         const sourceEntries = await activeRepository.getSourceEntries(item.anime.id);
-        const providerEntry = sourceEntries.find((entry) => entry.source === providerSource);
         return {
           ...item,
-          baseline: providerEntry,
-          providerEntry,
+          baseline: sourceEntries.find((entry) => entry.source === providerSource),
         };
       }));
       const plan = createBidirectionalSyncPlan(localItems, remoteSnapshot, provider);
