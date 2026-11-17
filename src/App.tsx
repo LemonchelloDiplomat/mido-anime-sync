@@ -897,7 +897,8 @@ function App() {
 
       const remoteCreates = [...plan.remoteCreates];
       const remoteUpdates = [...plan.remoteUpdates];
-      const localCreates = [...plan.localCreates];
+      const pendingDeletionExternalIds = new Set(pendingDeletionIntents.map((intent) => intent.externalId));
+      const localCreates = plan.localCreates.filter((change) => !pendingDeletionExternalIds.has(change.anime.externalIds[providerSource] ?? ""));
       const localUpdates = [...plan.localUpdates];
 
       // Each conflicting anime is resolved explicitly. Cancel or S keeps it untouched.
