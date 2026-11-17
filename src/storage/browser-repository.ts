@@ -558,6 +558,7 @@ export class BrowserAnimeRepository {
     const operations = await this.getSyncOperations();
     return operations.filter((operation) =>
       operation.status !== "succeeded" &&
+      operation.status !== "cancelled" &&
       (provider === undefined || operation.provider === provider),
     );
   }
@@ -1661,7 +1662,7 @@ export class BrowserAnimeRepository {
         interruptedSessionIds.add(operation.sessionId);
         return {
           ...operation,
-          status: "failed" as const,
+          status: "cancelled" as const,
           error: "Операция прервана восстановлением резервной копии. Запусти новую синхронизацию.",
           updatedAt: restoredAt,
         };
@@ -1679,7 +1680,7 @@ export class BrowserAnimeRepository {
 
         return {
           ...session,
-          status: "failed" as const,
+          status: "cancelled" as const,
           finishedAt: restoredAt,
           operationCount: sessionOperations.length,
           succeededCount: sessionOperations.filter(
