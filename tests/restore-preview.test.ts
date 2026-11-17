@@ -46,7 +46,7 @@ describe("restore preview", () => {
     });
   });
 
-  it("compares all backup collections", () => {
+  it("compares stored source records used by restore", () => {
     const current = makeSnapshot([makeAnime("one")]);
     const backup = makeSnapshot([makeAnime("one")]);
     current.sourceEntries.push({
