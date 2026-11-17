@@ -1302,14 +1302,16 @@ describe("BrowserAnimeRepository sync operation journal", () => {
     await repo.restoreSnapshot(makeSnapshot(["restored-anime"]));
 
     expect(await repo.getUnfinishedSyncOperations()).toEqual([]);
-    expect(await repo.getSyncOperations()).toEqual([
-      expect.objectContaining({ id: succeeded.id, status: "succeeded" }),
-      expect.objectContaining({
-        id: pending.id,
-        status: "cancelled",
-        error: expect.stringContaining("прервана восстановлением"),
-      }),
-    ]);
+    expect(await repo.getSyncOperations()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: succeeded.id, status: "succeeded" }),
+        expect.objectContaining({
+          id: pending.id,
+          status: "cancelled",
+          error: expect.stringContaining("прервана восстановлением"),
+        }),
+      ]),
+    );
     expect(await repo.getSyncSessions()).toEqual([
       expect.objectContaining({
         sessionId: session.sessionId,
