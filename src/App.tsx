@@ -12,6 +12,7 @@ import type {
   AnimeStatus,
   SyncOperation,
   SyncSession,
+  SyncDeletionIntent,
 } from "./core/types.js";
 
 import { BrowserAnimeRepository } from "./storage/browser-repository.js";
@@ -20,10 +21,11 @@ import { DEFAULT_LIBRARY_FILTERS, filterLibrary, type LibraryFilters } from "./c
 import { aniListMetadataProvider, fetchAniListAnimeDetails, getAniListMetadataCandidates, searchAniListAnime, type AniListAnimeDetails } from "./services/anilist.js";
 import { parseMyAnimeListXml, readMyAnimeListExport } from "./services/myanimelist-import.js";
 import { connectIntegration, disconnectIntegration, getIntegrationStatus, type IntegrationStatus } from "./services/integrations-api.js";
-import { fetchAccountList, updateAccountEntry } from "./services/integrations-api.js";
+import { fetchAccountList, updateAccountEntry, deleteAccountEntry } from "./services/integrations-api.js";
 import { parseMyAnimeListApiList } from "./services/myanimelist-account.js";
 import { parseAniListAccountList, type AniListScoreFormat } from "./services/anilist-account.js";
 import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
+import { detectRemoteDeletions } from "./core/safe-deletions.js";
 
 import {
   createImportPreview,
@@ -1365,14 +1367,41 @@ function App() {
 
   async function handleDelete(id: string) {
     if (!repository) return;
+    if (syncInProgressRef.current || restoreInProgressRef.current || accountSyncing) {
+      setError("Нельзя удалять аниме во время синхронизации или восстановления.");
+      return;
+    }
 
-    const confirmed = window.confirm("Удалить это аниме из библиотеки?");
-
+    const confirmed = window.confirm(
+      "Удалить аниме из локальной библиотеки?\n\nЕсли для него сохранены записи MAL/AniList, приложение запомнит намерение удалить их на соответствующем сервисе при следующей синхронизации. Удаление на сервисе потребует отдельного подтверждения.",
+    );
     if (!confirmed) return;
 
     try {
-      await repository.deleteAnime(id);
+      const anime = await repository.getAnime(id);
+      if (!anime) throw new Error("Аниме уже отсутствует в библиотеке.");
+      const sourceEntries = await repository.getSourceEntries(id);
+      const createdAt = new Date().toISOString();
+      const deletionIntents: SyncDeletionIntent[] = sourceEntries.flatMap((entry) => {
+        if (entry.source !== "myanimelist" && entry.source !== "anilist") return [];
+        const provider = entry.source === "myanimelist" ? "mal" : "anilist";
+        const externalId = anime.externalIds[entry.source];
+        if (!externalId) return [];
+        return [{
+          id: "delete-" + provider + "-" + id + "-" + createdAt,
+          provider,
+          animeId: id,
+          externalId,
+          anime: structuredClone(anime),
+          entry: structuredClone(entry),
+          createdAt,
+        }];
+      });
+      await repository.deleteAnime(id, deletionIntents);
       await refreshLibrary();
+      if (deletionIntents.length > 0) {
+        window.alert("Аниме удалено локально. На следующей синхронизации приложение предложит удалить связанные записи на MAL/AniList.");
+      }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Не удалось удалить аниме.",
