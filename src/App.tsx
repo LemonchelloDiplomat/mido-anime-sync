@@ -9,6 +9,8 @@ import type {
   AnimeListEntry,
   AnimeSnapshot,
   AnimeStatus,
+  SyncOperation,
+  SyncSession,
 } from "./core/types.js";
 
 import { BrowserAnimeRepository } from "./storage/browser-repository.js";
@@ -20,6 +22,7 @@ import { connectIntegration, disconnectIntegration, getIntegrationStatus, type I
 import { fetchAccountList, updateAccountEntry } from "./services/integrations-api.js";
 import { parseMyAnimeListApiList } from "./services/myanimelist-account.js";
 import { parseAniListAccountList, type AniListScoreFormat } from "./services/anilist-account.js";
+import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
 
 import {
   createImportPreview,
@@ -158,6 +161,18 @@ function App() {
   const [integrationStatusLoading, setIntegrationStatusLoading] = useState(false);
   const [integrationStatusError, setIntegrationStatusError] = useState("");
   const [accountSyncing, setAccountSyncing] = useState<"mal" | "anilist" | null>(null);
+  const [syncConflictDialog, setSyncConflictDialog] = useState<{
+    title: string;
+    fields: string;
+    resolve: (choice: "l" | "r" | "s") => void;
+  } | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyOperations, setHistoryOperations] = useState<SyncOperation[]>([]);
+  const [historySessionRecords, setHistorySessionRecords] = useState<SyncSession[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | "mal" | "anilist">("all");
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<"all" | SyncOperation["status"]>("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -200,6 +215,27 @@ function App() {
       openedRepository?.close();
     };
   }, []);
+
+  useEffect(() => {
+    if (!historyOpen || !repository) return;
+    let active = true;
+    setHistoryLoading(true);
+    setHistoryError("");
+    void Promise.all([repository.getSyncOperations(), repository.getSyncSessions()])
+      .then(([operations, sessions]) => {
+        if (active) {
+          setHistoryOperations(operations);
+          setHistorySessionRecords(sessions);
+        }
+      })
+      .catch((err: unknown) => {
+        if (active) setHistoryError(err instanceof Error ? err.message : "Не удалось загрузить историю синхронизации.");
+      })
+      .finally(() => {
+        if (active) setHistoryLoading(false);
+      });
+    return () => { active = false; };
+  }, [historyOpen, repository]);
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -482,6 +518,30 @@ function App() {
     }, 1000);
   }
 
+  function downloadSyncHistory(sessions: SyncSession[], operations: SyncOperation[]) {
+    const exportedAt = new Date().toISOString();
+    const payload = {
+      format: "midahoshi-sync-history",
+      schemaVersion: 2,
+      exportedAt,
+      sessions,
+      operations,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const timestamp = exportedAt.replace(/[:.]/g, "-");
+
+    link.href = url;
+    link.download = `midahoshi-sync-history-${timestamp}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   async function handleExport() {
     if (!repository) return;
 
@@ -569,85 +629,451 @@ function App() {
 
   async function handleSyncToAccount(provider: "mal" | "anilist") {
     if (!repository || accountSyncing) return;
+    const activeRepository = repository;
+    const sessionId = `sync-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const sessionStartedAt = new Date().toISOString();
     setAccountSyncing(provider);
     setIntegrationStatusError("");
     try {
+      await activeRepository.saveSyncSession({
+        sessionId,
+        provider,
+        status: "running",
+        startedAt: sessionStartedAt,
+        operationCount: 0,
+        succeededCount: 0,
+        failedCount: 0,
+        pendingCount: 0,
+        unchangedCount: 0,
+        conflictCount: 0,
+        recoveredCount: 0,
+      });
       const payload = await fetchAccountList(provider);
       const remoteSnapshot = provider === "mal"
         ? parseMyAnimeListApiList(payload.data)
         : parseAniListAccountList(payload.data, payload.scoreFormat as AniListScoreFormat);
-      const remoteByExternalId = new Map<string, AnimeListEntry>();
-      remoteSnapshot.anime.forEach((anime) => {
-        const externalId = provider === "mal" ? anime.externalIds.myanimelist : anime.externalIds.anilist;
-        const remoteEntry = remoteSnapshot.entries.find((entry) => entry.animeId === anime.id);
-        if (externalId && remoteEntry) remoteByExternalId.set(externalId, remoteEntry);
-      });
 
-      const changes: Array<{ externalId: string; entry: AnimeListEntry }> = [];
-      let newerRemote = 0;
-      let conflicts = 0;
-      for (const item of library) {
-        if (!item.entry) continue;
-        const externalId = provider === "mal" ? item.anime.externalIds.myanimelist : item.anime.externalIds.anilist;
-        if (!externalId) continue;
-        const remote = remoteByExternalId.get(externalId);
-        if (!remote) {
-          changes.push({ externalId, entry: item.entry });
-          continue;
-        }
-        const differs = remote.status !== item.entry.status ||
-          remote.progress !== item.entry.progress ||
-          remote.score !== item.entry.score;
-        if (!differs) continue;
-        const localTime = Date.parse(item.entry.updatedAt);
-        const remoteTime = Date.parse(remote.updatedAt);
-        if (Number.isFinite(localTime) && Number.isFinite(remoteTime) && localTime > remoteTime) {
-          changes.push({ externalId, entry: item.entry });
-        } else if (Number.isFinite(remoteTime) && Number.isFinite(localTime) && remoteTime > localTime) {
-          newerRemote += 1;
+      // Reconcile unfinished journal records against the freshly fetched state.
+      // This handles the case where a write reached the provider just before the app closed.
+      const unfinishedOperations = await activeRepository.getUnfinishedSyncOperations(provider);
+      let recoveredOperations = 0;
+      for (const operation of unfinishedOperations) {
+        const actualEntry = operation.direction === "remote"
+          ? (() => {
+              const remoteAnime = remoteSnapshot.anime.find(
+                (anime) => anime.externalIds[provider === "mal" ? "myanimelist" : "anilist"] === operation.externalId,
+              );
+              return remoteAnime
+                ? remoteSnapshot.entries.find((entry) => entry.animeId === remoteAnime.id)
+                : undefined;
+            })()
+          : (await activeRepository.getSourceEntries(operation.animeId)).find(
+              (entry) => entry.source === operation.entry.source,
+            );
+        // MAL stores integer scores from 1 to 10, so compare against its
+        // normalized 0-100 representation rather than the pre-rounded target.
+        const expectedScore = provider === "mal"
+          ? operation.entry.score === null || operation.entry.score === 0
+            ? null
+            : Math.max(10, Math.min(100, Math.round(operation.entry.score / 10) * 10))
+          : operation.entry.score;
+        const matchesTarget = Boolean(
+          actualEntry &&
+          actualEntry.status === operation.entry.status &&
+          actualEntry.progress === operation.entry.progress &&
+          actualEntry.score === expectedScore &&
+          (provider === "mal" || actualEntry.favorite === operation.entry.favorite),
+        );
+        if (matchesTarget) {
+          await activeRepository.updateSyncOperation(operation.id, { status: "succeeded" });
+          recoveredOperations += 1;
         } else {
-          conflicts += 1;
+          // Do not leave stale pending/in-progress records looking active forever.
+          // The fresh sync plan below will reconcile the actual current state.
+          await activeRepository.updateSyncOperation(operation.id, {
+            status: "failed",
+            error: "Восстановление: текущее состояние не совпадает с целевым. Повторная синхронизация построит новый план.",
+          });
         }
       }
 
-      if (changes.length === 0) {
-        window.alert("Изменений для записи нет. Более свежие удалённые записи: " + newerRemote + ". Неоднозначные конфликты: " + conflicts + ".");
+      const recoveredSessionIds = [...new Set(unfinishedOperations.map((operation) => operation.sessionId))];
+      if (recoveredSessionIds.length > 0) {
+        const [allJournalOperations, knownSessions] = await Promise.all([
+          activeRepository.getSyncOperations(),
+          activeRepository.getSyncSessions(),
+        ]);
+        const knownSessionIds = new Set(knownSessions.map((session) => session.sessionId));
+        for (const recoveredSessionId of recoveredSessionIds) {
+          // Older journal versions did not persist session metadata.
+          if (!knownSessionIds.has(recoveredSessionId)) continue;
+          const sessionOperations = allJournalOperations.filter((operation) => operation.sessionId === recoveredSessionId);
+          const sessionPending = sessionOperations.filter((operation) => operation.status === "pending" || operation.status === "in_progress").length;
+          const sessionFailed = sessionOperations.filter((operation) => operation.status === "failed").length;
+          await activeRepository.updateSyncSession(recoveredSessionId, {
+            status: sessionPending > 0 ? "running" : sessionFailed > 0 ? "failed" : "succeeded",
+            ...(sessionPending === 0 ? { finishedAt: new Date().toISOString() } : {}),
+            operationCount: sessionOperations.length,
+            succeededCount: sessionOperations.filter((operation) => operation.status === "succeeded").length,
+            failedCount: sessionFailed,
+            pendingCount: sessionPending,
+          });
+        }
+      }
+
+      const baseItems = await activeRepository.getAll();
+      const providerSource = provider === "mal" ? "myanimelist" : "anilist";
+      const localItems = await Promise.all(baseItems.map(async (item) => {
+        const sourceEntries = await activeRepository.getSourceEntries(item.anime.id);
+        return {
+          ...item,
+          baseline: sourceEntries.find((entry) => entry.source === providerSource),
+        };
+      }));
+      const plan = createBidirectionalSyncPlan(localItems, remoteSnapshot, provider);
+
+      async function saveProviderBaseline(
+        snapshot: AnimeSnapshot,
+        additionalItems: Array<{ anime: AnimeIdentity }> = [],
+      ) {
+        const canonicalByExternalId = new Map<string, string>();
+        for (const item of [...localItems, ...additionalItems]) {
+          const externalId = item.anime.externalIds[providerSource];
+          if (externalId) canonicalByExternalId.set(externalId, item.anime.id);
+        }
+        const baselines: AnimeListEntry[] = [];
+        for (const remoteAnime of snapshot.anime) {
+          const externalId = remoteAnime.externalIds[providerSource];
+          const remoteEntry = snapshot.entries.find((entry) => entry.animeId === remoteAnime.id);
+          const canonicalId = externalId ? canonicalByExternalId.get(externalId) : undefined;
+          if (!remoteEntry || !canonicalId) continue;
+          baselines.push({
+            ...remoteEntry,
+            animeId: canonicalId,
+            source: providerSource,
+          });
+        }
+        await activeRepository.saveSourceEntries(baselines);
+      }
+
+      const remoteCreates = [...plan.remoteCreates];
+      const remoteUpdates = [...plan.remoteUpdates];
+      const localCreates = [...plan.localCreates];
+      const localUpdates = [...plan.localUpdates];
+
+      // Each conflicting anime is resolved explicitly. Cancel or S keeps it untouched.
+      const conflictAnimeIds = [...new Set(plan.conflicts.map((conflict) => conflict.animeId))];
+      const resolvedConflictAnimeIds = new Set<string>();
+      for (const animeId of conflictAnimeIds) {
+        const local = localItems.find((item) => item.anime.id === animeId);
+        if (!local?.entry) continue;
+        const externalId = provider === "mal"
+          ? local.anime.externalIds.myanimelist
+          : local.anime.externalIds.anilist;
+        if (!externalId) continue;
+        const remoteAnime = remoteSnapshot.anime.find((anime) =>
+          (provider === "mal" ? anime.externalIds.myanimelist : anime.externalIds.anilist) === externalId
+        );
+        const remoteEntry = remoteAnime
+          ? remoteSnapshot.entries.find((entry) => entry.animeId === remoteAnime.id)
+          : undefined;
+        if (!remoteEntry) continue;
+
+        const fields = plan.conflicts
+          .filter((conflict) => conflict.animeId === animeId)
+          .map((conflict) => conflict.field + ": " + String(conflict.localValue) + " ↔ " + String(conflict.remoteValue))
+          .join("\n");
+        const choice = await new Promise<"l" | "r" | "s">((resolve) => {
+          setSyncConflictDialog({
+            title: local.anime.titles.english || local.anime.titles.romaji || animeId,
+            fields,
+            resolve,
+          });
+        });
+        if (choice?.trim().toLowerCase() === "l") {
+          resolvedConflictAnimeIds.add(animeId);
+          remoteUpdates.push({ externalId, entry: local.entry });
+        } else if (choice?.trim().toLowerCase() === "r") {
+          resolvedConflictAnimeIds.add(animeId);
+          localUpdates.push({
+            animeId: local.anime.id,
+            entry: {
+              ...remoteEntry,
+              animeId: local.anime.id,
+              source: provider === "mal" ? "myanimelist" : "anilist",
+            },
+          });
+        }
+      }
+
+      const remoteChanges = remoteCreates.length + remoteUpdates.length;
+      const localChanges = localCreates.length + localUpdates.length;
+      if (remoteChanges === 0 && localChanges === 0) {
+        const unresolved = conflictAnimeIds.filter(
+          (id) => !resolvedConflictAnimeIds.has(id),
+        ).length;
+        let baselineMessage = "";
+        if (canAdvanceSyncBaseline(0, unresolved)) {
+          try {
+            // No writes were needed, so the first remote snapshot is still current.
+            await saveProviderBaseline(remoteSnapshot);
+            baselineMessage = "\nБазовый снимок сервиса обновлён.";
+          } catch (err) {
+            baselineMessage = "\nНе удалось обновить базовый снимок: " +
+              (err instanceof Error ? err.message : "ошибка");
+          }
+        } else {
+          baselineMessage = "\nБазовый снимок не обновлён: остались пропущенные конфликты.";
+        }
+        await activeRepository.updateSyncSession(sessionId, {
+          status: "succeeded",
+          finishedAt: new Date().toISOString(),
+          unchangedCount: plan.unchanged,
+          conflictCount: plan.conflicts.length,
+          recoveredCount: recoveredOperations,
+        });
+        window.alert(
+          "Синхронизация завершена без изменений.\n" +
+          "Без изменений: " + plan.unchanged +
+          "\nВосстановлено по журналу: " + recoveredOperations +
+          "\nКонфликтных полей: " + plan.conflicts.length +
+          "\nПропущено записей без внешнего ID: " + plan.skippedWithoutExternalId +
+          baselineMessage,
+        );
         return;
       }
 
       const serviceName = provider === "mal" ? "MyAnimeList" : "AniList";
       const confirmed = window.confirm(
-        "Подготовлено записей к отправке в " + serviceName + ": " + changes.length +
-        ". Пропущено как более свежие на сервисе: " + newerRemote +
-        ". Неоднозначных конфликтов: " + conflicts +
-        ". Будут записаны только статус, прогресс и оценка. Избранное, даты и теги не изменяются. Продолжить?"
+        "План синхронизации с " + serviceName + ":" +
+        "\nНовые записи на сервисе: " + remoteCreates.length +
+        "\nОбновления на сервисе: " + remoteUpdates.length +
+        "\nНовые записи в локальной библиотеке: " + localCreates.length +
+        "\nОбновления локальной библиотеки: " + localUpdates.length +
+        "\nНеразрешённых конфликтных тайтлов пропущено: " +
+          conflictAnimeIds.filter((id) => !resolvedConflictAnimeIds.has(id)).length +
+        (unfinishedOperations.length
+          ? "\nНезавершённых операций из прошлых запусков: " + unfinishedOperations.length +
+            "\nУже подтверждено сверкой: " + recoveredOperations
+          : "") +
+        "\n\nПеред изменениями будет скачана резервная копия. Продолжить?"
       );
-      if (!confirmed) return;
+      if (!confirmed) {
+        await activeRepository.updateSyncSession(sessionId, {
+          status: "cancelled",
+          finishedAt: new Date().toISOString(),
+          unchangedCount: plan.unchanged,
+          conflictCount: plan.conflicts.length,
+          recoveredCount: recoveredOperations,
+        });
+        return;
+      }
 
-      let succeeded = 0;
-      const failed: string[] = [];
-      for (const change of changes) {
+      // Backup is created before the first write to either side.
+      downloadSnapshot(await activeRepository.snapshot());
+
+      const journalCreatedAt = new Date().toISOString();
+      const remoteChangesToApply = [...remoteCreates, ...remoteUpdates];
+      const localChangesToApply = [
+        ...localCreates.map((change) => ({
+          kind: "create" as const,
+          animeId: change.anime.id,
+          entry: change.entry,
+          anime: change.anime,
+        })),
+        ...localUpdates.map((change) => ({
+          kind: "update" as const,
+          animeId: change.animeId,
+          entry: change.entry,
+        })),
+      ];
+      const remoteJournalOperations: SyncOperation[] = remoteChangesToApply.map((change, index) => {
+        const localMatch = localItems.find(
+          (item) => item.anime.externalIds[providerSource] === change.externalId,
+        );
+        return {
+          id: `${sessionId}-remote-${index}`,
+          sessionId,
+          provider,
+          direction: "remote",
+          kind: index < remoteCreates.length ? "create" : "update",
+          animeId: localMatch?.anime.id ?? change.entry.animeId,
+          externalId: change.externalId,
+          entry: structuredClone(change.entry),
+          status: "pending",
+          attempts: 0,
+          createdAt: journalCreatedAt,
+          updatedAt: journalCreatedAt,
+        };
+      });
+      const localJournalOperations: SyncOperation[] = localChangesToApply.map((change, index) => ({
+        id: `${sessionId}-local-${index}`,
+        sessionId,
+        provider,
+        direction: "local",
+        kind: change.kind,
+        animeId: change.animeId,
+        entry: structuredClone(change.entry),
+        ...(change.kind === "create" ? { anime: structuredClone(change.anime) } : {}),
+        status: "pending",
+        attempts: 0,
+        createdAt: journalCreatedAt,
+        updatedAt: journalCreatedAt,
+      }));
+      // The entire plan is durable before the first write starts.
+      await activeRepository.saveSyncOperations([
+        ...remoteJournalOperations,
+        ...localJournalOperations,
+      ]);
+      await activeRepository.updateSyncSession(sessionId, {
+        operationCount: remoteJournalOperations.length + localJournalOperations.length,
+        pendingCount: remoteJournalOperations.length + localJournalOperations.length,
+        unchangedCount: plan.unchanged,
+        conflictCount: plan.conflicts.length,
+        recoveredCount: recoveredOperations,
+      });
+
+      let remoteSucceeded = 0;
+      let localSucceeded = 0;
+      const failures: string[] = [];
+
+      for (let index = 0; index < remoteChangesToApply.length; index += 1) {
+        const change = remoteChangesToApply[index]!;
+        const operation = remoteJournalOperations[index]!;
+        await activeRepository.updateSyncOperation(operation.id, {
+          status: "in_progress",
+          attempts: operation.attempts + 1,
+        });
         try {
           await updateAccountEntry(provider, {
             externalId: change.externalId,
             status: change.entry.status,
             progress: change.entry.progress,
             score: change.entry.score,
+            ...(provider === "anilist" ? { favorite: change.entry.favorite } : {}),
           });
-          succeeded += 1;
         } catch (err) {
-          failed.push(change.externalId + ": " + (err instanceof Error ? err.message : "ошибка"));
+          const message = err instanceof Error ? err.message : "ошибка записи";
+          await activeRepository.updateSyncOperation(operation.id, {
+            status: "failed",
+            error: message,
+          });
+          failures.push("ID " + change.externalId + " (" + message + ")");
+          continue;
         }
+        // If this journal update itself fails, the operation remains in_progress.
+        // The next run will verify the provider state before deciding what happened.
+        await activeRepository.updateSyncOperation(operation.id, { status: "succeeded" });
+        remoteSucceeded += 1;
       }
+
+      for (let index = 0; index < localChangesToApply.length; index += 1) {
+        const change = localChangesToApply[index]!;
+        const operation = localJournalOperations[index]!;
+        await activeRepository.updateSyncOperation(operation.id, {
+          status: "in_progress",
+          attempts: operation.attempts + 1,
+        });
+        try {
+          if (change.kind === "create") {
+            await activeRepository.saveAnimeWithEntry(change.anime, change.entry);
+          } else {
+            await activeRepository.saveEntry(change.entry);
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "ошибка";
+          await activeRepository.updateSyncOperation(operation.id, {
+            status: "failed",
+            error: message,
+          });
+          failures.push(
+            change.animeId +
+            (change.kind === "create" ? " (локальное добавление: " : " (локальное обновление: ") +
+            message + ")",
+          );
+          continue;
+        }
+        await activeRepository.updateSyncOperation(operation.id, { status: "succeeded" });
+        localSucceeded += 1;
+      }
+
+      // A baseline is only safe when every planned write succeeded and no
+      // conflict was intentionally skipped. Otherwise the next sync must
+      // compare against the previous common state and retry/reconcile safely.
+      const unresolvedConflictCount = conflictAnimeIds.filter(
+        (id) => !resolvedConflictAnimeIds.has(id),
+      ).length;
+      const warnings: string[] = [];
+
+      if (canAdvanceSyncBaseline(failures.length, unresolvedConflictCount)) {
+        // Refresh the provider snapshot and persist it as the next three-way merge baseline.
+        try {
+          const refreshedPayload = await fetchAccountList(provider);
+          const refreshedSnapshot = provider === "mal"
+            ? parseMyAnimeListApiList(refreshedPayload.data)
+            : parseAniListAccountList(refreshedPayload.data, refreshedPayload.scoreFormat as AniListScoreFormat);
+          await saveProviderBaseline(
+            refreshedSnapshot,
+            localCreates.map((change) => ({ anime: change.anime })),
+          );
+        } catch (err) {
+          failures.push("Не удалось обновить базовый снимок сервиса: " + (err instanceof Error ? err.message : "ошибка"));
+        }
+      } else {
+        warnings.push(
+          "Базовый снимок не обновлён: есть ошибки записи или нерешённые конфликты. Повтори синхронизацию после их устранения.",
+        );
+      }
+
+      await refreshLibrary();
+      const completedOperations = await activeRepository.getSyncOperations();
+      const currentSessionOperations = completedOperations.filter((operation) => operation.sessionId === sessionId);
+      await activeRepository.updateSyncSession(sessionId, {
+        status: failures.length > 0 ? "failed" : "succeeded",
+        finishedAt: new Date().toISOString(),
+        operationCount: currentSessionOperations.length,
+        succeededCount: currentSessionOperations.filter((operation) => operation.status === "succeeded").length,
+        failedCount: currentSessionOperations.filter((operation) => operation.status === "failed").length,
+        pendingCount: currentSessionOperations.filter((operation) => operation.status === "pending" || operation.status === "in_progress").length,
+        unchangedCount: plan.unchanged,
+        conflictCount: plan.conflicts.length,
+        recoveredCount: recoveredOperations,
+        ...(failures.length > 0 ? { error: failures.slice(0, 8).join("; ") } : {}),
+      });
       window.alert(
-        "Запись в " + serviceName + " завершена. Успешно: " + succeeded +
-        ". Ошибок: " + failed.length +
-        (failed.length ? "\n" + failed.slice(0, 5).join("\n") : "")
+        "Двусторонняя синхронизация с " + serviceName + " завершена." +
+        "\nУспешно записано на сервис: " + remoteSucceeded +
+        "\nУспешно обновлено локально: " + localSucceeded +
+        "\nБез изменений: " + plan.unchanged +
+        "\nКонфликтных полей: " + plan.conflicts.length +
+        "\nВосстановлено по журналу: " + recoveredOperations +
+        "\nОшибок: " + failures.length +
+        (failures.length ? "\n" + failures.slice(0, 8).join("\n") : "") +
+        (warnings.length ? "\n" + warnings.join("\n") : "") +
+        "\n\nРезервная копия скачана."
       );
     } catch (err) {
-      setIntegrationStatusError(err instanceof Error ? err.message : "Не удалось синхронизировать аккаунт.");
+      const message = err instanceof Error ? err.message : "Не удалось выполнить двустороннюю синхронизацию.";
+      setIntegrationStatusError(message);
+      try {
+        await activeRepository.updateSyncSession(sessionId, {
+          status: "failed",
+          finishedAt: new Date().toISOString(),
+          error: message,
+        });
+      } catch {
+        // Preserve the original sync error if the session journal cannot be updated.
+      }
     } finally {
       setAccountSyncing(null);
+      void Promise.all([activeRepository.getSyncOperations(), activeRepository.getSyncSessions()])
+        .then(([operations, sessions]) => {
+          setHistoryOperations(operations);
+          setHistorySessionRecords(sessions);
+        })
+        .catch((err: unknown) => {
+          setHistoryError(err instanceof Error ? err.message : "Не удалось обновить историю после синхронизации.");
+        });
     }
   }
 
@@ -915,6 +1341,99 @@ function App() {
 
   const favorites = library.filter((item) => item.entry?.favorite);
 
+  const filteredHistoryOperations = historyOperations.filter((operation) =>
+    (historyProviderFilter === "all" || operation.provider === historyProviderFilter) &&
+    (historyStatusFilter === "all" || operation.status === historyStatusFilter),
+  );
+  const historySessions = useMemo(() => {
+    const operationsBySession = new Map<string, SyncOperation[]>();
+    for (const operation of historyOperations) {
+      const current = operationsBySession.get(operation.sessionId) ?? [];
+      current.push(operation);
+      operationsBySession.set(operation.sessionId, current);
+    }
+
+    const knownSessionIds = new Set(historySessionRecords.map((session) => session.sessionId));
+    const sessions = historySessionRecords
+      .filter((session) => historyProviderFilter === "all" || session.provider === historyProviderFilter)
+      .map((session) => {
+        const operations = (operationsBySession.get(session.sessionId) ?? [])
+          .filter((operation) => historyStatusFilter === "all" || operation.status === historyStatusFilter)
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        return {
+          ...session,
+          createdAt: session.startedAt,
+          operations,
+        };
+      })
+      .filter((session) => historyStatusFilter === "all" || session.operations.length > 0);
+
+    // Keep operations created by older app versions visible even though they have no session record.
+    const legacyGroups = new Map<string, SyncOperation[]>();
+    for (const operation of filteredHistoryOperations) {
+      if (knownSessionIds.has(operation.sessionId)) continue;
+      const current = legacyGroups.get(operation.sessionId) ?? [];
+      current.push(operation);
+      legacyGroups.set(operation.sessionId, current);
+    }
+    for (const [sessionId, operations] of legacyGroups) {
+      sessions.push({
+        sessionId,
+        provider: operations[0]!.provider,
+        status: operations.some((item) => item.status === "failed")
+          ? "failed" as const
+          : operations.some((item) => item.status === "pending" || item.status === "in_progress")
+            ? "running" as const
+            : "succeeded" as const,
+        startedAt: operations[0]!.createdAt,
+        createdAt: operations[0]!.createdAt,
+        operationCount: operations.length,
+        succeededCount: operations.filter((item) => item.status === "succeeded").length,
+        failedCount: operations.filter((item) => item.status === "failed").length,
+        pendingCount: operations.filter((item) => item.status === "pending" || item.status === "in_progress").length,
+        unchangedCount: 0,
+        conflictCount: 0,
+        recoveredCount: 0,
+        operations,
+      });
+    }
+    return sessions.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [historyOperations, historySessionRecords, filteredHistoryOperations, historyProviderFilter, historyStatusFilter]);
+
+  function formatHistoryDate(value: string) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime())
+      ? value
+      : date.toLocaleString("ru-RU", { dateStyle: "medium", timeStyle: "short" });
+  }
+
+  function historyStatusLabel(status: SyncOperation["status"]) {
+    return ({
+      pending: "Ожидает",
+      in_progress: "Выполняется",
+      succeeded: "Успешно",
+      failed: "Ошибка",
+    })[status];
+  }
+
+  function historyAnimeTitle(operation: SyncOperation) {
+    const anime = operation.anime ?? library.find((item) => item.anime.id === operation.animeId)?.anime;
+    return anime?.titles.english ?? anime?.titles.romaji ?? anime?.titles.native ?? `Аниме ID: ${operation.animeId}`;
+  }
+
+  function refreshHistory() {
+    if (!repository) return;
+    setHistoryLoading(true);
+    setHistoryError("");
+    void Promise.all([repository.getSyncOperations(), repository.getSyncSessions()])
+      .then(([operations, sessions]) => {
+        setHistoryOperations(operations);
+        setHistorySessionRecords(sessions);
+      })
+      .catch((err: unknown) => setHistoryError(err instanceof Error ? err.message : "Не удалось обновить историю."))
+      .finally(() => setHistoryLoading(false));
+  }
+
   return (
     <div className="app">
       <aside className="sidebar">
@@ -929,17 +1448,17 @@ function App() {
         <div className="menu-label">МЕНЮ</div>
 
         <nav className="navigation">
-          <button className="nav-item active">
+          <button className={"nav-item " + (!historyOpen && !settingsOpen ? "active" : "")} onClick={() => { setHistoryOpen(false); setSettingsOpen(false); }}>
             ▦ <span>Главная</span>
           </button>
-          <button className="nav-item" onClick={() => setFilters((current) => ({ ...current, status: "ALL" }))}>
+          <button className="nav-item" onClick={() => { setHistoryOpen(false); setSettingsOpen(false); setFilters((current) => ({ ...current, status: "ALL" })); }}>
             ▤ <span>Моя библиотека</span>
           </button>
-          <button className={"nav-item " + (settingsOpen ? "active" : "")} onClick={() => setSettingsOpen((value) => !value)}>
+          <button className={"nav-item " + (settingsOpen ? "active" : "")} onClick={() => { setHistoryOpen(false); setSettingsOpen((value) => !value); }}>
             ⇄ <span>Подключения</span>
           </button>
-          <button className="nav-item" disabled>
-            ◷ <span>История</span>
+          <button className={"nav-item " + (historyOpen ? "active" : "")} onClick={() => { setSettingsOpen(false); setHistoryOpen(true); }}>
+            ◷ <span>История синхронизации</span>
           </button>
         </nav>
 
@@ -957,7 +1476,7 @@ function App() {
         </nav>
 
         <div className="sidebar-bottom">
-          <button className={"nav-item " + (settingsOpen ? "active" : "")} onClick={() => setSettingsOpen((value) => !value)}>
+          <button className={"nav-item " + (settingsOpen ? "active" : "")} onClick={() => { setHistoryOpen(false); setSettingsOpen((value) => !value); }}>
             ⚙ <span>Настройки</span>
           </button>
           <div className="version">MidaHoshi Anime Sync v0.4</div>
@@ -967,7 +1486,7 @@ function App() {
       <main className="main">
         <header className="topbar">
           <div className="breadcrumb">
-            Рабочее пространство <span>/</span> Главная
+            Рабочее пространство <span>/</span> {historyOpen ? "История синхронизации" : settingsOpen ? "Подключения" : "Главная"}
           </div>
           <button className="search-launch" onClick={() => setSearchPageOpen(true)} aria-label="Открыть поиск" title="Поиск">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1031,7 +1550,7 @@ function App() {
                           {importing ? "Загружаем..." : "Импорт списка"}
                         </button>
                         <button className="secondary-button" disabled={accountSyncing !== null} onClick={() => void handleSyncToAccount(routeProvider)}>
-                          {accountSyncing === routeProvider ? "Записываем..." : "Записать изменения"}
+                          {accountSyncing === routeProvider ? "Синхронизируем..." : "Синхронизировать"}
                         </button>
                         <button className="secondary-button" onClick={() => {
                           void disconnectIntegration(routeProvider)
@@ -1053,6 +1572,143 @@ function App() {
               </div>
             </section>
           )}
+          {historyOpen ? (
+            <section className="sync-history-page">
+              <div className="history-heading">
+                <div>
+                  <div className="eyebrow">SYNC ACTIVITY</div>
+                  <h1>История синхронизации</h1>
+                  <p>Все запуски синхронизации, включая сеансы без изменений, и подробности каждой операции</p>
+                </div>
+                <div className="history-heading-actions">
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => downloadSyncHistory(historySessionRecords, historyOperations)}
+                    disabled={historyOperations.length === 0 && historySessionRecords.length === 0}
+                    title="Экспортировать все сеансы и операции, включая скрытые текущими фильтрами"
+                  >
+                    ↓ Экспорт JSON
+                  </button>
+                  <button className="secondary-button" type="button" onClick={refreshHistory} disabled={historyLoading || !repository}>
+                    {historyLoading ? "Обновляем..." : "↻ Обновить"}
+                  </button>
+                </div>
+              </div>
+
+              {historyError && <div className="error-message" role="alert">{historyError}</div>}
+
+              <div className="history-overview">
+                <article><span>Всего сеансов</span><strong>{historySessionRecords.length}</strong></article>
+                <article><span>Без изменений</span><strong>{historySessionRecords.filter((session) => session.status === "succeeded" && session.operationCount === 0).length}</strong></article>
+                <article><span>Успешные сеансы</span><strong className="history-count-success">{historySessionRecords.filter((session) => session.status === "succeeded").length}</strong></article>
+                <article><span>Сеансы с ошибками</span><strong className="history-count-failed">{historySessionRecords.filter((session) => session.status === "failed").length}</strong></article>
+                <article><span>Всего операций</span><strong>{historyOperations.length}</strong></article>
+              </div>
+
+              <div className="history-toolbar">
+                <label>
+                  Сервис
+                  <select className="filter-select" value={historyProviderFilter} onChange={(event) => setHistoryProviderFilter(event.target.value as typeof historyProviderFilter)}>
+                    <option value="all">Все сервисы</option>
+                    <option value="mal">MyAnimeList</option>
+                    <option value="anilist">AniList</option>
+                  </select>
+                </label>
+                <label>
+                  Статус
+                  <select className="filter-select" value={historyStatusFilter} onChange={(event) => setHistoryStatusFilter(event.target.value as typeof historyStatusFilter)}>
+                    <option value="all">Все статусы</option>
+                    <option value="pending">Ожидает</option>
+                    <option value="in_progress">Выполняется</option>
+                    <option value="succeeded">Успешно</option>
+                    <option value="failed">Ошибка</option>
+                  </select>
+                </label>
+                <span>{filteredHistoryOperations.length} операций · {historySessions.length} сеансов</span>
+              </div>
+
+              {historyLoading && historyOperations.length === 0 ? (
+                <div className="empty-state"><div className="empty-icon">◷</div><h3>Загружаем историю</h3><p>Читаем журнал из локальной базы данных.</p></div>
+              ) : historySessions.length === 0 ? (
+                <div className="empty-state">
+                  <div className="empty-icon">◷</div>
+                  <h3>{historyOperations.length === 0 ? "История пока пуста" : "Ничего не найдено"}</h3>
+                  <p>{historyOperations.length === 0 && historySessionRecords.length === 0 ? "Когда ты запустишь синхронизацию с MAL или AniList, каждый запуск появится здесь, даже если изменений не будет." : "Измени фильтры, чтобы увидеть другие сеансы и операции."}</p>
+                </div>
+              ) : (
+                <div className="history-session-list">
+                  {historySessions.map((session) => {
+                    const succeeded = session.operations.filter((item) => item.status === "succeeded").length;
+                    const failed = session.operations.filter((item) => item.status === "failed").length;
+                    const pending = session.operations.filter((item) => item.status === "pending" || item.status === "in_progress").length;
+                    const hasUnfinished = failed > 0 || pending > 0 || session.status === "running" || session.status === "failed";
+                    return (
+                      <section className="history-session" key={session.sessionId}>
+                        <header className="history-session-header">
+                          <div>
+                            <span className="history-session-date">{formatHistoryDate(session.createdAt)}</span>
+                            <h2>{session.provider === "mal" ? "MyAnimeList" : "AniList"}</h2>
+                            <small>{session.sessionId}</small>
+                            <span className={"history-session-status " + session.status}>
+                              {session.status === "running" ? "Выполняется" : session.status === "succeeded" ? "Успешно" : session.status === "failed" ? "Ошибка" : "Отменено"}
+                            </span>
+                          </div>
+                          <div className="history-session-summary">
+                            <span className="history-count-success">✓ {succeeded}</span>
+                            {pending > 0 && <span className="history-count-pending">◷ {pending}</span>}
+                            {failed > 0 && <span className="history-count-failed">! {failed}</span>}
+                            <span>{session.operationCount} операций</span>
+                            {session.unchangedCount > 0 && <span>{session.unchangedCount} без изменений</span>}
+                            {hasUnfinished && (
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                disabled={accountSyncing !== null}
+                                onClick={() => void handleSyncToAccount(session.provider)}
+                                title="Сначала заново сверить текущее состояние сервиса, затем построить новый план"
+                              >
+                                {accountSyncing === session.provider ? "Сверяем..." : "Пересверить и продолжить"}
+                              </button>
+                            )}
+                          </div>
+                        </header>
+                        <div className="history-operation-list">
+                          {session.operations.map((operation) => (
+                            <details className={"history-operation " + operation.status} key={operation.id}>
+                              <summary>
+                                <span className={"history-status-dot " + operation.status} />
+                                <span className="history-operation-title">
+                                  <strong>{historyAnimeTitle(operation)}</strong>
+                                  <small>
+                                    {operation.direction === "remote" ? "Отправка в сервис" : "Запись в библиотеку"}
+                                    {" · "}{operation.kind === "create" ? "Создание" : "Обновление"}
+                                    {" · "}{operation.provider === "mal" ? "MAL" : "AniList"}
+                                  </small>
+                                </span>
+                                <span className={"history-status-label " + operation.status}>{historyStatusLabel(operation.status)}</span>
+                                <span className="history-operation-time">{formatHistoryDate(operation.updatedAt)}</span>
+                              </summary>
+                              <div className="history-operation-details">
+                                <div><span>Статус просмотра</span><strong>{statusLabels[operation.entry.status]}</strong></div>
+                                <div><span>Прогресс</span><strong>{operation.entry.progress} эп.</strong></div>
+                                <div><span>Оценка</span><strong>{operation.entry.score == null || operation.entry.score === 0 ? "Не оценено" : operation.entry.score + " / 100"}</strong></div>
+                                {operation.provider === "anilist" && <div><span>Избранное</span><strong>{operation.entry.favorite ? "Да" : "Нет"}</strong></div>}
+                                {operation.externalId && <div><span>Внешний ID</span><strong>{operation.externalId}</strong></div>}
+                                <div><span>Попыток</span><strong>{operation.attempts}</strong></div>
+                                {operation.error && <div className="history-operation-error"><span>Ошибка</span><strong>{operation.error}</strong></div>}
+                              </div>
+                            </details>
+                          ))}
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          ) : (
+            <>
           <section className="welcome">
             <div>
               <div className="eyebrow">ТВОЯ АНИМЕ-ВСЕЛЕННАЯ</div>
@@ -1464,6 +2120,8 @@ function App() {
             <span>MidaHoshi Anime Sync</span>
             <span>Твоя библиотека. Твои правила.</span>
           </footer>
+            </>
+          )}
         </div>
       </main>
 
@@ -1593,6 +2251,38 @@ function App() {
                 </div>
               </>
             )}
+          </section>
+        </div>
+      )}
+
+      {syncConflictDialog && (
+        <div className="modal-overlay" role="presentation">
+          <section className="anime-modal sync-conflict-modal" role="dialog" aria-modal="true" aria-labelledby="sync-conflict-title">
+            <div className="modal-heading">
+              <div>
+                <h2 id="sync-conflict-title">Конфликт синхронизации</h2>
+                <p>{syncConflictDialog.title}</p>
+              </div>
+            </div>
+            <pre className="sync-conflict-fields">{syncConflictDialog.fields}</pre>
+            <p className="sync-conflict-help">Выбери, какую версию сохранить. Если пропустить, этот тайтл не будет изменён.</p>
+            <div className="modal-actions sync-conflict-actions">
+              <button type="button" className="cancel-button" onClick={() => {
+                const resolve = syncConflictDialog.resolve;
+                setSyncConflictDialog(null);
+                resolve("s");
+              }}>Пропустить</button>
+              <button type="button" className="cancel-button" onClick={() => {
+                const resolve = syncConflictDialog.resolve;
+                setSyncConflictDialog(null);
+                resolve("r");
+              }}>Принять версию сервиса</button>
+              <button type="button" className="add-button" onClick={() => {
+                const resolve = syncConflictDialog.resolve;
+                setSyncConflictDialog(null);
+                resolve("l");
+              }}>Оставить локальную</button>
+            </div>
           </section>
         </div>
       )}

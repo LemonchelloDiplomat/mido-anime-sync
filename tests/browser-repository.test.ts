@@ -7,6 +7,8 @@ import type {
   AnimeListEntry,
   AnimeRelation,
   AnimeSnapshot,
+  SyncOperation,
+  SyncSession,
 } from "../src/core/types.js";
 
 const repositories: BrowserAnimeRepository[] = [];
@@ -98,6 +100,32 @@ afterEach(() => {
 });
 
 describe("BrowserAnimeRepository merge", () => {
+  it("saves provider baselines as one atomic batch", async () => {
+    const repo = await createRepository();
+    await repo.saveAnime(makeAnime("one"));
+    await repo.saveAnime(makeAnime("two"));
+
+    await repo.saveSourceEntries([
+      makeEntry("one", 3, "2026-11-15T12:00:00.000Z"),
+      makeEntry("two", 5, "2026-11-15T12:00:00.000Z"),
+    ]);
+
+    expect(await repo.getSourceEntries("one")).toHaveLength(1);
+    expect(await repo.getSourceEntries("two")).toHaveLength(1);
+  });
+
+  it("rolls back the whole baseline batch if one anime is missing", async () => {
+    const repo = await createRepository();
+    await repo.saveAnime(makeAnime("exists"));
+
+    await expect(repo.saveSourceEntries([
+      makeEntry("exists", 3, "2026-11-15T12:00:00.000Z"),
+      makeEntry("missing", 5, "2026-11-15T12:00:00.000Z"),
+    ])).rejects.toThrow("Unknown animeId: missing");
+
+    expect(await repo.getSourceEntries("exists")).toHaveLength(0);
+  });
+
   it("preserves existing anime and adds new anime", async () => {
     const repo = await createRepository();
 
@@ -1170,5 +1198,217 @@ describe("BrowserAnimeRepository catalog metadata", () => {
       externalIds: { myanimelist: "100", anilist: "123" },
       titles: { english: "Anime mal:100" },
     });
+  });
+});
+
+
+describe("BrowserAnimeRepository sync operation journal", () => {
+
+  it("atomically creates an anime with its first provider entry", async () => {
+    const repo = await createRepository();
+    const anime = makeAnime("atomic-create");
+    const entry = makeEntry("atomic-create", 2, "2026-11-17T12:00:00.000Z");
+
+    await repo.saveAnimeWithEntry(anime, entry);
+
+    expect(await repo.getAnime("atomic-create")).toEqual(anime);
+    expect(await repo.getSourceEntries("atomic-create")).toEqual([entry]);
+    expect(await repo.getEntry("atomic-create")).toMatchObject({
+      animeId: "atomic-create",
+      progress: 2,
+      source: "myanimelist",
+    });
+  });
+
+  it("rejects mismatched anime and entry IDs without creating either record", async () => {
+    const repo = await createRepository();
+
+    await expect(
+      repo.saveAnimeWithEntry(
+        makeAnime("anime-one"),
+        makeEntry("anime-two", 2, "2026-11-17T12:00:00.000Z"),
+      ),
+    ).rejects.toThrow("Anime and entry IDs must match");
+
+    expect(await repo.getAnime("anime-one")).toBeUndefined();
+    expect(await repo.getEntry("anime-two")).toBeUndefined();
+  });
+  it("persists operations and tracks independent completion states", async () => {
+    const repo = await createRepository();
+    const now = "2026-11-17T12:00:00.000Z";
+    const operation: SyncOperation = {
+      id: "session-1-local-1",
+      sessionId: "session-1",
+      provider: "mal",
+      direction: "local",
+      kind: "create",
+      animeId: "anime-1",
+      anime: makeAnime("anime-1"),
+      entry: makeEntry("anime-1", 4, now),
+      status: "pending",
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await repo.saveSyncOperations([operation]);
+
+    expect(await repo.getUnfinishedSyncOperations("mal")).toEqual([operation]);
+    expect(await repo.getUnfinishedSyncOperations("anilist")).toEqual([]);
+
+    await repo.updateSyncOperation(operation.id, {
+      status: "in_progress",
+      attempts: 1,
+    });
+    await repo.updateSyncOperation(operation.id, {
+      status: "failed",
+      error: "Network interrupted",
+    });
+
+    expect(await repo.getUnfinishedSyncOperations()).toMatchObject([
+      {
+        id: operation.id,
+        status: "failed",
+        attempts: 1,
+        error: "Network interrupted",
+      },
+    ]);
+
+    await repo.updateSyncOperation(operation.id, { status: "succeeded" });
+
+    expect(await repo.getUnfinishedSyncOperations()).toEqual([]);
+    expect(await repo.getSyncOperations()).toMatchObject([
+      {
+        id: operation.id,
+        status: "succeeded",
+        attempts: 1,
+      },
+    ]);
+  });
+
+  it("rejects updates for unknown journal operations", async () => {
+    const repo = await createRepository();
+    await expect(
+      repo.updateSyncOperation("missing-operation", { status: "succeeded" }),
+    ).rejects.toThrow("Unknown sync operation: missing-operation");
+  });
+
+  it("persists sessions even when a sync has no operations", async () => {
+    const repo = await createRepository();
+    const session: SyncSession = {
+      sessionId: "no-op-session",
+      provider: "anilist",
+      status: "running",
+      startedAt: "2026-11-17T12:00:00.000Z",
+      operationCount: 0,
+      succeededCount: 0,
+      failedCount: 0,
+      pendingCount: 0,
+      unchangedCount: 0,
+      conflictCount: 0,
+      recoveredCount: 0,
+    };
+
+    await repo.saveSyncSession(session);
+    await repo.updateSyncSession(session.sessionId, {
+      status: "succeeded",
+      finishedAt: "2026-11-17T12:00:05.000Z",
+      unchangedCount: 42,
+    });
+
+    expect(await repo.getSyncSessions()).toEqual([{
+      ...session,
+      status: "succeeded",
+      finishedAt: "2026-11-17T12:00:05.000Z",
+      unchangedCount: 42,
+    }]);
+  });
+
+  it("rejects updates for unknown sync sessions", async () => {
+    const repo = await createRepository();
+    await expect(
+      repo.updateSyncSession("missing-session", { status: "failed" }),
+    ).rejects.toThrow("Unknown sync session: missing-session");
+  });
+
+  it("upgrades a version 5 journal and keeps unfinished operations readable", async () => {
+    const name = `anime-sync-v5-upgrade-${Date.now()}-${Math.random()}`;
+    const request = indexedDB.open(name, 5);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      database.createObjectStore("anime", { keyPath: "id" });
+      database.createObjectStore("entries", { keyPath: "animeId" });
+      database.createObjectStore("sourceEntries", { keyPath: ["animeId", "source"] });
+      database.createObjectStore("conflictResolutions", { keyPath: "animeId" });
+      database.createObjectStore("animeRelations", { keyPath: "id" });
+      const operations = database.createObjectStore("syncOperations", { keyPath: "id" });
+      operations.createIndex("by-session", "sessionId");
+      operations.createIndex("by-status", "status");
+      operations.createIndex("by-provider", "provider");
+    };
+    const oldDatabase = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const operation: SyncOperation = {
+      id: "legacy-session-local-0",
+      sessionId: "legacy-session",
+      provider: "mal",
+      direction: "local",
+      kind: "create",
+      animeId: "legacy-anime",
+      entry: makeEntry("legacy-anime", 2, "2026-11-17T12:00:00.000Z"),
+      status: "in_progress",
+      attempts: 1,
+      createdAt: "2026-11-17T12:00:00.000Z",
+      updatedAt: "2026-11-17T12:00:01.000Z",
+    };
+    await new Promise<void>((resolve, reject) => {
+      const transaction = oldDatabase.transaction("syncOperations", "readwrite");
+      transaction.objectStore("syncOperations").put(operation);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    oldDatabase.close();
+
+    const upgraded = await BrowserAnimeRepository.open(name);
+    repositories.push(upgraded);
+
+    expect(await upgraded.getUnfinishedSyncOperations("mal")).toEqual([operation]);
+    expect(await upgraded.getSyncSessions()).toEqual([]);
+  });
+
+  it("upgrades an existing version 4 database without losing its anime records", async () => {
+    const name = `anime-sync-v4-upgrade-${Date.now()}-${Math.random()}`;
+    const request = indexedDB.open(name, 4);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      database.createObjectStore("anime", { keyPath: "id" });
+      database.createObjectStore("entries", { keyPath: "animeId" });
+      database.createObjectStore("sourceEntries", { keyPath: ["animeId", "source"] });
+      database.createObjectStore("conflictResolutions", { keyPath: "animeId" });
+      database.createObjectStore("animeRelations", { keyPath: "id" });
+    };
+    const oldDatabase = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const transaction = oldDatabase.transaction("anime", "readwrite");
+      transaction.objectStore("anime").put(makeAnime("preserved-anime"));
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    oldDatabase.close();
+
+    const upgraded = await BrowserAnimeRepository.open(name);
+    repositories.push(upgraded);
+
+    expect(await upgraded.getAnime("preserved-anime")).toMatchObject({
+      id: "preserved-anime",
+    });
+    expect(await upgraded.getUnfinishedSyncOperations()).toEqual([]);
   });
 });
