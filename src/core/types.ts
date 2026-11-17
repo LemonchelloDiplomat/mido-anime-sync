@@ -61,7 +61,7 @@ export type AnimeSourceEntry = AnimeListEntry;
 
 export type SyncOperationStatus = "pending" | "in_progress" | "succeeded" | "failed" | "cancelled";
 export type SyncOperationDirection = "local" | "remote";
-export type SyncOperationKind = "create" | "update";
+export type SyncOperationKind = "create" | "update" | "delete";
 
 export interface SyncOperation {
   id: string;
@@ -81,6 +81,16 @@ export interface SyncOperation {
 }
 
 export type SyncSessionStatus = "running" | "succeeded" | "failed" | "cancelled";
+
+export interface SyncDeletionIntent {
+  id: string;
+  provider: "mal" | "anilist";
+  animeId: string;
+  externalId: string;
+  anime: AnimeIdentity;
+  entry: AnimeListEntry;
+  createdAt: string;
+}
 
 export interface SyncSession {
   sessionId: string;
