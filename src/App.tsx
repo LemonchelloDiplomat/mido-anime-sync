@@ -1151,6 +1151,8 @@ function App() {
 
       let remoteSucceeded = 0;
       let localSucceeded = 0;
+      let remoteDeleted = 0;
+      let localRemoved = 0;
       const failures: string[] = [];
 
       for (let index = 0; index < remoteChangesToApply.length; index += 1) {
@@ -1198,6 +1200,7 @@ function App() {
           await activeRepository.deleteDeletionIntent(candidate.intent.id);
           await activeRepository.updateSyncOperation(operation.id, { status: "succeeded" });
           remoteSucceeded += 1;
+          remoteDeleted += 1;
         } catch (err) {
           const message = err instanceof Error ? err.message : "ошибка удаления";
           await activeRepository.updateSyncOperation(operation.id, {
@@ -1241,6 +1244,7 @@ function App() {
         }
         await activeRepository.updateSyncOperation(operation.id, { status: "succeeded" });
         localSucceeded += 1;
+        if (change.kind === "delete") localRemoved += 1;
       }
 
       // A baseline is only safe when every planned write succeeded and no
@@ -1299,8 +1303,8 @@ function App() {
         "\nБез изменений: " + plan.unchanged +
         "\nКонфликтных полей: " + plan.conflicts.length +
         "\nКонфликтов удаления: " + deletionDetection.conflicts.length +
-        "\nУдалено записей на сервисе: " + remoteDeletionCandidates.length +
-        "\nУдалено локальных записей сервиса: " + deletionDetection.localRemovals.length +
+        "\nУдалено записей на сервисе: " + remoteDeleted +
+        "\nУдалено локальных записей сервиса: " + localRemoved +
         "\nВосстановлено по журналу: " + recoveredOperations +
         "\nОшибок: " + failures.length +
         (failures.length ? "\n" + failures.slice(0, 8).join("\n") : "") +
