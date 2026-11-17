@@ -69,6 +69,20 @@ describe("safe deletion persistence", () => {
     expect(await repo.getDeletionIntents("anilist")).toHaveLength(1);
   });
 
+  it("cancels a pending remote deletion when the anime is re-added locally", async () => {
+    const repo = await createRepository();
+    const item = anime("local:readded");
+    const malEntry = entry(item.id, "myanimelist", 4);
+    await repo.saveAnime(item);
+    await repo.saveSourceEntry(malEntry);
+    await repo.deleteAnime(item.id, [intent(item, malEntry, "mal")]);
+
+    await repo.saveAnimeWithEntry(item, malEntry);
+
+    expect(await repo.getAnime(item.id)).toMatchObject({ id: item.id });
+    expect(await repo.getDeletionIntents()).toEqual([]);
+  });
+
   it("removes only one provider entry and rebuilds the aggregate entry", async () => {
     const repo = await createRepository();
     const item = anime("local:2");
