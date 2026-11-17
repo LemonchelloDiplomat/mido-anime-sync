@@ -11,8 +11,6 @@ export interface LocalSyncItem {
   entry?: AnimeListEntry | undefined;
   /** Last known copy of this provider's entry, persisted after a successful sync/import. */
   baseline?: AnimeListEntry | undefined;
-  /** Current entry owned by this provider, distinct from the merged library entry. */
-  providerEntry?: AnimeListEntry | undefined;
 }
 
 export interface SyncFieldConflict {
