@@ -1087,6 +1087,7 @@ function App() {
           kind: "delete" as const,
           animeId: change.animeId,
           entry: change.baseline,
+          anime: localItems.find((item) => item.anime.id === change.animeId)!.anime,
         })),
       ];
       const remoteJournalOperations: SyncOperation[] = remoteChangesToApply.map((change, index) => {
@@ -1131,7 +1132,7 @@ function App() {
         kind: change.kind,
         animeId: change.animeId,
         entry: structuredClone(change.entry),
-        ...(change.kind === "create" ? { anime: structuredClone(change.anime) } : {}),
+        ...(change.kind === "create" || change.kind === "delete" ? { anime: structuredClone(change.anime) } : {}),
         status: "pending",
         attempts: 0,
         createdAt: journalCreatedAt,
