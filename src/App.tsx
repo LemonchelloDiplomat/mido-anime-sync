@@ -623,7 +623,7 @@ function App() {
       if (syncInProgressRef.current || accountSyncing) {
         throw new Error("Дождись завершения синхронизации перед восстановлением.");
       }
-      if (metadataEnriching || importing || restoring || saving || addingCatalogId) {
+      if (restoreInProgressRef.current || metadataEnriching || importing || restoring || saving || addingCatalogId) {
         throw new Error("Сейчас выполняется другая операция с библиотекой. Попробуй позже.");
       }
       if (file.size > 25 * 1024 * 1024) {
@@ -650,7 +650,7 @@ function App() {
   }
 
   async function handleConfirmRestore() {
-    if (!repository || !restoreBackup || !restorePreview || restoring) return;
+    if (!repository || !restoreBackup || !restorePreview || restoring || restoreInProgressRef.current) return;
     if (syncInProgressRef.current || accountSyncing || metadataEnriching || importing || saving || addingCatalogId) {
       setError("Перед восстановлением дождись завершения синхронизации и других операций с библиотекой.");
       return;
