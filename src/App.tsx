@@ -1257,7 +1257,7 @@ function App() {
         failedCount: currentSessionOperations.filter((operation) => operation.status === "failed").length,
         pendingCount: currentSessionOperations.filter((operation) => operation.status === "pending" || operation.status === "in_progress").length,
         unchangedCount: plan.unchanged,
-        conflictCount: plan.conflicts.length,
+        conflictCount: plan.conflicts.length + deletionDetection.conflicts.length,
         recoveredCount: recoveredOperations,
         ...(failures.length > 0 ? { error: failures.slice(0, 8).join("; ") } : {}),
       });
@@ -1946,7 +1946,7 @@ function App() {
                                   <strong>{historyAnimeTitle(operation)}</strong>
                                   <small>
                                     {operation.direction === "remote" ? "Отправка в сервис" : "Запись в библиотеку"}
-                                    {" · "}{operation.kind === "create" ? "Создание" : "Обновление"}
+                                    {" · "}{operation.kind === "create" ? "Создание" : operation.kind === "delete" ? "Удаление" : "Обновление"}
                                     {" · "}{operation.provider === "mal" ? "MAL" : "AniList"}
                                   </small>
                                 </span>
