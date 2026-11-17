@@ -61,6 +61,7 @@ function validateAnimeList(value: unknown): AnimeIdentity[] {
 
   const anime = value as AnimeIdentity[];
   const ids = new Set<string>();
+  const externalIds = new Set<string>();
 
   for (const item of anime) {
     if (
@@ -96,6 +97,12 @@ function validateAnimeList(value: unknown): AnimeIdentity[] {
       ) {
         throw new Error(`Invalid anime external ID: ${item.id}`);
       }
+
+      const externalIdKey = JSON.stringify([service, externalId]);
+      if (externalIds.has(externalIdKey)) {
+        throw new Error(`Duplicate anime external ID: ${service}:${externalId}`);
+      }
+      externalIds.add(externalIdKey);
     }
 
     if (
