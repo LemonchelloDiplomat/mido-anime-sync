@@ -135,7 +135,11 @@ export function createBidirectionalSyncPlan(
     if (!local.entry) continue;
     const remote = remoteByExternalId.get(externalId);
     if (!remote) {
-      plan.remoteCreates.push({ externalId, entry: cloneEntry(local.entry) });
+      // A stored baseline proves this entry existed remotely before. Its
+      // absence is handled by the safe-deletion planner, never as a create.
+      if (!local.baseline) {
+        plan.remoteCreates.push({ externalId, entry: cloneEntry(local.entry) });
+      }
       continue;
     }
 
