@@ -1,15 +1,11 @@
 import type {
   AnimeIdentity,
-  AnimeListEntry,
-  AnimeRelation,
   AnimeSnapshotV4,
-  AnimeSourceEntry,
   ConflictResolution,
 } from "./types.js";
 
 export type RestoreCollection =
   | "anime"
-  | "entries"
   | "sourceEntries"
   | "conflictResolutions"
   | "animeRelations";
@@ -73,8 +69,6 @@ function getKey(collection: RestoreCollection, value: unknown): string {
   switch (collection) {
     case "anime":
       return String(item.id);
-    case "entries":
-      return String(item.animeId);
     case "sourceEntries":
       return JSON.stringify([item.animeId, item.source]);
     case "conflictResolutions":
@@ -127,6 +121,41 @@ function compareCollection<T>(
   }
 
   return result;
+}
+
+function getCurrentConflictResolutions(
+  sourceEntries: AnimeSnapshotV4["sourceEntries"],
+  resolutions: ConflictResolution[],
+): ConflictResolution[] {
+  const entriesByAnimeId = new Map<string, typeof sourceEntries>();
+
+  for (const entry of sourceEntries) {
+    const group = entriesByAnimeId.get(entry.animeId) ?? [];
+    group.push(entry);
+    entriesByAnimeId.set(entry.animeId, group);
+  }
+
+  const current: ConflictResolution[] = [];
+
+  for (const resolution of resolutions) {
+    const entries = entriesByAnimeId.get(resolution.animeId);
+    if (!entries?.length) continue;
+
+    const fingerprint = JSON.stringify(
+      [...entries]
+        .sort((a, b) => a.source.localeCompare(b.source))
+        .map((entry) => ({
+          source: entry.source,
+          status: entry.status,
+          progress: entry.progress,
+          updatedAt: entry.updatedAt,
+        })),
+    );
+
+    if (resolution.fingerprint === fingerprint) current.push(resolution);
+  }
+
+  return current;
 }
 
 function findExternalIdConflicts(
@@ -198,12 +227,11 @@ export function createRestorePreview(
 ): RestorePreview {
   const items = [
     ...compareCollection("anime", current.anime, backup.anime),
-    ...compareCollection("entries", current.entries, backup.entries),
     ...compareCollection("sourceEntries", current.sourceEntries, backup.sourceEntries),
     ...compareCollection(
       "conflictResolutions",
       current.conflictResolutions,
-      backup.conflictResolutions,
+      getCurrentConflictResolutions(backup.sourceEntries, backup.conflictResolutions),
     ),
     ...compareCollection("animeRelations", current.animeRelations, backup.animeRelations),
   ];
@@ -211,7 +239,6 @@ export function createRestorePreview(
   const statuses: RestoreChangeStatus[] = ["added", "updated", "unchanged", "removed"];
   const collections = {
     anime: { added: 0, updated: 0, unchanged: 0, removed: 0 },
-    entries: { added: 0, updated: 0, unchanged: 0, removed: 0 },
     sourceEntries: { added: 0, updated: 0, unchanged: 0, removed: 0 },
     conflictResolutions: { added: 0, updated: 0, unchanged: 0, removed: 0 },
     animeRelations: { added: 0, updated: 0, unchanged: 0, removed: 0 },
