@@ -10,6 +10,7 @@ import type {
   AnimeSourceEntry,
   ConflictResolution,
   ServiceId,
+  SyncDeletionIntent,
 } from "../core/types.js";
 
 const VALID_STATUSES = [
@@ -363,6 +364,65 @@ function validateAnimeRelations(
   return relations;
 }
 
+function validateDeletionIntents(
+  value: unknown,
+  anime: AnimeIdentity[],
+  animeIds: Set<string>,
+): SyncDeletionIntent[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error("Invalid deletion intents list");
+
+  const intents = value as SyncDeletionIntent[];
+  const intentIds = new Set<string>();
+  const providerKeys = new Set<string>();
+
+  for (const intent of intents) {
+    if (
+      !intent ||
+      typeof intent.id !== "string" ||
+      intent.id.trim().length === 0 ||
+      (intent.provider !== "mal" && intent.provider !== "anilist") ||
+      typeof intent.animeId !== "string" ||
+      intent.animeId.trim().length === 0 ||
+      typeof intent.externalId !== "string" ||
+      intent.externalId.trim().length === 0 ||
+      typeof intent.createdAt !== "string" ||
+      !Number.isFinite(Date.parse(intent.createdAt)) ||
+      !intent.anime ||
+      typeof intent.anime !== "object" ||
+      !intent.entry ||
+      typeof intent.entry !== "object"
+    ) {
+      throw new Error("Invalid deletion intent");
+    }
+
+    if (intentIds.has(intent.id)) throw new Error("Duplicate deletion intent ID");
+    intentIds.add(intent.id);
+
+    if (animeIds.has(intent.animeId) || intent.anime.id !== intent.animeId || intent.entry.animeId !== intent.animeId) {
+      throw new Error("Deletion intent references an anime that is still in the library");
+    }
+
+    validateAnimeList([intent.anime]);
+    validateEntry(intent.entry);
+
+    const service = intent.provider === "mal" ? "myanimelist" : "anilist";
+    if (intent.entry.source !== service || intent.anime.externalIds[service] !== intent.externalId) {
+      throw new Error("Deletion intent provider identity does not match its anime and entry");
+    }
+
+    if (anime.some((item) => item.externalIds[service] === intent.externalId)) {
+      throw new Error("Deletion intent external ID is already assigned to another library anime");
+    }
+
+    const providerKey = JSON.stringify([intent.provider, intent.externalId]);
+    if (providerKeys.has(providerKey)) throw new Error("Duplicate provider deletion intent");
+    providerKeys.add(providerKey);
+  }
+
+  return intents.map((intent) => structuredClone(intent));
+}
+
 export function validateSnapshot(value: unknown): AnimeSnapshotV4 {
   if (!value || typeof value !== "object") {
     throw new Error("Invalid snapshot");
@@ -446,6 +506,7 @@ export function validateSnapshot(value: unknown): AnimeSnapshotV4 {
     v.schemaVersion === 4
       ? validateAnimeRelations(v.animeRelations, animeIds)
       : [];
+  const deletionIntents = validateDeletionIntents(v.deletionIntents, anime, animeIds);
 
   const snapshot: AnimeSnapshotV4 = {
     schemaVersion: 4,
@@ -458,6 +519,7 @@ export function validateSnapshot(value: unknown): AnimeSnapshotV4 {
     sourceEntries: structuredClone(sourceEntries),
     conflictResolutions: structuredClone(conflictResolutions),
     animeRelations: structuredClone(animeRelations),
+    deletionIntents: structuredClone(deletionIntents),
   };
 
   return snapshot;
