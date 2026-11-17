@@ -12,6 +12,7 @@ import type {
   SyncConflict,
   SyncOperation,
   SyncSession,
+  SyncDeletionIntent,
 } from "../core/types.js";
 
 import { validateSnapshot, validateEntry } from "./snapshot-validation.js";
@@ -52,6 +53,11 @@ interface AnimeSyncDB extends DBSchema {
     key: string;
     value: SyncSession;
     indexes: { "by-started-at": string; "by-provider": string; "by-status": string };
+  };
+  deletionIntents: {
+    key: string;
+    value: SyncDeletionIntent;
+    indexes: { "by-provider": string; "by-created-at": string };
   };
 }
 
@@ -419,7 +425,7 @@ export class BrowserAnimeRepository {
   static async open(
     databaseName = "midahoshi-anime-sync",
   ): Promise<BrowserAnimeRepository> {
-    const db = await openDB<AnimeSyncDB>(databaseName, 6, {
+    const db = await openDB<AnimeSyncDB>(databaseName, 7, {
       upgrade(database, oldVersion, _newVersion, transaction) {
         if (oldVersion < 1) {
           database.createObjectStore("anime", {
@@ -473,6 +479,12 @@ export class BrowserAnimeRepository {
           sessions.createIndex("by-started-at", "startedAt");
           sessions.createIndex("by-provider", "provider");
           sessions.createIndex("by-status", "status");
+        }
+
+        if (oldVersion < 7) {
+          const deletions = database.createObjectStore("deletionIntents", { keyPath: "id" });
+          deletions.createIndex("by-provider", "provider");
+          deletions.createIndex("by-created-at", "createdAt");
         }
       },
     });
@@ -1123,44 +1135,75 @@ export class BrowserAnimeRepository {
     }
   }
 
-  async deleteAnime(id: string): Promise<void> {
+  async deleteAnime(
+    id: string,
+    deletionIntents: SyncDeletionIntent[] = [],
+  ): Promise<void> {
     const transaction = this.db.transaction(
-      [
-        "anime",
-        "entries",
-        "sourceEntries",
-        "conflictResolutions",
-        "animeRelations",
-      ],
+      ["anime", "entries", "sourceEntries", "conflictResolutions", "animeRelations", "deletionIntents"],
       "readwrite",
     );
-
     const sourceStore = transaction.objectStore("sourceEntries");
     const relationStore = transaction.objectStore("animeRelations");
-
+    const deletionStore = transaction.objectStore("deletionIntents");
     const [sourceRecords, relations] = await Promise.all([
       sourceStore.getAll(IDBKeyRange.bound([id, ""], [id, "\uffff"])),
       relationStore.getAll(),
     ]);
-
     const relatedRelations = relations.filter(
-      (relation) =>
-        relation.sourceAnimeId === id || relation.targetAnimeId === id,
+      (relation) => relation.sourceAnimeId === id || relation.targetAnimeId === id,
     );
-
     await Promise.all([
       transaction.objectStore("anime").delete(id),
       transaction.objectStore("entries").delete(id),
       transaction.objectStore("conflictResolutions").delete(id),
-
-      ...sourceRecords.map((entry) =>
-        sourceStore.delete([entry.animeId, entry.source]),
-      ),
-
+      ...sourceRecords.map((entry) => sourceStore.delete([entry.animeId, entry.source])),
       ...relatedRelations.map((relation) => relationStore.delete(relation.id)),
+      ...deletionIntents.map((intent) => deletionStore.put(structuredClone(intent))),
     ]);
-
     await transaction.done;
+  }
+
+  async getDeletionIntents(provider?: "mal" | "anilist"): Promise<SyncDeletionIntent[]> {
+    const intents = await this.db.getAll("deletionIntents");
+    return intents
+      .filter((intent) => provider === undefined || intent.provider === provider)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map((intent) => structuredClone(intent));
+  }
+
+  async deleteDeletionIntent(id: string): Promise<void> {
+    await this.db.delete("deletionIntents", id);
+  }
+
+  /**
+   * Removes only one provider's source entry and rebuilds the aggregate entry.
+   * The anime identity and entries from other providers remain untouched.
+   */
+  async deleteSourceEntry(animeId: string, source: "myanimelist" | "anilist"): Promise<void> {
+    const transaction = this.db.transaction(["entries", "sourceEntries", "conflictResolutions"], "readwrite");
+    const transactionDone = transaction.done;
+    void transactionDone.catch(() => undefined);
+    try {
+      const entriesStore = transaction.objectStore("entries");
+      const sourceStore = transaction.objectStore("sourceEntries");
+      const resolutionStore = transaction.objectStore("conflictResolutions");
+      await sourceStore.delete([animeId, source]);
+      const remaining = await sourceStore.getAll(
+        IDBKeyRange.bound([animeId, ""], [animeId, "\uffff"]),
+      );
+      const resolution = await resolutionStore.get(animeId);
+      const validResolutions = mergeConflictResolutions(remaining, resolution ? [resolution] : []);
+      const merged = buildMergedEntries(remaining, validResolutions)[0];
+      if (merged) await entriesStore.put(merged);
+      else await entriesStore.delete(animeId);
+      if (resolution && validResolutions.length === 0) await resolutionStore.delete(animeId);
+      await transactionDone;
+    } catch (error) {
+      try { transaction.abort(); } catch {}
+      await transactionDone.catch(() => undefined);
+      throw error;
+    }
   }
 
   /**
