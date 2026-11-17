@@ -398,6 +398,109 @@ describe("source metadata validation", () => {
   });
 });
 
+describe("anime identity validation", () => {
+  const makeSnapshot = (animeOverrides: Record<string, unknown> = {}) => ({
+    schemaVersion: 4,
+    anime: [{ ...anime[0], ...animeOverrides }],
+    entries: [makeEntry()],
+    sourceEntries: [makeEntry()],
+    conflictResolutions: [],
+    animeRelations: [],
+  });
+
+  it("rejects non-string anime title synonyms", () => {
+    expect(() =>
+      validateSnapshot(
+        makeSnapshot({
+          titles: { english: "Anime", synonyms: ["Valid", 123] },
+        }),
+      ),
+    ).toThrow("Invalid anime record");
+  });
+
+  it("rejects non-string optional anime titles", () => {
+    expect(() =>
+      validateSnapshot(
+        makeSnapshot({
+          titles: { english: 123, synonyms: [] },
+        }),
+      ),
+    ).toThrow("Invalid anime record");
+  });
+
+  it("rejects malformed external IDs", () => {
+    expect(() =>
+      validateSnapshot(
+        makeSnapshot({
+          externalIds: { myanimelist: 123 },
+        }),
+      ),
+    ).toThrow("Invalid anime external ID");
+  });
+
+  it("rejects unknown external ID providers", () => {
+    expect(() =>
+      validateSnapshot(
+        makeSnapshot({
+          externalIds: { unknown: "123" },
+        }),
+      ),
+    ).toThrow("Invalid anime external ID");
+  });
+
+  it("rejects invalid episode counts", () => {
+    expect(() =>
+      validateSnapshot(makeSnapshot({ episodes: -1 })),
+    ).toThrow("Invalid anime episode count");
+  });
+
+  it("accepts null episode counts", () => {
+    const snapshot = validateSnapshot(makeSnapshot({ episodes: null }));
+    expect(snapshot.anime[0]?.episodes).toBeNull();
+  });
+});
+
+describe("entry validation hardening", () => {
+  it("rejects duplicate merged entries for the same anime", () => {
+    expect(() =>
+      validateSnapshot({
+        schemaVersion: 4,
+        anime,
+        entries: [makeEntry(), makeEntry()],
+        sourceEntries: [makeEntry()],
+        conflictResolutions: [],
+        animeRelations: [],
+      }),
+    ).toThrow("Duplicate anime entry");
+  });
+
+  it("rejects invalid entry timestamps", () => {
+    expect(() =>
+      validateSnapshot({
+        schemaVersion: 4,
+        anime,
+        entries: [{ ...makeEntry(), updatedAt: "not-a-date" }],
+        sourceEntries: [makeEntry()],
+        conflictResolutions: [],
+        animeRelations: [],
+      }),
+    ).toThrow("Invalid entry metadata");
+  });
+
+  it("rejects non-numeric entry scores", () => {
+    expect(() =>
+      validateSnapshot({
+        schemaVersion: 4,
+        anime,
+        entries: [{ ...makeEntry(), score: "80" }],
+        sourceEntries: [makeEntry()],
+        conflictResolutions: [],
+        animeRelations: [],
+      }),
+    ).toThrow("Score must be null or between 0 and 100");
+  });
+});
+
 describe("snapshot export date validation", () => {
   it("accepts a valid export date", () => {
     const snapshot = validateSnapshot({
