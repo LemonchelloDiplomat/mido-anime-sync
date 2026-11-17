@@ -1438,6 +1438,7 @@ export class BrowserAnimeRepository {
         "sourceEntries",
         "conflictResolutions",
         "animeRelations",
+        "deletionIntents",
       ],
       "readwrite",
     );
@@ -1450,6 +1451,7 @@ export class BrowserAnimeRepository {
     const sourceStore = transaction.objectStore("sourceEntries");
     const resolutionStore = transaction.objectStore("conflictResolutions");
     const relationStore = transaction.objectStore("animeRelations");
+    const deletionStore = transaction.objectStore("deletionIntents");
 
     try {
       const [
@@ -1458,12 +1460,14 @@ export class BrowserAnimeRepository {
         currentSourceEntries,
         currentResolutions,
         currentRelations,
+        currentDeletionIntents,
       ] = await Promise.all([
         animeStore.getAll(),
         entriesStore.getAll(),
         sourceStore.getAll(),
         resolutionStore.getAll(),
         relationStore.getAll(),
+        deletionStore.getAll(),
       ]);
 
       const currentAnimeMap = new Map(
@@ -1592,10 +1596,17 @@ export class BrowserAnimeRepository {
         new Set(animeMap.keys()),
       );
 
+      const mergedAnime = [...animeMap.values()];
+      const deletionIntentsToCancel = currentDeletionIntents.filter((intent) => {
+        const service = intent.provider === "mal" ? "myanimelist" : "anilist";
+        return mergedAnime.some((item) => item.externalIds[service] === intent.externalId);
+      });
+
       await Promise.all([
         entriesStore.clear(),
         resolutionStore.clear(),
         relationStore.clear(),
+        ...deletionIntentsToCancel.map((intent) => deletionStore.delete(intent.id)),
 
         ...[...animeMap.values()].map((anime) =>
           animeStore.put(structuredClone(anime)),
