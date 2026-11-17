@@ -48,6 +48,79 @@ function makeRelation(overrides: Partial<AnimeRelation> = {}): AnimeRelation {
 }
 
 describe("snapshot validation fallback", () => {
+  it("validates pending deletion intents whose anime was intentionally removed", () => {
+    const deletedAnime = {
+      id: "deleted-anime",
+      titles: { english: "Deleted Anime", synonyms: [] },
+      externalIds: { myanimelist: "123" },
+    };
+    const deletedEntry: AnimeListEntry = {
+      animeId: "deleted-anime",
+      source: "myanimelist",
+      status: "WATCHING",
+      progress: 4,
+      score: null,
+      favorite: false,
+      updatedAt: "2026-11-15T12:00:00.000Z",
+    };
+    const snapshot = validateSnapshot({
+      schemaVersion: 4,
+      exportedAt: "2026-11-15T12:00:00.000Z",
+      anime: [],
+      entries: [],
+      sourceEntries: [],
+      conflictResolutions: [],
+      animeRelations: [],
+      deletionIntents: [{
+        id: "delete-mal-123",
+        provider: "mal",
+        animeId: "deleted-anime",
+        externalId: "123",
+        anime: deletedAnime,
+        entry: deletedEntry,
+        createdAt: "2026-11-15T12:00:00.000Z",
+      }],
+    });
+
+    expect(snapshot.deletionIntents).toHaveLength(1);
+    expect(snapshot.deletionIntents?.[0]?.externalId).toBe("123");
+  });
+
+  it("rejects deletion intents that point to an anime still in the library", () => {
+    const deletedAnime = {
+      id: "deleted-anime",
+      titles: { english: "Deleted Anime", synonyms: [] },
+      externalIds: { myanimelist: "123" },
+    };
+    const deletedEntry: AnimeListEntry = {
+      animeId: "deleted-anime",
+      source: "myanimelist",
+      status: "WATCHING",
+      progress: 4,
+      score: null,
+      favorite: false,
+      updatedAt: "2026-11-15T12:00:00.000Z",
+    };
+    expect(() => validateSnapshot({
+      schemaVersion: 4,
+      exportedAt: "2026-11-15T12:00:00.000Z",
+      anime: [deletedAnime],
+      entries: [],
+      sourceEntries: [],
+      conflictResolutions: [],
+      animeRelations: [],
+      deletionIntents: [{
+        id: "delete-mal-123",
+        provider: "mal",
+        animeId: "deleted-anime",
+        externalId: "123",
+        anime: deletedAnime,
+        entry: deletedEntry,
+        createdAt: "2026-11-15T12:00:00.000Z",
+      }],
+    })).toThrow(/still in the library/i);
+  });
+
   it("restores V2 source entries from entries when sourceEntries is empty", () => {
     const snapshot = validateSnapshot({
       schemaVersion: 2,
