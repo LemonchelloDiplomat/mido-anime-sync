@@ -163,6 +163,7 @@ function App() {
   const [restoreFormat, setRestoreFormat] = useState("");
   const [restoring, setRestoring] = useState(false);
   const restoreInProgressRef = useRef(false);
+  const restoreFileInputRef = useRef<HTMLInputElement | null>(null);
   const syncInProgressRef = useRef(false);
   const [metadataEnriching, setMetadataEnriching] = useState(false);
   const [metadataProgress, setMetadataProgress] = useState<MetadataEnrichmentProgress | null>(null);
@@ -1901,16 +1902,22 @@ function App() {
               ↓ Экспорт JSON
             </button>
 
-            <label className="secondary-button">
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => restoreFileInputRef.current?.click()}
+              disabled={loading || !repository || importing || restoring || accountSyncing !== null || metadataEnriching || saving || addingCatalogId !== null}
+            >
               ↻ Восстановить резервную копию
-              <input
-                type="file"
-                accept=".json,application/json"
-                onChange={handleRestoreFile}
-                disabled={loading || !repository || importing || restoring || accountSyncing !== null || metadataEnriching || saving || addingCatalogId !== null}
-                style={{ display: "none" }}
-              />
-            </label>
+            </button>
+            <input
+              ref={restoreFileInputRef}
+              type="file"
+              accept=".json,application/json"
+              onChange={handleRestoreFile}
+              disabled={loading || !repository || importing || restoring || accountSyncing !== null || metadataEnriching || saving || addingCatalogId !== null}
+              style={{ display: "none" }}
+            />
 
             <label className="secondary-button">
               ↑ Импорт JSON / MAL XML
