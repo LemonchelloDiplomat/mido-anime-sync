@@ -946,7 +946,7 @@ function App() {
         }
       }
 
-      const unresolvedDeletionConflictItems = [];
+      const unresolvedDeletionConflictItems: typeof deletionDetection.conflicts = [];
       for (const conflict of deletionDetection.conflicts) {
         const choice = window.prompt(
           "На сервисе удалено аниме «" + conflict.title + "», но локальная запись изменилась после последней синхронизации.\n\nВведи LOCAL, чтобы восстановить запись на сервисе.\nВведи REMOTE, чтобы принять удаление на сервисе и удалить локальную запись этого сервиса.\nОставь поле пустым, чтобы пропустить конфликт.",
@@ -1552,6 +1552,9 @@ function App() {
           createdAt,
         }];
       });
+      if (deletionIntents.length > 0) {
+        downloadSnapshot(await repository.snapshot());
+      }
       await repository.deleteAnime(id, deletionIntents);
       await refreshLibrary();
       if (deletionIntents.length > 0) {
