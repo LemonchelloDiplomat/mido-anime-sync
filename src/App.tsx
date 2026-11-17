@@ -978,18 +978,36 @@ function App() {
       }
 
       const serviceName = provider === "mal" ? "MyAnimeList" : "AniList";
+      const deletionNames = [
+        ...deletionDetection.localRemovals.map((item) => "• " + item.title + " (удалено на сервисе, будет удалена локальная запись)"),
+        ...remoteDeletionCandidates.map((item) => "• " + (item.intent.anime.titles.english || item.intent.anime.titles.romaji || item.intent.animeId) + " (удалено локально, будет удалена запись на сервисе)"),
+      ];
+      const deletionPreview = deletionNames.length
+        ? "\n\nСПИСОК УДАЛЕНИЙ (" + deletionNames.length + "):\n" +
+          deletionNames.slice(0, 20).join("\n") +
+          (deletionNames.length > 20 ? "\n…и ещё " + (deletionNames.length - 20) : "")
+        : "";
+      const deletionConflictPreview = deletionDetection.conflicts.length
+        ? "\n\nКОНФЛИКТЫ УДАЛЕНИЯ (оставлены без изменений):\n" +
+          deletionDetection.conflicts.slice(0, 10).map((item) => "• " + item.title + " (локальная запись изменена после базового снимка)").join("\n") +
+          (deletionDetection.conflicts.length > 10 ? "\n…и ещё " + (deletionDetection.conflicts.length - 10) : "")
+        : "";
       const confirmed = window.confirm(
         "План синхронизации с " + serviceName + ":" +
         "\nНовые записи на сервисе: " + remoteCreates.length +
         "\nОбновления на сервисе: " + remoteUpdates.length +
         "\nНовые записи в локальной библиотеке: " + localCreates.length +
         "\nОбновления локальной библиотеки: " + localUpdates.length +
+        "\nУдаления на сервисе по твоему запросу: " + remoteDeletionCandidates.length +
+        "\nУдаления локальных записей после удаления на сервисе: " + deletionDetection.localRemovals.length +
         "\nНеразрешённых конфликтных тайтлов пропущено: " +
           conflictAnimeIds.filter((id) => !resolvedConflictAnimeIds.has(id)).length +
+        "\nКонфликтов удаления: " + deletionDetection.conflicts.length +
         (unfinishedOperations.length
           ? "\nНезавершённых операций из прошлых запусков: " + unfinishedOperations.length +
             "\nУже подтверждено сверкой: " + recoveredOperations
           : "") +
+        deletionPreview + deletionConflictPreview +
         "\n\nПеред изменениями будет скачана резервная копия. Продолжить?"
       );
       if (!confirmed) {
@@ -997,10 +1015,26 @@ function App() {
           status: "cancelled",
           finishedAt: new Date().toISOString(),
           unchangedCount: plan.unchanged,
-          conflictCount: plan.conflicts.length,
+          conflictCount: plan.conflicts.length + unresolvedDeletionConflicts,
           recoveredCount: recoveredOperations,
         });
         return;
+      }
+      const deletionCount = deletionDetection.localRemovals.length + remoteDeletionCandidates.length;
+      if (deletionCount >= 10 || deletionDetection.requiresBulkConfirmation) {
+        const phrase = window.prompt(
+          "Обнаружено большое количество удалений (" + deletionCount + "). Для дополнительной защиты введи слово УДАЛИТЬ. Иначе удаление не будет выполнено.",
+        );
+        if (phrase !== "УДАЛИТЬ") {
+          await activeRepository.updateSyncSession(sessionId, {
+            status: "cancelled",
+            finishedAt: new Date().toISOString(),
+            unchangedCount: plan.unchanged,
+            conflictCount: plan.conflicts.length + unresolvedDeletionConflicts,
+            recoveredCount: recoveredOperations,
+          });
+          return;
+        }
       }
 
       // Backup is created before the first write to either side.
