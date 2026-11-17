@@ -8,7 +8,8 @@ export type RestoreCollection =
   | "anime"
   | "sourceEntries"
   | "conflictResolutions"
-  | "animeRelations";
+  | "animeRelations"
+  | "deletionIntents";
 
 export type RestoreChangeStatus = "added" | "updated" | "unchanged" | "removed";
 
@@ -74,6 +75,7 @@ function getKey(collection: RestoreCollection, value: unknown): string {
     case "conflictResolutions":
       return String(item.animeId);
     case "animeRelations":
+    case "deletionIntents":
       return String(item.id);
   }
 }
@@ -234,6 +236,11 @@ export function createRestorePreview(
       getValidConflictResolutions(backup.sourceEntries, backup.conflictResolutions),
     ),
     ...compareCollection("animeRelations", current.animeRelations, backup.animeRelations),
+    ...compareCollection(
+      "deletionIntents",
+      current.deletionIntents ?? [],
+      backup.deletionIntents ?? [],
+    ),
   ];
 
   const collections = {
@@ -241,6 +248,7 @@ export function createRestorePreview(
     sourceEntries: { added: 0, updated: 0, unchanged: 0, removed: 0 },
     conflictResolutions: { added: 0, updated: 0, unchanged: 0, removed: 0 },
     animeRelations: { added: 0, updated: 0, unchanged: 0, removed: 0 },
+    deletionIntents: { added: 0, updated: 0, unchanged: 0, removed: 0 },
   };
 
   const summary = {
