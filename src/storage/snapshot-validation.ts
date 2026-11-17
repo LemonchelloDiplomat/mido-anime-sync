@@ -65,13 +65,45 @@ function validateAnimeList(value: unknown): AnimeIdentity[] {
   for (const item of anime) {
     if (
       !item ||
+      typeof item !== "object" ||
       typeof item.id !== "string" ||
       item.id.trim().length === 0 ||
       !item.titles ||
       typeof item.titles !== "object" ||
-      !Array.isArray(item.titles.synonyms)
+      Array.isArray(item.titles) ||
+      !Array.isArray(item.titles.synonyms) ||
+      item.titles.synonyms.some(
+        (synonym) => typeof synonym !== "string",
+      ) ||
+      ["romaji", "english", "native"].some(
+        (key) =>
+          item.titles[key as keyof typeof item.titles] !== undefined &&
+          typeof item.titles[key as keyof typeof item.titles] !== "string",
+      ) ||
+      !item.externalIds ||
+      typeof item.externalIds !== "object" ||
+      Array.isArray(item.externalIds)
     ) {
       throw new Error("Invalid anime record");
+    }
+
+    for (const [service, externalId] of Object.entries(item.externalIds)) {
+      if (
+        !VALID_SOURCES.includes(service as (typeof VALID_SOURCES)[number]) ||
+        service === "local" ||
+        typeof externalId !== "string" ||
+        externalId.trim().length === 0
+      ) {
+        throw new Error(`Invalid anime external ID: ${item.id}`);
+      }
+    }
+
+    if (
+      item.episodes !== undefined &&
+      item.episodes !== null &&
+      (!Number.isInteger(item.episodes) || item.episodes < 0)
+    ) {
+      throw new Error(`Invalid anime episode count: ${item.id}`);
     }
 
     if (
@@ -151,6 +183,7 @@ function validateEntries(
   }
 
   const entries = value as AnimeListEntry[];
+  const entryAnimeIds = new Set<string>();
 
   for (const entry of entries) {
     validateEntry(entry);
@@ -158,6 +191,12 @@ function validateEntries(
     if (!animeIds.has(entry.animeId)) {
       throw new Error(`Entry references missing anime: ${entry.animeId}`);
     }
+
+    if (entryAnimeIds.has(entry.animeId)) {
+      throw new Error(`Duplicate anime entry: ${entry.animeId}`);
+    }
+
+    entryAnimeIds.add(entry.animeId);
   }
 
   return entries;
@@ -429,7 +468,10 @@ export function validateEntry(entry: AnimeListEntry): void {
 
   if (
     entry.score !== null &&
-    (!Number.isFinite(entry.score) || entry.score < 0 || entry.score > 100)
+    (typeof entry.score !== "number" ||
+      !Number.isFinite(entry.score) ||
+      entry.score < 0 ||
+      entry.score > 100)
   ) {
     throw new Error("Score must be null or between 0 and 100");
   }
@@ -442,7 +484,8 @@ export function validateEntry(entry: AnimeListEntry): void {
 
   if (
     typeof entry.favorite !== "boolean" ||
-    typeof entry.updatedAt !== "string"
+    typeof entry.updatedAt !== "string" ||
+    !Number.isFinite(Date.parse(entry.updatedAt))
   ) {
     throw new Error("Invalid entry metadata");
   }
