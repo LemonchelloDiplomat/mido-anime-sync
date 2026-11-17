@@ -1049,7 +1049,10 @@ function App() {
         return;
       }
       const deletionCount = deletionDetection.localRemovals.length + remoteDeletionCandidates.length;
-      if (deletionCount >= 10 || deletionDetection.requiresBulkConfirmation) {
+      const deletionDenominator = remoteSnapshot.entries.length + deletionDetection.localRemovals.length;
+      const requiresBulkConfirmation = deletionCount >= 10 ||
+        (deletionDenominator > 0 && deletionCount / deletionDenominator >= 0.25);
+      if (requiresBulkConfirmation) {
         const phrase = window.prompt(
           "Обнаружено большое количество удалений (" + deletionCount + "). Для дополнительной защиты введи слово УДАЛИТЬ. Иначе удаление не будет выполнено.",
         );
