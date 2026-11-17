@@ -1158,6 +1158,34 @@ function App() {
         remoteSucceeded += 1;
       }
 
+      for (let index = 0; index < remoteDeletionCandidates.length; index += 1) {
+        const candidate = remoteDeletionCandidates[index]!;
+        const operation = remoteDeletionJournalOperations[index]!;
+        await activeRepository.updateSyncOperation(operation.id, {
+          status: "in_progress",
+          attempts: operation.attempts + 1,
+        });
+        try {
+          await deleteAccountEntry(provider, {
+            externalId: candidate.intent.externalId,
+            ...(candidate.entryId !== undefined ? { entryId: candidate.entryId } : {}),
+          });
+          await activeRepository.deleteDeletionIntent(candidate.intent.id);
+          await activeRepository.updateSyncOperation(operation.id, { status: "succeeded" });
+          remoteSucceeded += 1;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "ошибка удаления";
+          await activeRepository.updateSyncOperation(operation.id, {
+            status: "failed",
+            error: message,
+          });
+          failures.push(
+            (candidate.intent.anime.titles.english || candidate.intent.anime.titles.romaji || candidate.intent.animeId) +
+            " (удаление на сервисе: " + message + ")",
+          );
+        }
+      }
+
       for (let index = 0; index < localChangesToApply.length; index += 1) {
         const change = localChangesToApply[index]!;
         const operation = localJournalOperations[index]!;
@@ -1168,8 +1196,10 @@ function App() {
         try {
           if (change.kind === "create") {
             await activeRepository.saveAnimeWithEntry(change.anime, change.entry);
-          } else {
+          } else if (change.kind === "update") {
             await activeRepository.saveEntry(change.entry);
+          } else {
+            await activeRepository.deleteSourceEntry(change.animeId, providerSource);
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : "ошибка";
@@ -1179,7 +1209,7 @@ function App() {
           });
           failures.push(
             change.animeId +
-            (change.kind === "create" ? " (локальное добавление: " : " (локальное обновление: ") +
+            (change.kind === "create" ? " (локальное добавление: " : change.kind === "delete" ? " (локальное удаление: " : " (локальное обновление: ") +
             message + ")",
           );
           continue;
