@@ -1054,6 +1054,11 @@ function App() {
           animeId: change.animeId,
           entry: change.entry,
         })),
+        ...deletionDetection.localRemovals.map((change) => ({
+          kind: "delete" as const,
+          animeId: change.animeId,
+          entry: change.baseline,
+        })),
       ];
       const remoteJournalOperations: SyncOperation[] = remoteChangesToApply.map((change, index) => {
         const localMatch = localItems.find(
@@ -1074,6 +1079,21 @@ function App() {
           updatedAt: journalCreatedAt,
         };
       });
+      const remoteDeletionJournalOperations: SyncOperation[] = remoteDeletionCandidates.map((candidate, index) => ({
+        id: `${sessionId}-remote-delete-${index}`,
+        sessionId,
+        provider,
+        direction: "remote",
+        kind: "delete",
+        animeId: candidate.intent.animeId,
+        externalId: candidate.intent.externalId,
+        entry: structuredClone(candidate.entry),
+        anime: structuredClone(candidate.intent.anime),
+        status: "pending",
+        attempts: 0,
+        createdAt: journalCreatedAt,
+        updatedAt: journalCreatedAt,
+      }));
       const localJournalOperations: SyncOperation[] = localChangesToApply.map((change, index) => ({
         id: `${sessionId}-local-${index}`,
         sessionId,
@@ -1091,13 +1111,14 @@ function App() {
       // The entire plan is durable before the first write starts.
       await activeRepository.saveSyncOperations([
         ...remoteJournalOperations,
+        ...remoteDeletionJournalOperations,
         ...localJournalOperations,
       ]);
       await activeRepository.updateSyncSession(sessionId, {
-        operationCount: remoteJournalOperations.length + localJournalOperations.length,
-        pendingCount: remoteJournalOperations.length + localJournalOperations.length,
+        operationCount: remoteJournalOperations.length + remoteDeletionJournalOperations.length + localJournalOperations.length,
+        pendingCount: remoteJournalOperations.length + remoteDeletionJournalOperations.length + localJournalOperations.length,
         unchangedCount: plan.unchanged,
-        conflictCount: plan.conflicts.length,
+        conflictCount: plan.conflicts.length + unresolvedDeletionConflicts,
         recoveredCount: recoveredOperations,
       });
 
