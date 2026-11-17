@@ -1674,6 +1674,7 @@ export class BrowserAnimeRepository {
         "animeRelations",
         "syncOperations",
         "syncSessions",
+        "deletionIntents",
       ],
       "readwrite",
     );
@@ -1688,6 +1689,7 @@ export class BrowserAnimeRepository {
       const relationStore = transaction.objectStore("animeRelations");
       const operationsStore = transaction.objectStore("syncOperations");
       const sessionsStore = transaction.objectStore("syncSessions");
+      const deletionIntentsStore = transaction.objectStore("deletionIntents");
 
       const [operations, sessions] = await Promise.all([
         operationsStore.getAll(),
@@ -1741,6 +1743,7 @@ export class BrowserAnimeRepository {
         sourceEntriesStore.clear(),
         resolutionStore.clear(),
         relationStore.clear(),
+        deletionIntentsStore.clear(),
       ]);
 
       await Promise.all([
