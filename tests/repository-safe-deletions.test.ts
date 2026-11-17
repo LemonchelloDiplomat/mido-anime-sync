@@ -20,7 +20,7 @@ function anime(id: string): AnimeIdentity {
   };
 }
 
-function entry(animeId: string, source: "myanimelist" | "anilist", progress: number): AnimeListEntry {
+function entry(animeId: string, source: "local" | "myanimelist" | "anilist", progress: number): AnimeListEntry {
   return {
     animeId,
     source,
