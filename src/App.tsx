@@ -772,13 +772,15 @@ function App() {
             ? null
             : Math.max(10, Math.min(100, Math.round(operation.entry.score / 10) * 10))
           : operation.entry.score;
-        const matchesTarget = Boolean(
-          actualEntry &&
-          actualEntry.status === operation.entry.status &&
-          actualEntry.progress === operation.entry.progress &&
-          actualEntry.score === expectedScore &&
-          (provider === "mal" || actualEntry.favorite === operation.entry.favorite),
-        );
+        const matchesTarget = operation.kind === "delete"
+          ? !actualEntry
+          : Boolean(
+              actualEntry &&
+              actualEntry.status === operation.entry.status &&
+              actualEntry.progress === operation.entry.progress &&
+              actualEntry.score === expectedScore &&
+              (provider === "mal" || actualEntry.favorite === operation.entry.favorite),
+            );
         if (matchesTarget) {
           await activeRepository.updateSyncOperation(operation.id, { status: "succeeded" });
           recoveredOperations += 1;
