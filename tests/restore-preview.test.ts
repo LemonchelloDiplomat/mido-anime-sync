@@ -64,6 +64,33 @@ describe("restore preview", () => {
     expect(preview.collections.sourceEntries.removed).toBe(1);
   });
 
+  it("compares pending deletion intents in backup restore previews", () => {
+    const current = makeSnapshot([]);
+    const backup = makeSnapshot([]);
+    backup.deletionIntents = [{
+      id: "delete-mal-1",
+      provider: "mal",
+      animeId: "deleted-anime",
+      externalId: "1",
+      anime: makeAnime("deleted-anime", { myanimelist: "1" }),
+      entry: {
+        animeId: "deleted-anime",
+        source: "myanimelist",
+        status: "WATCHING",
+        progress: 2,
+        score: null,
+        favorite: false,
+        updatedAt: "2026-11-15T12:00:00.000Z",
+      },
+      createdAt: "2026-11-15T12:00:00.000Z",
+    }];
+
+    const preview = createRestorePreview(backup, current);
+
+    expect(preview.collections.deletionIntents.added).toBe(1);
+    expect(preview.summary.added).toBe(1);
+  });
+
   it("reports an external ID change on the same anime record", () => {
     const current = makeSnapshot([makeAnime("one", { myanimelist: "1" })]);
     const backup = makeSnapshot([makeAnime("one", { myanimelist: "2" })]);
