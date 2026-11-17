@@ -196,6 +196,8 @@ export interface AnimeSnapshotV4 {
   sourceEntries: AnimeSourceEntry[];
   conflictResolutions: ConflictResolution[];
   animeRelations: AnimeRelation[];
+  /** Pending explicit local deletions that must be confirmed on the provider at next sync. */
+  deletionIntents?: SyncDeletionIntent[];
 }
 
 export type AnimeSnapshot = AnimeSnapshotV2 | AnimeSnapshotV3 | AnimeSnapshotV4;
