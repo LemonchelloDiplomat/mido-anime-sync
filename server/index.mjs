@@ -410,6 +410,29 @@ async function handleRequest(request, response) {
     }
   }
 
+  if (method === "POST" && url.pathname === "/api/mal/entry/delete") {
+    const body = await readJson(request);
+    const id = Number(body.externalId);
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return sendJson(response, 400, { error: "Некорректный MyAnimeList ID для удаления." });
+    }
+    try {
+      const tokens = await readTokens();
+      const accessToken = await getMalAccessToken(tokens);
+      await fetchJson(MAL_API + "/anime/" + id + "/my_list_status", {
+        method: "DELETE",
+        headers: {
+          "X-MAL-CLIENT-ID": process.env.MAL_CLIENT_ID,
+          Authorization: "Bearer " + accessToken,
+          Accept: "application/json",
+        },
+      });
+      return sendJson(response, 200, { ok: true });
+    } catch (error) {
+      return sendJson(response, error.status || 502, { error: error.message });
+    }
+  }
+
   if (method === "GET" && url.pathname === "/api/anilist/list") {
     const tokens = await readTokens();
     if (!tokens.anilist?.accessToken) return sendJson(response, 401, { error: "AniList ещё не подключён." });
@@ -481,6 +504,32 @@ async function handleRequest(request, response) {
         }
       }
       return sendJson(response, 200, { ok: true, result: data.SaveMediaListEntry });
+    } catch (error) {
+      return sendJson(response, error.status || 502, { error: error.message });
+    }
+  }
+
+  if (method === "POST" && url.pathname === "/api/anilist/entry/delete") {
+    const body = await readJson(request);
+    const entryId = Number(body.entryId);
+    if (!Number.isSafeInteger(entryId) || entryId <= 0) {
+      return sendJson(response, 400, { error: "Некорректный AniList entry ID для удаления." });
+    }
+    const tokens = await readTokens();
+    if (!tokens.anilist?.accessToken) {
+      return sendJson(response, 401, { error: "AniList ещё не подключён." });
+    }
+    try {
+      const data = await anilistRequest(
+        "mutation DeleteEntry($id: Int!) { DeleteMediaListEntry(id: $id) { deleted } }",
+        { id: entryId },
+        tokens.anilist.accessToken,
+      );
+      if (typeof data.DeleteMediaListEntry?.deleted !== "boolean") {
+        throw new Error("AniList вернул некорректный ответ при удалении записи.");
+      }
+      // A false result means the entry was already absent, so the delete is idempotently complete.
+      return sendJson(response, 200, { ok: true, deleted: data.DeleteMediaListEntry.deleted });
     } catch (error) {
       return sendJson(response, error.status || 502, { error: error.message });
     }
