@@ -448,6 +448,35 @@ describe("anime identity validation", () => {
     ).toThrow("Invalid anime external ID");
   });
 
+  it("rejects the same external ID assigned to two anime by one provider", () => {
+    expect(() =>
+      validateSnapshot({
+        schemaVersion: 4,
+        anime: [
+          { ...anime[0], externalIds: { myanimelist: "123" } },
+          { ...anime[1], externalIds: { myanimelist: "123" } },
+        ],
+        entries: [makeEntry()],
+        sourceEntries: [makeEntry()],
+        conflictResolutions: [],
+        animeRelations: [],
+      }),
+    ).toThrow("Duplicate anime external ID: myanimelist:123");
+  });
+
+  it("allows the same external ID value for different providers", () => {
+    const snapshot = validateSnapshot(
+      makeSnapshot({
+        externalIds: { myanimelist: "123", anilist: "123" },
+      }),
+    );
+
+    expect(snapshot.anime[0]?.externalIds).toEqual({
+      myanimelist: "123",
+      anilist: "123",
+    });
+  });
+
   it("rejects invalid episode counts", () => {
     expect(() =>
       validateSnapshot(makeSnapshot({ episodes: -1 })),
