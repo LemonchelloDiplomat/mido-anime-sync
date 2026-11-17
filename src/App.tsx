@@ -1223,7 +1223,7 @@ function App() {
       // compare against the previous common state and retry/reconcile safely.
       const unresolvedConflictCount = conflictAnimeIds.filter(
         (id) => !resolvedConflictAnimeIds.has(id),
-      ).length;
+      ).length + deletionDetection.conflicts.length;
       const warnings: string[] = [];
 
       if (canAdvanceSyncBaseline(failures.length, unresolvedConflictCount)) {
@@ -1267,6 +1267,9 @@ function App() {
         "\nУспешно обновлено локально: " + localSucceeded +
         "\nБез изменений: " + plan.unchanged +
         "\nКонфликтных полей: " + plan.conflicts.length +
+        "\nКонфликтов удаления: " + deletionDetection.conflicts.length +
+        "\nУдалено записей на сервисе: " + remoteDeletionCandidates.length +
+        "\nУдалено локальных записей сервиса: " + deletionDetection.localRemovals.length +
         "\nВосстановлено по журналу: " + recoveredOperations +
         "\nОшибок: " + failures.length +
         (failures.length ? "\n" + failures.slice(0, 8).join("\n") : "") +
