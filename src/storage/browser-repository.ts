@@ -1348,6 +1348,7 @@ export class BrowserAnimeRepository {
         "sourceEntries",
         "conflictResolutions",
         "animeRelations",
+        "deletionIntents",
       ],
       "readwrite",
     );
@@ -1357,8 +1358,15 @@ export class BrowserAnimeRepository {
     const sourceEntriesStore = transaction.objectStore("sourceEntries");
     const resolutionStore = transaction.objectStore("conflictResolutions");
     const relationStore = transaction.objectStore("animeRelations");
+    const deletionStore = transaction.objectStore("deletionIntents");
+    const pendingDeletions = await deletionStore.getAll();
+    const intentsToCancel = pendingDeletions.filter((intent) => {
+      const service = intent.provider === "mal" ? "myanimelist" : "anilist";
+      return anime.some((item) => item.externalIds[service] === intent.externalId);
+    });
 
     const requests = [
+      ...intentsToCancel.map((intent) => deletionStore.delete(intent.id)),
       ...anime.map((item) => animeStore.put(structuredClone(item))),
       ...entries.map((item) => entriesStore.put(structuredClone(item))),
       ...sourceEntries.map((item) =>
