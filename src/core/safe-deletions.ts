@@ -94,15 +94,15 @@ export function detectRemoteDeletions(
     if (remoteIds.has(externalId)) continue;
 
     const baseline = item.baseline!;
-    const providerEntry = item.providerEntry;
+    const currentEntry = item.entry;
 
-    if (providerEntry && !sameProviderEntry(provider, baseline, providerEntry)) {
+    if (currentEntry && !sameProviderEntry(provider, baseline, currentEntry)) {
       conflicts.push({
         animeId: item.anime.id,
         title: titleOf(item.anime),
         externalId,
         baseline: structuredClone(baseline),
-        localEntry: structuredClone(providerEntry),
+        localEntry: structuredClone(currentEntry),
       });
       continue;
     }
