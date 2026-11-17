@@ -747,6 +747,12 @@ function App() {
       const remoteSnapshot = provider === "mal"
         ? parseMyAnimeListApiList(payload.data)
         : parseAniListAccountList(payload.data, payload.scoreFormat as AniListScoreFormat);
+      if (payload.count !== remoteSnapshot.entries.length) {
+        throw new Error("Количество записей в ответе сервиса не совпадает с разобранным списком. Синхронизация и удаления заблокированы.");
+      }
+      if (provider === "anilist" && payload.count >= 11000) {
+        throw new Error("AniList ограничивает полный MediaListCollection 11 000 записями. Нельзя безопасно определять удаления на таком размере списка.");
+      }
 
       // Reconcile unfinished journal records against the freshly fetched state.
       // This handles the case where a write reached the provider just before the app closed.
