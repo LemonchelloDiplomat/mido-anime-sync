@@ -60,6 +60,22 @@ export interface AccountEntryUpdate {
   favorite?: boolean;
 }
 
+
+export async function deleteAccountEntry(
+  provider: "mal" | "anilist",
+  entry: { externalId: string; entryId?: number },
+): Promise<{ ok: boolean }> {
+  const result = await request<{ ok: boolean }>(
+    provider === "mal" ? "/api/mal/entry/delete" : "/api/anilist/entry/delete",
+    {
+      method: "POST",
+      body: JSON.stringify(entry),
+    },
+  );
+  if (!result.ok) throw new Error("Сервис не подтвердил удаление записи.");
+  return result;
+}
+
 export async function updateAccountEntry(provider: "mal" | "anilist", entry: AccountEntryUpdate): Promise<{ ok: boolean }> {
   const result = await request<{ ok: boolean }>(
     provider === "mal" ? "/api/mal/entry" : "/api/anilist/entry",
