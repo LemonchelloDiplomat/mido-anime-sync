@@ -88,6 +88,24 @@ describe("safe deletion persistence", () => {
     expect(await repo.getAnime(item.id)).toMatchObject({ id: item.id });
   });
 
+  it("removes the local override but preserves another provider entry", async () => {
+    const repo = await createRepository();
+    const item = anime("local:override");
+    const malEntry = entry(item.id, "myanimelist", 4);
+    const anilistEntry = entry(item.id, "anilist", 7);
+    const localEntry = entry(item.id, "local", 8);
+    await repo.saveAnime(item);
+    await repo.saveSourceEntries([malEntry, anilistEntry, localEntry]);
+
+    await repo.deleteSourceEntry(item.id, "myanimelist");
+
+    expect(await repo.getSourceEntries(item.id)).toEqual([anilistEntry]);
+    expect(await repo.getEntry(item.id)).toMatchObject({
+      source: "anilist",
+      progress: 7,
+    });
+  });
+
   it("clears pending deletion intents when a full backup is restored", async () => {
     const repo = await createRepository();
     const item = anime("local:3");
