@@ -589,7 +589,7 @@ export class BrowserAnimeRepository {
     }
 
     const transaction = this.db.transaction(
-      ["anime", "entries", "sourceEntries", "conflictResolutions"],
+      ["anime", "entries", "sourceEntries", "conflictResolutions", "deletionIntents"],
       "readwrite",
     );
     const transactionDone = transaction.done;
@@ -600,6 +600,15 @@ export class BrowserAnimeRepository {
       const entriesStore = transaction.objectStore("entries");
       const sourceStore = transaction.objectStore("sourceEntries");
       const resolutionStore = transaction.objectStore("conflictResolutions");
+      const deletionStore = transaction.objectStore("deletionIntents");
+
+      const pendingDeletions = await deletionStore.getAll();
+      await Promise.all(pendingDeletions
+        .filter((intent) => {
+          const service = intent.provider === "mal" ? "myanimelist" : "anilist";
+          return anime.externalIds[service] === intent.externalId;
+        })
+        .map((intent) => deletionStore.delete(intent.id)));
 
       await animeStore.put(structuredClone(anime));
       await sourceStore.put(structuredClone(entry));
@@ -632,7 +641,18 @@ export class BrowserAnimeRepository {
   }
 
   async saveAnime(anime: AnimeIdentity): Promise<void> {
-    await this.db.put("anime", structuredClone(anime));
+    const transaction = this.db.transaction(["anime", "deletionIntents"], "readwrite");
+    const animeStore = transaction.objectStore("anime");
+    const deletionStore = transaction.objectStore("deletionIntents");
+    const pendingDeletions = await deletionStore.getAll();
+    await Promise.all(pendingDeletions
+      .filter((intent) => {
+        const service = intent.provider === "mal" ? "myanimelist" : "anilist";
+        return anime.externalIds[service] === intent.externalId;
+      })
+      .map((intent) => deletionStore.delete(intent.id)));
+    await animeStore.put(structuredClone(anime));
+    await transaction.done;
   }
 
   /**
