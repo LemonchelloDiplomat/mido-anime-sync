@@ -33,7 +33,8 @@ function titleOf(anime: AnimeIdentity): string {
 }
 
 function comparableScore(provider: SyncProvider, value: number | null): number | null {
-  if (provider !== "mal" || value == null || value === 0) return value;
+  if (provider !== "mal") return value;
+  if (value === null || value === 0) return null;
   return Math.max(10, Math.min(100, Math.round(value / 10) * 10));
 }
 
@@ -52,7 +53,7 @@ function sameProviderEntry(
  * Detects deletions made directly on the remote service.
  *
  * A missing remote entry is only treated as a deletion when a successful
- * provider baseline exists. If the local provider-specific entry changed
+ * provider baseline exists. If the local entry changed
  * since that baseline, the deletion is surfaced as a conflict instead.
  * Empty remote lists are rejected when a non-empty baseline exists.
  */
