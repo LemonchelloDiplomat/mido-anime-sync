@@ -77,7 +77,7 @@ describe("bidirectional sync planner", () => {
     const localAnime = anime("local:10");
     const baseline = entry(localAnime.id, "myanimelist", "2026-11-15T10:00:00.000Z");
     const plan = createBidirectionalSyncPlan(
-      [{ anime: localAnime, entry: entry(localAnime.id, "local", "2026-11-17T10:00:00.000Z"), baseline, providerEntry: baseline }],
+      [{ anime: localAnime, entry: entry(localAnime.id, "local", "2026-11-17T10:00:00.000Z"), baseline }],
       remoteSnapshot([], []),
       "mal",
     );
