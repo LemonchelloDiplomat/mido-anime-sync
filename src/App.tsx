@@ -1907,7 +1907,7 @@ function App() {
                 type="file"
                 accept=".json,application/json"
                 onChange={handleRestoreFile}
-                disabled={loading || !repository || importing || restoring || accountSyncing !== null || metadataEnriching}
+                disabled={loading || !repository || importing || restoring || accountSyncing !== null || metadataEnriching || saving || addingCatalogId !== null}
                 style={{ display: "none" }}
               />
             </label>
@@ -1995,7 +1995,7 @@ function App() {
                 <button
                   className="add-button restore-confirm-button"
                   onClick={() => void handleConfirmRestore()}
-                  disabled={restoring || accountSyncing !== null || metadataEnriching || importing}
+                  disabled={restoring || accountSyncing !== null || metadataEnriching || importing || saving || addingCatalogId !== null}
                 >
                   {restoring ? "Восстановление..." : "Восстановить библиотеку"}
                 </button>
