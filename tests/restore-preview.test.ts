@@ -124,4 +124,70 @@ describe("restore preview", () => {
 
     expect(preview.collections.anime.unchanged).toBe(1);
   });
+
+  it("ignores stale current conflict resolutions just like restore does", () => {
+    const current = makeSnapshot([makeAnime("one")]);
+    const backup = makeSnapshot([makeAnime("one")]);
+    const sourceEntry = {
+      animeId: "one",
+      status: "WATCHING" as const,
+      progress: 1,
+      score: null,
+      favorite: false,
+      updatedAt: "2026-11-15T12:00:00.000Z",
+      source: "local" as const,
+    };
+    current.sourceEntries = [sourceEntry];
+    backup.sourceEntries = [sourceEntry];
+    current.conflictResolutions = [{
+      animeId: "one",
+      status: "WATCHING",
+      fingerprint: "stale-fingerprint",
+      resolvedAt: "2026-11-15T12:00:00.000Z",
+    }];
+
+    const preview = createRestorePreview(backup, current);
+
+    expect(preview.collections.conflictResolutions).toEqual({
+      added: 0,
+      updated: 0,
+      unchanged: 0,
+      removed: 0,
+    });
+  });
+
+  it("keeps conflict resolutions whose fingerprint matches their own source entries", () => {
+    const current = makeSnapshot([makeAnime("one")]);
+    const backup = makeSnapshot([makeAnime("one")]);
+    const sourceEntry = {
+      animeId: "one",
+      status: "WATCHING" as const,
+      progress: 1,
+      score: null,
+      favorite: false,
+      updatedAt: "2026-11-15T12:00:00.000Z",
+      source: "local" as const,
+    };
+    const fingerprint = JSON.stringify([{
+      source: "local",
+      status: "WATCHING",
+      progress: 1,
+      updatedAt: "2026-11-15T12:00:00.000Z",
+    }]);
+    const resolution = {
+      animeId: "one",
+      status: "WATCHING" as const,
+      fingerprint,
+      resolvedAt: "2026-11-15T12:00:00.000Z",
+    };
+    current.sourceEntries = [sourceEntry];
+    backup.sourceEntries = [sourceEntry];
+    current.conflictResolutions = [resolution];
+    backup.conflictResolutions = [resolution];
+
+    const preview = createRestorePreview(backup, current);
+
+    expect(preview.collections.conflictResolutions.unchanged).toBe(1);
+  });
+
 });
