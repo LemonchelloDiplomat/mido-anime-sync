@@ -1259,6 +1259,12 @@ function App() {
           const refreshedSnapshot = provider === "mal"
             ? parseMyAnimeListApiList(refreshedPayload.data)
             : parseAniListAccountList(refreshedPayload.data, refreshedPayload.scoreFormat as AniListScoreFormat);
+          if (refreshedPayload.count !== refreshedSnapshot.entries.length) {
+            throw new Error("Количество записей в повторном ответе сервиса не совпадает с разобранным списком.");
+          }
+          if (provider === "anilist" && refreshedPayload.count >= 11000) {
+            throw new Error("AniList достиг лимита полного списка в 11 000 записей.");
+          }
           await saveProviderBaseline(
             refreshedSnapshot,
             localCreates.map((change) => ({ anime: change.anime })),
