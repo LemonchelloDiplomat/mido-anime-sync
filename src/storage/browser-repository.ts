@@ -1218,17 +1218,19 @@ export class BrowserAnimeRepository {
         "sourceEntries",
         "conflictResolutions",
         "animeRelations",
+        "deletionIntents",
       ],
       "readonly",
     );
 
-    const [anime, entries, sourceEntries, storedResolutions, animeRelations] =
+    const [anime, entries, sourceEntries, storedResolutions, animeRelations, deletionIntents] =
       await Promise.all([
         transaction.objectStore("anime").getAll(),
         transaction.objectStore("entries").getAll(),
         transaction.objectStore("sourceEntries").getAll(),
         transaction.objectStore("conflictResolutions").getAll(),
         transaction.objectStore("animeRelations").getAll(),
+        transaction.objectStore("deletionIntents").getAll(),
       ]);
 
     await transaction.done;
@@ -1248,6 +1250,7 @@ export class BrowserAnimeRepository {
         structuredClone(item),
       ),
       animeRelations: animeRelations.map((item) => structuredClone(item)),
+      deletionIntents: deletionIntents.map((item) => structuredClone(item)),
     };
   }
 
@@ -1610,6 +1613,7 @@ export class BrowserAnimeRepository {
         "sourceEntries",
         "conflictResolutions",
         "animeRelations",
+        "deletionIntents",
       ],
       "readwrite",
     );
@@ -1619,6 +1623,7 @@ export class BrowserAnimeRepository {
     const sourceEntriesStore = transaction.objectStore("sourceEntries");
     const resolutionStore = transaction.objectStore("conflictResolutions");
     const relationStore = transaction.objectStore("animeRelations");
+    const deletionIntentsStore = transaction.objectStore("deletionIntents");
 
     const requests = [
       animeStore.clear(),
@@ -1626,6 +1631,7 @@ export class BrowserAnimeRepository {
       sourceEntriesStore.clear(),
       resolutionStore.clear(),
       relationStore.clear(),
+      deletionIntentsStore.clear(),
 
       ...snapshot.anime.map((item) => animeStore.put(structuredClone(item))),
       ...entries.map((item) => entriesStore.put(structuredClone(item))),
@@ -1637,6 +1643,9 @@ export class BrowserAnimeRepository {
       ),
       ...snapshot.animeRelations.map((item) =>
         relationStore.put(structuredClone(item)),
+      ),
+      ...(snapshot.deletionIntents ?? []).map((item) =>
+        deletionIntentsStore.put(structuredClone(item)),
       ),
     ];
 
