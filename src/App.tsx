@@ -1532,6 +1532,14 @@ function App() {
 
   return (
     <div className="app">
+      {restoring && (
+        <div className="restore-busy-overlay" role="status" aria-live="polite">
+          <div>
+            <strong>Восстанавливаем библиотеку...</strong>
+            <span>Не закрывай вкладку до завершения операции.</span>
+          </div>
+        </div>
+      )}
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-logo">M</div>
