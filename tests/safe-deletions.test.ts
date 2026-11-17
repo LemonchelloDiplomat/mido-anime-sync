@@ -85,7 +85,7 @@ describe("safe remote deletion detection", () => {
     const current = entry(localAnime.id, "myanimelist", { progress: 8 });
     const result = detectRemoteDeletions(
       [{ anime: localAnime, entry: current, baseline }],
-      snapshot([], []),
+      nonEmptyRemoteSnapshot("mal"),
       "mal",
     );
 
@@ -105,7 +105,7 @@ describe("safe remote deletion detection", () => {
     const localAggregate = entry(localAnime.id, "local", { progress: 8 });
     const result = detectRemoteDeletions(
       [{ anime: localAnime, entry: localAggregate, baseline }],
-      snapshot([], []),
+      nonEmptyRemoteSnapshot("mal"),
       "mal",
     );
 
@@ -119,7 +119,7 @@ describe("safe remote deletion detection", () => {
     const baseline = entry(localAnime.id, "anilist");
     const result = detectRemoteDeletions(
       [{ anime: localAnime, entry: baseline, baseline }],
-      nonEmptyRemoteSnapshot("anilist"),
+      snapshot([], []),
       "anilist",
     );
 
@@ -147,7 +147,7 @@ describe("safe remote deletion detection", () => {
       const baseline = entry(item.id, "anilist");
       return { anime: item, entry: baseline, baseline };
     });
-    const result = detectRemoteDeletions(items, snapshot([], []), "anilist");
+    const result = detectRemoteDeletions(items, nonEmptyRemoteSnapshot("anilist"), "anilist");
 
     expect(result.localRemovals).toHaveLength(10);
     expect(result.requiresBulkConfirmation).toBe(true);
