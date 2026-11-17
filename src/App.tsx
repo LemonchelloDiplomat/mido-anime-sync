@@ -2158,6 +2158,7 @@ function App() {
                   ["Записи сервисов", restorePreview.collections.sourceEntries],
                   ["Решения конфликтов", restorePreview.collections.conflictResolutions],
                   ["Связи аниме", restorePreview.collections.animeRelations],
+                  ["Ожидающие удаления", restorePreview.collections.deletionIntents],
                 ] as const).map(([label, counts]) => (
                   <div className="restore-collection-row" key={label}>
                     <strong>{label}</strong>
