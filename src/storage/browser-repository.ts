@@ -1139,6 +1139,22 @@ export class BrowserAnimeRepository {
     id: string,
     deletionIntents: SyncDeletionIntent[] = [],
   ): Promise<void> {
+    if (deletionIntents.some((intent) => intent.animeId !== id)) {
+      throw new Error("Deletion intents must belong to the anime being deleted");
+    }
+    if (deletionIntents.length > 0) {
+      validateSnapshot({
+        schemaVersion: 4,
+        exportedAt: new Date().toISOString(),
+        anime: [],
+        entries: [],
+        sourceEntries: [],
+        conflictResolutions: [],
+        animeRelations: [],
+        deletionIntents,
+      });
+    }
+
     const transaction = this.db.transaction(
       ["anime", "entries", "sourceEntries", "conflictResolutions", "animeRelations", "deletionIntents"],
       "readwrite",
