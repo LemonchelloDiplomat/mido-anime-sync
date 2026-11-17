@@ -93,6 +93,21 @@ describe("safe remote deletion detection", () => {
     });
   });
 
+  it("detects a local edit even when the stored provider entry still equals the baseline", () => {
+    const localAnime = anime("local:10");
+    const baseline = entry(localAnime.id, "myanimelist", { progress: 3 });
+    const localAggregate = entry(localAnime.id, "local", { progress: 8 });
+    const result = detectRemoteDeletions(
+      [{ anime: localAnime, entry: localAggregate, baseline, providerEntry: baseline }],
+      snapshot([], []),
+      "mal",
+    );
+
+    expect(result.localRemovals).toHaveLength(0);
+    expect(result.conflicts).toHaveLength(1);
+    expect(result.conflicts[0]?.localEntry.progress).toBe(8);
+  });
+
   it("blocks an empty remote response when the baseline contains entries", () => {
     const localAnime = anime("local:10");
     const baseline = entry(localAnime.id, "anilist");
