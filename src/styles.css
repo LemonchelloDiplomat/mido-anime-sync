@@ -1025,6 +1025,97 @@ button:disabled {
   margin: 6px 0 0;
 }
 
+.restore-summary {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.restore-collections {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.restore-collection-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #343443;
+  border-radius: 8px;
+  background: #20202b;
+  font-size: 12px;
+}
+
+.restore-collection-row strong {
+  color: #e6e3f1;
+}
+
+.restore-collection-row span {
+  color: #aaa9b9;
+  text-align: right;
+}
+
+.restore-warning {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid #8a583a;
+  border-radius: 8px;
+  background: #30231f;
+}
+
+.restore-warning strong {
+  color: #ffc08c;
+  font-size: 12px;
+}
+
+.restore-warning p {
+  color: #d1b9aa;
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 6px 0 0;
+}
+
+.restore-confirm-button {
+  background: #a34b3f;
+}
+
+.restore-confirm-button:hover:not(:disabled) {
+  background: #bd5b4d;
+}
+
+.restore-busy-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(10, 10, 16, 0.82);
+  backdrop-filter: blur(4px);
+}
+
+.restore-busy-overlay > div {
+  display: grid;
+  gap: 8px;
+  max-width: 360px;
+  padding: 24px;
+  border: 1px solid #51416d;
+  border-radius: 12px;
+  background: #191923;
+  text-align: center;
+}
+
+.restore-busy-overlay strong {
+  color: #eee9fa;
+  font-size: 15px;
+}
+
+.restore-busy-overlay span {
+  color: #aaa9b9;
+  font-size: 12px;
+}
+
 .import-actions {
   display: flex;
   justify-content: flex-end;
@@ -1045,6 +1136,19 @@ button:disabled {
 
   .import-summary {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .restore-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .restore-collection-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .restore-collection-row span {
+    text-align: left;
   }
 
   .import-preview-heading {
