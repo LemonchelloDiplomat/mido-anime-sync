@@ -1600,6 +1600,137 @@ export class BrowserAnimeRepository {
     await transaction.done;
   }
 
+  /**
+   * Полностью восстанавливает библиотеку и одновременно обезвреживает
+   * незавершённые операции синхронизации. История завершённых операций
+   * и прошлых сессий сохраняется.
+   *
+   * Все изменения выполняются одной IndexedDB-транзакцией: либо применится
+   * весь снимок вместе с обновлением журнала, либо не изменится ничего.
+   */
+  async restoreSnapshot(value: unknown): Promise<void> {
+    const snapshot = validateSnapshot(value);
+    const conflictResolutions = mergeConflictResolutions(
+      snapshot.sourceEntries,
+      snapshot.conflictResolutions,
+    );
+    const entries = buildMergedEntries(snapshot.sourceEntries, conflictResolutions);
+
+    assertRelationsReferenceExistingAnime(
+      snapshot.animeRelations,
+      new Set(snapshot.anime.map((anime) => anime.id)),
+    );
+
+    const transaction = this.db.transaction(
+      [
+        "anime",
+        "entries",
+        "sourceEntries",
+        "conflictResolutions",
+        "animeRelations",
+        "syncOperations",
+        "syncSessions",
+      ],
+      "readwrite",
+    );
+    const transactionDone = transaction.done;
+    void transactionDone.catch(() => undefined);
+
+    try {
+      const animeStore = transaction.objectStore("anime");
+      const entriesStore = transaction.objectStore("entries");
+      const sourceEntriesStore = transaction.objectStore("sourceEntries");
+      const resolutionStore = transaction.objectStore("conflictResolutions");
+      const relationStore = transaction.objectStore("animeRelations");
+      const operationsStore = transaction.objectStore("syncOperations");
+      const sessionsStore = transaction.objectStore("syncSessions");
+
+      const [operations, sessions] = await Promise.all([
+        operationsStore.getAll(),
+        sessionsStore.getAll(),
+      ]);
+
+      const restoredAt = new Date().toISOString();
+      const interruptedSessionIds = new Set<string>();
+
+      const updatedOperations = operations.map((operation) => {
+        if (operation.status !== "pending" && operation.status !== "in_progress") {
+          return operation;
+        }
+
+        interruptedSessionIds.add(operation.sessionId);
+        return {
+          ...operation,
+          status: "failed" as const,
+          error: "Операция прервана восстановлением резервной копии. Запусти новую синхронизацию.",
+          updatedAt: restoredAt,
+        };
+      });
+
+      const updatedSessions = sessions.map((session) => {
+        if (!interruptedSessionIds.has(session.sessionId)) return session;
+
+        const sessionOperations = updatedOperations.filter(
+          (operation) => operation.sessionId === session.sessionId,
+        );
+        const failedCount = sessionOperations.filter(
+          (operation) => operation.status === "failed",
+        ).length;
+
+        return {
+          ...session,
+          status: "failed" as const,
+          finishedAt: restoredAt,
+          operationCount: sessionOperations.length,
+          succeededCount: sessionOperations.filter(
+            (operation) => operation.status === "succeeded",
+          ).length,
+          failedCount,
+          pendingCount: 0,
+          error: "Сессия прервана восстановлением резервной копии.",
+        };
+      });
+
+      await Promise.all([
+        animeStore.clear(),
+        entriesStore.clear(),
+        sourceEntriesStore.clear(),
+        resolutionStore.clear(),
+        relationStore.clear(),
+      ]);
+
+      await Promise.all([
+        ...snapshot.anime.map((item) => animeStore.put(structuredClone(item))),
+        ...entries.map((item) => entriesStore.put(structuredClone(item))),
+        ...snapshot.sourceEntries.map((item) =>
+          sourceEntriesStore.put(structuredClone(item)),
+        ),
+        ...conflictResolutions.map((item) =>
+          resolutionStore.put(structuredClone(item)),
+        ),
+        ...snapshot.animeRelations.map((item) =>
+          relationStore.put(structuredClone(item)),
+        ),
+        ...updatedOperations
+          .filter((operation, index) => operation !== operations[index])
+          .map((operation) => operationsStore.put(operation)),
+        ...updatedSessions
+          .filter((session, index) => session !== sessions[index])
+          .map((session) => sessionsStore.put(session)),
+      ]);
+
+      await transactionDone;
+    } catch (error) {
+      try {
+        transaction.abort();
+      } catch {
+        // Транзакция могла уже завершиться или прерваться.
+      }
+      await transactionDone.catch(() => undefined);
+      throw error;
+    }
+  }
+
   close(): void {
     this.db.close();
   }
