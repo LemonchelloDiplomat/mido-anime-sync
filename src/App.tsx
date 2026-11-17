@@ -753,6 +753,10 @@ function App() {
       if (provider === "anilist" && payload.count >= 11000) {
         throw new Error("AniList ограничивает полный MediaListCollection 11 000 записями. Нельзя безопасно определять удаления на таком размере списка.");
       }
+      const pendingDeletionIntents = await activeRepository.getDeletionIntents(provider);
+      if (pendingDeletionIntents.length > 0 && remoteSnapshot.entries.length === 0) {
+        throw new Error("Удалённый сервис вернул пустой список при наличии ожидающих удалений. Запросы на удаление сохранены, синхронизация остановлена.");
+      }
 
       // Reconcile unfinished journal records against the freshly fetched state.
       // This handles the case where a write reached the provider just before the app closed.
@@ -839,10 +843,6 @@ function App() {
       const deletionDetection = detectRemoteDeletions(localItems, remoteSnapshot, provider);
       if (deletionDetection.blockedReason) throw new Error(deletionDetection.blockedReason);
 
-      const pendingDeletionIntents = await activeRepository.getDeletionIntents(provider);
-      if (pendingDeletionIntents.length > 0 && remoteSnapshot.entries.length === 0) {
-        throw new Error("Удалённый сервис вернул пустой список при наличии ожидающих удалений. Запросы на удаление сохранены, синхронизация остановлена.");
-      }
       const remoteDeletionCandidates: Array<{
         intent: SyncDeletionIntent;
         entry: AnimeListEntry;
