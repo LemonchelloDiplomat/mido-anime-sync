@@ -73,6 +73,18 @@ describe("bidirectional sync planner", () => {
     expect(plan.remoteCreates[0]?.externalId).toBe("10");
   });
 
+  it("does not recreate a remote entry that disappeared after a stored baseline", () => {
+    const localAnime = anime("local:10");
+    const baseline = entry(localAnime.id, "myanimelist", "2026-11-15T10:00:00.000Z");
+    const plan = createBidirectionalSyncPlan(
+      [{ anime: localAnime, entry: entry(localAnime.id, "local", "2026-11-17T10:00:00.000Z"), baseline, providerEntry: baseline }],
+      remoteSnapshot([], []),
+      "mal",
+    );
+    expect(plan.remoteCreates).toHaveLength(0);
+    expect(plan.remoteUpdates).toHaveLength(0);
+  });
+
   it("imports remote-only entries into the local library", () => {
     const remoteAnime = anime("mal:10");
     const plan = createBidirectionalSyncPlan([], remoteSnapshot([remoteAnime], [entry(remoteAnime.id, "myanimelist", "2026-11-17T10:00:00.000Z")]), "mal");
