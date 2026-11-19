@@ -32,6 +32,7 @@
       : ["[data-episode]", ".episode-title"];
 
   const sentVideoKeys = new WeakMap();
+  const videoWatchHandlers = new WeakMap();
 
   function textFrom(selector) {
     const element = document.querySelector(selector);
@@ -226,8 +227,13 @@
   }
 
   function attachVideo(video) {
-    if (video.dataset.midahoshiWatchAttached === "true") return;
-    video.dataset.midahoshiWatchAttached = "true";
+    const existingHandler = videoWatchHandlers.get(video);
+    if (existingHandler) {
+      // Metadata may arrive after the video has already reached 90% or ended.
+      // Recheck on every scan so late parent metadata cannot miss the event.
+      existingHandler();
+      return;
+    }
 
     const maybeSend = () => {
       const duration = Number(video.duration);
@@ -256,8 +262,12 @@
       });
     };
 
+    videoWatchHandlers.set(video, maybeSend);
     video.addEventListener("timeupdate", maybeSend, { passive: true });
     video.addEventListener("ended", maybeSend, { passive: true });
+    // Also handle videos that were already past the threshold before metadata
+    // or the event listeners became available.
+    maybeSend();
   }
 
   function scanVideos() {
