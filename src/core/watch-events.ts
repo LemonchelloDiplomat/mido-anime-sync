@@ -111,7 +111,7 @@ export function createWatchSourceEntry(
   const previousUpdatedAt = existing?.updatedAt ? Date.parse(existing.updatedAt) : Number.NaN;
   const eventUpdatedAt = Date.parse(event.observedAt);
   const updatedAt = Number.isFinite(previousUpdatedAt) && previousUpdatedAt > eventUpdatedAt
-    ? existing!.updatedAt
+    ? existing!.updatedAt ?? event.observedAt
     : event.observedAt;
   const previousWatchedAt = Date.parse(String(existing?.sourceMetadata?.lastWatchedAt ?? ""));
   const isNewestEvent = !Number.isFinite(previousWatchedAt) || eventUpdatedAt >= previousWatchedAt;
