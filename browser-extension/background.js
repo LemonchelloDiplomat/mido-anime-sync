@@ -27,6 +27,14 @@ async function updateBadge(queue) {
   if (text) await chrome.action.setBadgeBackgroundColor({ color: "#7357d9" });
 }
 
+// The queue survives extension restarts. Restore its badge whenever the
+// service worker starts so the toolbar count reflects persisted pending events.
+void (async () => {
+  const stored = await chrome.storage.local.get({ [QUEUE_KEY]: [] });
+  const queue = Array.isArray(stored[QUEUE_KEY]) ? stored[QUEUE_KEY] : [];
+  await updateBadge(queue);
+})();
+
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === "MIDAHOSHI_APP_ACK" && typeof message.eventId === "string") {
     void (async () => {
