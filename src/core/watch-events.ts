@@ -77,9 +77,9 @@ function normalizeTitle(value: string): string {
   return value
     .toLocaleLowerCase("ru-RU")
     .replace(/[ё]/g, "е")
-    .replace(/[^\\p{L}\\p{N}]+/gu, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
-    .replace(/\\s+/g, " ");
+    .replace(/\s+/g, " ");
 }
 
 /** Exact normalized aliases only; ambiguous matches are left to the user. */
