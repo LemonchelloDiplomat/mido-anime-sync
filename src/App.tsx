@@ -221,7 +221,7 @@ function App() {
 
   useEffect(() => {
     if (!pendingWatchEvent || watchEventTargetId || library.length === 0) return;
-    const normalize = (value: string) => value.toLocaleLowerCase("ru-RU").replace(/[ё]/g, "е").replace(/[^\\p{L}\\p{N}]+/gu, " ").trim();
+    const normalize = (value: string) => value.toLocaleLowerCase("ru-RU").replace(/[ё]/g, "е").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
     const title = normalize(pendingWatchEvent.title);
     const matches = library.filter(({ anime }) => [
       anime.titles.english,
