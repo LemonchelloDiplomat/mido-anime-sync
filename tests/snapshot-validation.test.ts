@@ -48,6 +48,79 @@ function makeRelation(overrides: Partial<AnimeRelation> = {}): AnimeRelation {
 }
 
 describe("snapshot validation fallback", () => {
+  it("validates pending deletion intents whose anime was intentionally removed", () => {
+    const deletedAnime = {
+      id: "deleted-anime",
+      titles: { english: "Deleted Anime", synonyms: [] },
+      externalIds: { myanimelist: "123" },
+    };
+    const deletedEntry: AnimeListEntry = {
+      animeId: "deleted-anime",
+      source: "myanimelist",
+      status: "WATCHING",
+      progress: 4,
+      score: null,
+      favorite: false,
+      updatedAt: "2026-11-15T12:00:00.000Z",
+    };
+    const snapshot = validateSnapshot({
+      schemaVersion: 4,
+      exportedAt: "2026-11-15T12:00:00.000Z",
+      anime: [],
+      entries: [],
+      sourceEntries: [],
+      conflictResolutions: [],
+      animeRelations: [],
+      deletionIntents: [{
+        id: "delete-mal-123",
+        provider: "mal",
+        animeId: "deleted-anime",
+        externalId: "123",
+        anime: deletedAnime,
+        entry: deletedEntry,
+        createdAt: "2026-11-15T12:00:00.000Z",
+      }],
+    });
+
+    expect(snapshot.deletionIntents).toHaveLength(1);
+    expect(snapshot.deletionIntents?.[0]?.externalId).toBe("123");
+  });
+
+  it("rejects deletion intents that point to an anime still in the library", () => {
+    const deletedAnime = {
+      id: "deleted-anime",
+      titles: { english: "Deleted Anime", synonyms: [] },
+      externalIds: { myanimelist: "123" },
+    };
+    const deletedEntry: AnimeListEntry = {
+      animeId: "deleted-anime",
+      source: "myanimelist",
+      status: "WATCHING",
+      progress: 4,
+      score: null,
+      favorite: false,
+      updatedAt: "2026-11-15T12:00:00.000Z",
+    };
+    expect(() => validateSnapshot({
+      schemaVersion: 4,
+      exportedAt: "2026-11-15T12:00:00.000Z",
+      anime: [deletedAnime],
+      entries: [],
+      sourceEntries: [],
+      conflictResolutions: [],
+      animeRelations: [],
+      deletionIntents: [{
+        id: "delete-mal-123",
+        provider: "mal",
+        animeId: "deleted-anime",
+        externalId: "123",
+        anime: deletedAnime,
+        entry: deletedEntry,
+        createdAt: "2026-11-15T12:00:00.000Z",
+      }],
+    })).toThrow(/still in the library/i);
+  });
+
   it("restores V2 source entries from entries when sourceEntries is empty", () => {
     const snapshot = validateSnapshot({
       schemaVersion: 2,
@@ -395,5 +468,235 @@ describe("source metadata validation", () => {
         animeRelations: [],
       }),
     ).toThrow("Invalid source metadata");
+  });
+});
+
+describe("anime identity validation", () => {
+  const makeSnapshot = (animeOverrides: Record<string, unknown> = {}) => ({
+    schemaVersion: 4,
+    anime: [{ ...anime[0], ...animeOverrides }],
+    entries: [makeEntry()],
+    sourceEntries: [makeEntry()],
+    conflictResolutions: [],
+    animeRelations: [],
+  });
+
+  it("rejects non-string anime title synonyms", () => {
+    expect(() =>
+      validateSnapshot(
+        makeSnapshot({
+          titles: { english: "Anime", synonyms: ["Valid", 123] },
+        }),
+      ),
+    ).toThrow("Invalid anime record");
+  });
+
+  it("rejects non-string optional anime titles", () => {
+    expect(() =>
+      validateSnapshot(
+        makeSnapshot({
+          titles: { english: 123, synonyms: [] },
+        }),
+      ),
+    ).toThrow("Invalid anime record");
+  });
+
+  it("rejects malformed external IDs", () => {
+    expect(() =>
+      validateSnapshot(
+        makeSnapshot({
+          externalIds: { myanimelist: 123 },
+        }),
+      ),
+    ).toThrow("Invalid anime external ID");
+  });
+
+  it("rejects unknown external ID providers", () => {
+    expect(() =>
+      validateSnapshot(
+        makeSnapshot({
+          externalIds: { unknown: "123" },
+        }),
+      ),
+    ).toThrow("Invalid anime external ID");
+  });
+
+  it("rejects the same external ID assigned to two anime by one provider", () => {
+    expect(() =>
+      validateSnapshot({
+        schemaVersion: 4,
+        anime: [
+          { ...anime[0], externalIds: { myanimelist: "123" } },
+          { ...anime[1], externalIds: { myanimelist: "123" } },
+        ],
+        entries: [makeEntry()],
+        sourceEntries: [makeEntry()],
+        conflictResolutions: [],
+        animeRelations: [],
+      }),
+    ).toThrow("Duplicate anime external ID: myanimelist:123");
+  });
+
+  it("allows the same external ID value for different providers", () => {
+    const snapshot = validateSnapshot(
+      makeSnapshot({
+        externalIds: { myanimelist: "123", anilist: "123" },
+      }),
+    );
+
+    expect(snapshot.anime[0]?.externalIds).toEqual({
+      myanimelist: "123",
+      anilist: "123",
+    });
+  });
+
+  it("rejects invalid episode counts", () => {
+    expect(() =>
+      validateSnapshot(makeSnapshot({ episodes: -1 })),
+    ).toThrow("Invalid anime episode count");
+  });
+
+  it("accepts null episode counts", () => {
+    const snapshot = validateSnapshot(makeSnapshot({ episodes: null }));
+    expect(snapshot.anime[0]?.episodes).toBeNull();
+  });
+});
+
+describe("entry validation hardening", () => {
+  it("rejects duplicate merged entries for the same anime", () => {
+    expect(() =>
+      validateSnapshot({
+        schemaVersion: 4,
+        anime,
+        entries: [makeEntry(), makeEntry()],
+        sourceEntries: [makeEntry()],
+        conflictResolutions: [],
+        animeRelations: [],
+      }),
+    ).toThrow("Duplicate anime entry");
+  });
+
+  it("rejects invalid entry timestamps", () => {
+    expect(() =>
+      validateSnapshot({
+        schemaVersion: 4,
+        anime,
+        entries: [{ ...makeEntry(), updatedAt: "not-a-date" }],
+        sourceEntries: [makeEntry()],
+        conflictResolutions: [],
+        animeRelations: [],
+      }),
+    ).toThrow("Invalid entry metadata");
+  });
+
+  it("rejects non-numeric entry scores", () => {
+    expect(() =>
+      validateSnapshot({
+        schemaVersion: 4,
+        anime,
+        entries: [{ ...makeEntry(), score: "80" }],
+        sourceEntries: [makeEntry()],
+        conflictResolutions: [],
+        animeRelations: [],
+      }),
+    ).toThrow("Score must be null or between 0 and 100");
+  });
+});
+
+describe("snapshot export date validation", () => {
+  it("accepts a valid export date", () => {
+    const snapshot = validateSnapshot({
+      schemaVersion: 4,
+      exportedAt: "2026-11-15T12:00:00.000Z",
+      anime,
+      entries: [makeEntry()],
+      sourceEntries: [makeEntry()],
+      conflictResolutions: [],
+      animeRelations: [],
+    });
+
+    expect(snapshot.exportedAt).toBe("2026-11-15T12:00:00.000Z");
+  });
+
+  it("rejects an invalid export date", () => {
+    expect(() =>
+      validateSnapshot({
+        schemaVersion: 4,
+        exportedAt: "not-a-date",
+        anime,
+        entries: [makeEntry()],
+        sourceEntries: [makeEntry()],
+        conflictResolutions: [],
+        animeRelations: [],
+      }),
+    ).toThrow("Invalid snapshot export date");
+  });
+
+  it("rejects a non-string export date", () => {
+    expect(() =>
+      validateSnapshot({
+        schemaVersion: 4,
+        exportedAt: 12345,
+        anime,
+        entries: [makeEntry()],
+        sourceEntries: [makeEntry()],
+        conflictResolutions: [],
+        animeRelations: [],
+      }),
+    ).toThrow("Invalid snapshot export date");
+  });
+
+  it("allows a missing export date for legacy compatibility", () => {
+    const snapshot = validateSnapshot({
+      schemaVersion: 1,
+      anime,
+      entries: [makeEntry()],
+    });
+
+    expect(snapshot.exportedAt).toBe("1970-01-01T00:00:00.000Z");
+  });
+});
+
+
+describe("Shikimori deletion intent snapshots", () => {
+  it("accepts a pending Shikimori deletion intent with matching provider identity", () => {
+    const deletedAnime = {
+      id: "deleted-shikimori-anime",
+      titles: { english: "Deleted anime", synonyms: [] },
+      externalIds: { shikimori: "41" },
+    };
+    const deletedEntry: AnimeListEntry = {
+      animeId: deletedAnime.id,
+      source: "shikimori",
+      status: "WATCHING",
+      progress: 4,
+      score: 80,
+      favorite: false,
+      updatedAt: "2026-11-15T12:00:00.000Z",
+    };
+    const snapshot = validateSnapshot({
+      schemaVersion: 4,
+      exportedAt: "2026-11-15T12:00:00.000Z",
+      anime: [],
+      entries: [],
+      sourceEntries: [],
+      conflictResolutions: [],
+      animeRelations: [],
+      deletionIntents: [{
+        id: "delete-shikimori-41",
+        provider: "shikimori",
+        animeId: deletedAnime.id,
+        externalId: "41",
+        anime: deletedAnime,
+        entry: deletedEntry,
+        createdAt: "2026-11-15T12:00:00.000Z",
+      }],
+    });
+
+    expect(snapshot.deletionIntents?.[0]).toMatchObject({
+      provider: "shikimori",
+      externalId: "41",
+      entry: { source: "shikimori" },
+    });
   });
 });

@@ -1,3 +1,5 @@
+export type SyncProvider = "mal" | "anilist" | "shikimori";
+
 export type ServiceId =
   | "myanimelist"
   | "anilist"
@@ -23,6 +25,9 @@ export type AnimeFormat =
   | "MUSIC"
   | "UNKNOWN";
 
+export type AnimeAgeRating = "G" | "PG" | "PG13" | "R17" | "R+";
+export type AnimeReleaseStatus = "ONGOING" | "ANNOUNCED" | "RELEASED";
+
 export interface AnimeIdentity {
   id: string;
   year?: number | null;
@@ -35,6 +40,12 @@ export interface AnimeIdentity {
   };
   externalIds: Partial<Record<ServiceId, string>>;
   episodes?: number | null;
+  genres?: string[];
+  ageRating?: AnimeAgeRating | null;
+  posterUrl?: string | null;
+  averageScore?: number | null;
+  startDate?: string | null;
+  releaseStatus?: AnimeReleaseStatus;
 }
 
 export interface AnimeListEntry {
@@ -49,6 +60,55 @@ export interface AnimeListEntry {
 }
 
 export type AnimeSourceEntry = AnimeListEntry;
+
+export type SyncOperationStatus = "pending" | "in_progress" | "succeeded" | "failed" | "cancelled";
+export type SyncOperationDirection = "local" | "remote";
+export type SyncOperationKind = "create" | "update" | "delete";
+
+export interface SyncOperation {
+  id: string;
+  sessionId: string;
+  provider: SyncProvider;
+  direction: SyncOperationDirection;
+  kind: SyncOperationKind;
+  animeId: string;
+  externalId?: string;
+  entry: AnimeListEntry;
+  anime?: AnimeIdentity;
+  status: SyncOperationStatus;
+  attempts: number;
+  createdAt: string;
+  updatedAt: string;
+  error?: string;
+}
+
+export type SyncSessionStatus = "running" | "succeeded" | "failed" | "cancelled";
+
+export interface SyncDeletionIntent {
+  id: string;
+  provider: SyncProvider;
+  animeId: string;
+  externalId: string;
+  anime: AnimeIdentity;
+  entry: AnimeListEntry;
+  createdAt: string;
+}
+
+export interface SyncSession {
+  sessionId: string;
+  provider: SyncProvider;
+  status: SyncSessionStatus;
+  startedAt: string;
+  finishedAt?: string;
+  operationCount: number;
+  succeededCount: number;
+  failedCount: number;
+  pendingCount: number;
+  unchangedCount: number;
+  conflictCount: number;
+  recoveredCount: number;
+  error?: string;
+}
 
 export type AnimeRelationType =
   | "SEQUEL"
@@ -87,6 +147,7 @@ export interface ConflictResolution {
 
 export interface AdapterCapabilities {
   read: boolean;
+  delete: boolean;
   create: boolean;
   updateStatus: boolean;
   updateProgress: boolean;
@@ -104,6 +165,7 @@ export interface AnimeServiceAdapter {
   disconnect(): Promise<void>;
   fetchList(): Promise<AnimeListEntry[]>;
   upsertEntry(entry: AnimeListEntry): Promise<void>;
+  deleteEntry?(externalId: string, entryId?: number): Promise<void>;
 }
 
 export interface AnimeSnapshotV1 {
@@ -138,6 +200,8 @@ export interface AnimeSnapshotV4 {
   sourceEntries: AnimeSourceEntry[];
   conflictResolutions: ConflictResolution[];
   animeRelations: AnimeRelation[];
+  /** Pending explicit local deletions that must be confirmed on the provider at next sync. */
+  deletionIntents?: SyncDeletionIntent[];
 }
 
 export type AnimeSnapshot = AnimeSnapshotV2 | AnimeSnapshotV3 | AnimeSnapshotV4;

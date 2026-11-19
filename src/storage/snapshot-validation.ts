@@ -10,6 +10,7 @@ import type {
   AnimeSourceEntry,
   ConflictResolution,
   ServiceId,
+  SyncDeletionIntent,
 } from "../core/types.js";
 
 const VALID_STATUSES = [
@@ -20,6 +21,9 @@ const VALID_STATUSES = [
   "DROPPED",
   "REWATCHING",
 ] as const;
+
+const VALID_AGE_RATINGS = ["G", "PG", "PG13", "R17", "R+"] as const;
+const VALID_RELEASE_STATUSES = ["ONGOING", "ANNOUNCED", "RELEASED"] as const;
 
 const VALID_FORMATS = [
   "TV",
@@ -58,17 +62,56 @@ function validateAnimeList(value: unknown): AnimeIdentity[] {
 
   const anime = value as AnimeIdentity[];
   const ids = new Set<string>();
+  const externalIds = new Set<string>();
 
   for (const item of anime) {
     if (
       !item ||
+      typeof item !== "object" ||
       typeof item.id !== "string" ||
       item.id.trim().length === 0 ||
       !item.titles ||
       typeof item.titles !== "object" ||
-      !Array.isArray(item.titles.synonyms)
+      Array.isArray(item.titles) ||
+      !Array.isArray(item.titles.synonyms) ||
+      item.titles.synonyms.some(
+        (synonym) => typeof synonym !== "string",
+      ) ||
+      ["romaji", "english", "native"].some(
+        (key) =>
+          item.titles[key as keyof typeof item.titles] !== undefined &&
+          typeof item.titles[key as keyof typeof item.titles] !== "string",
+      ) ||
+      !item.externalIds ||
+      typeof item.externalIds !== "object" ||
+      Array.isArray(item.externalIds)
     ) {
       throw new Error("Invalid anime record");
+    }
+
+    for (const [service, externalId] of Object.entries(item.externalIds)) {
+      if (
+        !VALID_SOURCES.includes(service as (typeof VALID_SOURCES)[number]) ||
+        service === "local" ||
+        typeof externalId !== "string" ||
+        externalId.trim().length === 0
+      ) {
+        throw new Error(`Invalid anime external ID: ${item.id}`);
+      }
+
+      const externalIdKey = JSON.stringify([service, externalId]);
+      if (externalIds.has(externalIdKey)) {
+        throw new Error(`Duplicate anime external ID: ${service}:${externalId}`);
+      }
+      externalIds.add(externalIdKey);
+    }
+
+    if (
+      item.episodes !== undefined &&
+      item.episodes !== null &&
+      (!Number.isInteger(item.episodes) || item.episodes < 0)
+    ) {
+      throw new Error(`Invalid anime episode count: ${item.id}`);
     }
 
     if (
@@ -84,6 +127,49 @@ function validateAnimeList(value: unknown): AnimeIdentity[] {
       !VALID_FORMATS.includes(item.format as (typeof VALID_FORMATS)[number])
     ) {
       throw new Error(`Invalid anime format: ${item.id}`);
+    }
+
+    if (item.genres !== undefined && (
+      !Array.isArray(item.genres) ||
+      item.genres.some((genre) => typeof genre !== "string" || genre.trim().length === 0)
+    )) {
+      throw new Error(`Invalid anime genres: ${item.id}`);
+    }
+
+    if (item.ageRating !== undefined && item.ageRating !== null &&
+      !VALID_AGE_RATINGS.includes(item.ageRating as (typeof VALID_AGE_RATINGS)[number])) {
+      throw new Error(`Invalid anime age rating: ${item.id}`);
+    }
+
+    if (item.posterUrl !== undefined && item.posterUrl !== null) {
+      let validPosterUrl = false;
+      try {
+        const url = new URL(item.posterUrl);
+        validPosterUrl = url.protocol === "https:" || url.protocol === "http:";
+      } catch {
+        validPosterUrl = false;
+      }
+      if (!validPosterUrl) throw new Error(`Invalid anime poster URL: ${item.id}`);
+    }
+
+    if (item.averageScore !== undefined && item.averageScore !== null &&
+      (!Number.isFinite(item.averageScore) || item.averageScore < 0 || item.averageScore > 10)) {
+      throw new Error(`Invalid anime average score: ${item.id}`);
+    }
+
+    if (item.startDate !== undefined && item.startDate !== null) {
+      const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(item.startDate);
+      const parsedDate = new Date(`${item.startDate}T00:00:00Z`);
+      const validDate = dateMatch !== null &&
+        parsedDate.getUTCFullYear() === Number(dateMatch[1]) &&
+        parsedDate.getUTCMonth() + 1 === Number(dateMatch[2]) &&
+        parsedDate.getUTCDate() === Number(dateMatch[3]);
+      if (!validDate) throw new Error(`Invalid anime start date: ${item.id}`);
+    }
+
+    if (item.releaseStatus !== undefined &&
+      !VALID_RELEASE_STATUSES.includes(item.releaseStatus as (typeof VALID_RELEASE_STATUSES)[number])) {
+      throw new Error(`Invalid anime release status: ${item.id}`);
     }
 
     if (ids.has(item.id)) {
@@ -105,6 +191,7 @@ function validateEntries(
   }
 
   const entries = value as AnimeListEntry[];
+  const entryAnimeIds = new Set<string>();
 
   for (const entry of entries) {
     validateEntry(entry);
@@ -112,6 +199,12 @@ function validateEntries(
     if (!animeIds.has(entry.animeId)) {
       throw new Error(`Entry references missing anime: ${entry.animeId}`);
     }
+
+    if (entryAnimeIds.has(entry.animeId)) {
+      throw new Error(`Duplicate anime entry: ${entry.animeId}`);
+    }
+
+    entryAnimeIds.add(entry.animeId);
   }
 
   return entries;
@@ -271,12 +364,79 @@ function validateAnimeRelations(
   return relations;
 }
 
+function validateDeletionIntents(
+  value: unknown,
+  anime: AnimeIdentity[],
+  animeIds: Set<string>,
+): SyncDeletionIntent[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error("Invalid deletion intents list");
+
+  const intents = value as SyncDeletionIntent[];
+  const intentIds = new Set<string>();
+  const providerKeys = new Set<string>();
+
+  for (const intent of intents) {
+    if (
+      !intent ||
+      typeof intent.id !== "string" ||
+      intent.id.trim().length === 0 ||
+      (intent.provider !== "mal" && intent.provider !== "anilist" && intent.provider !== "shikimori") ||
+      typeof intent.animeId !== "string" ||
+      intent.animeId.trim().length === 0 ||
+      typeof intent.externalId !== "string" ||
+      intent.externalId.trim().length === 0 ||
+      typeof intent.createdAt !== "string" ||
+      !Number.isFinite(Date.parse(intent.createdAt)) ||
+      !intent.anime ||
+      typeof intent.anime !== "object" ||
+      !intent.entry ||
+      typeof intent.entry !== "object"
+    ) {
+      throw new Error("Invalid deletion intent");
+    }
+
+    if (intentIds.has(intent.id)) throw new Error("Duplicate deletion intent ID");
+    intentIds.add(intent.id);
+
+    if (animeIds.has(intent.animeId) || intent.anime.id !== intent.animeId || intent.entry.animeId !== intent.animeId) {
+      throw new Error("Deletion intent references an anime that is still in the library");
+    }
+
+    validateAnimeList([intent.anime]);
+    validateEntry(intent.entry);
+
+    const service = intent.provider === "mal" ? "myanimelist" : intent.provider === "anilist" ? "anilist" : "shikimori";
+    if (intent.entry.source !== service || intent.anime.externalIds[service] !== intent.externalId) {
+      throw new Error("Deletion intent provider identity does not match its anime and entry");
+    }
+
+    if (anime.some((item) => item.externalIds[service] === intent.externalId)) {
+      throw new Error("Deletion intent external ID is already assigned to another library anime");
+    }
+
+    const providerKey = JSON.stringify([intent.provider, intent.externalId]);
+    if (providerKeys.has(providerKey)) throw new Error("Duplicate provider deletion intent");
+    providerKeys.add(providerKey);
+  }
+
+  return intents.map((intent) => structuredClone(intent));
+}
+
 export function validateSnapshot(value: unknown): AnimeSnapshotV4 {
   if (!value || typeof value !== "object") {
     throw new Error("Invalid snapshot");
   }
 
   const v = value as Record<string, unknown>;
+
+  if (
+    v.exportedAt !== undefined &&
+    (typeof v.exportedAt !== "string" ||
+      !Number.isFinite(Date.parse(v.exportedAt)))
+  ) {
+    throw new Error("Invalid snapshot export date");
+  }
 
   if (
     (v.schemaVersion !== 1 &&
@@ -346,6 +506,7 @@ export function validateSnapshot(value: unknown): AnimeSnapshotV4 {
     v.schemaVersion === 4
       ? validateAnimeRelations(v.animeRelations, animeIds)
       : [];
+  const deletionIntents = validateDeletionIntents(v.deletionIntents, anime, animeIds);
 
   const snapshot: AnimeSnapshotV4 = {
     schemaVersion: 4,
@@ -358,6 +519,7 @@ export function validateSnapshot(value: unknown): AnimeSnapshotV4 {
     sourceEntries: structuredClone(sourceEntries),
     conflictResolutions: structuredClone(conflictResolutions),
     animeRelations: structuredClone(animeRelations),
+    deletionIntents: structuredClone(deletionIntents),
   };
 
   return snapshot;
@@ -375,7 +537,10 @@ export function validateEntry(entry: AnimeListEntry): void {
 
   if (
     entry.score !== null &&
-    (!Number.isFinite(entry.score) || entry.score < 0 || entry.score > 100)
+    (typeof entry.score !== "number" ||
+      !Number.isFinite(entry.score) ||
+      entry.score < 0 ||
+      entry.score > 100)
   ) {
     throw new Error("Score must be null or between 0 and 100");
   }
@@ -388,7 +553,8 @@ export function validateEntry(entry: AnimeListEntry): void {
 
   if (
     typeof entry.favorite !== "boolean" ||
-    typeof entry.updatedAt !== "string"
+    typeof entry.updatedAt !== "string" ||
+    !Number.isFinite(Date.parse(entry.updatedAt))
   ) {
     throw new Error("Invalid entry metadata");
   }

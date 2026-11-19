@@ -7,6 +7,9 @@ import type {
   AnimeListEntry,
   AnimeRelation,
   AnimeSnapshot,
+  SyncOperation,
+  SyncSession,
+  SyncDeletionIntent,
 } from "../src/core/types.js";
 
 const repositories: BrowserAnimeRepository[] = [];
@@ -98,6 +101,32 @@ afterEach(() => {
 });
 
 describe("BrowserAnimeRepository merge", () => {
+  it("saves provider baselines as one atomic batch", async () => {
+    const repo = await createRepository();
+    await repo.saveAnime(makeAnime("one"));
+    await repo.saveAnime(makeAnime("two"));
+
+    await repo.saveSourceEntries([
+      makeEntry("one", 3, "2026-11-15T12:00:00.000Z"),
+      makeEntry("two", 5, "2026-11-15T12:00:00.000Z"),
+    ]);
+
+    expect(await repo.getSourceEntries("one")).toHaveLength(1);
+    expect(await repo.getSourceEntries("two")).toHaveLength(1);
+  });
+
+  it("rolls back the whole baseline batch if one anime is missing", async () => {
+    const repo = await createRepository();
+    await repo.saveAnime(makeAnime("exists"));
+
+    await expect(repo.saveSourceEntries([
+      makeEntry("exists", 3, "2026-11-15T12:00:00.000Z"),
+      makeEntry("missing", 5, "2026-11-15T12:00:00.000Z"),
+    ])).rejects.toThrow("Unknown animeId: missing");
+
+    expect(await repo.getSourceEntries("exists")).toHaveLength(0);
+  });
+
   it("preserves existing anime and adds new anime", async () => {
     const repo = await createRepository();
 
@@ -252,7 +281,7 @@ describe("BrowserAnimeRepository merge", () => {
     expect(snapshot.sourceEntries).toHaveLength(2);
   });
 
-  it("keeps the newer entry when both records use the same service", async () => {
+  it("rejects merging different entries from the same service instead of losing one", async () => {
     const repo = await createRepository();
 
     const target = makeAnime("target");
@@ -281,25 +310,14 @@ describe("BrowserAnimeRepository merge", () => {
       updatedAt: "2026-11-15T12:00:00.000Z",
     });
 
-    await repo.mergeAnimeRecords("source", "target");
+    await expect(repo.mergeAnimeRecords("source", "target")).rejects.toThrow(
+      "both records contain different myanimelist source entries",
+    );
 
-    const sources = await repo.getSourceEntries("target");
-
-    expect(sources).toHaveLength(1);
-    expect(sources[0]).toMatchObject({
-      animeId: "target",
-      source: "myanimelist",
-      progress: 9,
-      score: 95,
-      favorite: true,
-      updatedAt: "2026-11-15T12:00:00.000Z",
-    });
-
-    expect(await repo.getEntry("target")).toMatchObject({
-      progress: 9,
-      score: 95,
-      favorite: true,
-    });
+    expect(await repo.getAnime("source")).toBeDefined();
+    expect(await repo.getAnime("target")).toBeDefined();
+    expect(await repo.getSourceEntries("source")).toHaveLength(1);
+    expect(await repo.getSourceEntries("target")).toHaveLength(1);
   });
 
   it("does not merge records when external IDs conflict", async () => {
@@ -1043,6 +1061,77 @@ describe("BrowserAnimeRepository relations", () => {
     );
   });
 
+  it("cancels a Shikimori deletion intent when restoring its anime identity", async () => {
+    const repo = await createRepository();
+    const anime = makeAnime("shikimori:41");
+    anime.externalIds = { shikimori: "41" };
+    const entry = {
+      ...makeEntry(anime.id, 5, "2026-11-18T10:00:00.000Z"),
+      source: "shikimori" as const,
+    };
+    await repo.saveAnimeWithEntry(anime, entry);
+    const intent: SyncDeletionIntent = {
+      id: "delete-shikimori-41",
+      provider: "shikimori",
+      animeId: anime.id,
+      externalId: "41",
+      anime,
+      entry,
+      createdAt: "2026-11-18T12:00:00.000Z",
+    };
+    await repo.deleteAnime(anime.id, [intent]);
+    expect(await repo.getDeletionIntents("shikimori")).toHaveLength(1);
+
+    await repo.restoreSnapshot({
+      schemaVersion: 4,
+      exportedAt: "2026-11-19T12:00:00.000Z",
+      anime: [anime],
+      entries: [entry],
+      sourceEntries: [entry],
+      conflictResolutions: [],
+      animeRelations: [],
+      deletionIntents: [],
+    });
+
+    expect(await repo.getDeletionIntents("shikimori")).toEqual([]);
+    expect(await repo.getAnime(anime.id)).toMatchObject({ externalIds: { shikimori: "41" } });
+  });
+
+  it("cancels a Shikimori deletion intent when merging an imported snapshot", async () => {
+    const repo = await createRepository();
+    const anime = makeAnime("shikimori:42");
+    anime.externalIds = { shikimori: "42" };
+    const entry = {
+      ...makeEntry(anime.id, 3, "2026-11-18T10:00:00.000Z"),
+      source: "shikimori" as const,
+    };
+    await repo.saveAnimeWithEntry(anime, entry);
+    const intent: SyncDeletionIntent = {
+      id: "delete-shikimori-42",
+      provider: "shikimori",
+      animeId: anime.id,
+      externalId: "42",
+      anime,
+      entry,
+      createdAt: "2026-11-18T12:00:00.000Z",
+    };
+    await repo.deleteAnime(anime.id, [intent]);
+
+    await repo.mergeSnapshotWithMappings({
+      schemaVersion: 4,
+      exportedAt: "2026-11-19T12:00:00.000Z",
+      anime: [anime],
+      entries: [entry],
+      sourceEntries: [entry],
+      conflictResolutions: [],
+      animeRelations: [],
+      deletionIntents: [],
+    }, {});
+
+    expect(await repo.getDeletionIntents("shikimori")).toEqual([]);
+    expect(await repo.getAnime(anime.id)).toMatchObject({ externalIds: { shikimori: "42" } });
+  });
+
   it("removes anime relations when deleting an anime", async () => {
     const repo = await createRepository();
 
@@ -1083,3 +1172,662 @@ describe("BrowserAnimeRepository relations", () => {
     });
   });
 });
+
+describe("BrowserAnimeRepository catalog metadata", () => {
+  it("enriches anime metadata without changing personal watch-list data", async () => {
+    const repo = await createRepository();
+    const anime = makeAnime("mal:100");
+    anime.externalIds = { myanimelist: "100" };
+    await repo.saveAnime(anime);
+    await repo.saveEntry({
+      animeId: "mal:100",
+      source: "myanimelist",
+      status: "WATCHING",
+      progress: 7,
+      score: 90,
+      favorite: true,
+      updatedAt: "2026-11-16T12:00:00.000Z",
+    });
+
+    await repo.updateAnimeMetadata("mal:100", {
+      id: "anilist:123",
+      titles: {
+        english: "Example Anime",
+        romaji: "Rei Anime",
+        native: "例アニメ",
+        synonyms: ["Example"],
+      },
+      externalIds: { anilist: "123", myanimelist: "100" },
+      year: 2023,
+      format: "TV",
+      episodes: 11,
+      genres: ["Drama", "Mystery"],
+      posterUrl: "https://example.com/poster.jpg",
+      averageScore: 8.7,
+      startDate: "2023-04-01",
+      releaseStatus: "RELEASED",
+    });
+
+    expect(await repo.getAnime("mal:100")).toMatchObject({
+      id: "mal:100",
+      externalIds: { myanimelist: "100", anilist: "123" },
+      titles: {
+        english: "Example Anime",
+        romaji: "Rei Anime",
+        native: "例アニメ",
+        synonyms: ["Example"],
+      },
+      year: 2023,
+      format: "TV",
+      episodes: 11,
+      genres: ["Drama", "Mystery"],
+      posterUrl: "https://example.com/poster.jpg",
+      averageScore: 8.7,
+    });
+
+    expect(await repo.getEntry("mal:100")).toMatchObject({
+      animeId: "mal:100",
+      status: "WATCHING",
+      progress: 7,
+      score: 90,
+      favorite: true,
+    });
+    expect(await repo.getSourceEntries("mal:100")).toMatchObject([
+      {
+        source: "myanimelist",
+        status: "WATCHING",
+        progress: 7,
+        score: 90,
+        favorite: true,
+      },
+    ]);
+  });
+
+  it("rejects catalog metadata with a conflicting external ID", async () => {
+    const repo = await createRepository();
+    const anime = makeAnime("mal:100");
+    anime.externalIds = { myanimelist: "100", anilist: "123" };
+    await repo.saveAnime(anime);
+
+    await expect(repo.updateAnimeMetadata("mal:100", {
+      id: "anilist:999",
+      titles: { english: "Wrong match", synonyms: [] },
+      externalIds: { myanimelist: "100", anilist: "999" },
+    })).rejects.toThrow(/ID conflict for anilist/);
+
+    expect(await repo.getAnime("mal:100")).toMatchObject({
+      externalIds: { myanimelist: "100", anilist: "123" },
+      titles: { english: "Anime mal:100" },
+    });
+  });
+});
+
+
+describe("BrowserAnimeRepository sync operation journal", () => {
+
+  it("atomically creates an anime with its first provider entry", async () => {
+    const repo = await createRepository();
+    const anime = makeAnime("atomic-create");
+    const entry = makeEntry("atomic-create", 2, "2026-11-17T12:00:00.000Z");
+
+    await repo.saveAnimeWithEntry(anime, entry);
+
+    expect(await repo.getAnime("atomic-create")).toEqual(anime);
+    expect(await repo.getSourceEntries("atomic-create")).toEqual([entry]);
+    expect(await repo.getEntry("atomic-create")).toMatchObject({
+      animeId: "atomic-create",
+      progress: 2,
+      source: "myanimelist",
+    });
+  });
+
+  it("rejects mismatched anime and entry IDs without creating either record", async () => {
+    const repo = await createRepository();
+
+    await expect(
+      repo.saveAnimeWithEntry(
+        makeAnime("anime-one"),
+        makeEntry("anime-two", 2, "2026-11-17T12:00:00.000Z"),
+      ),
+    ).rejects.toThrow("Anime and entry IDs must match");
+
+    expect(await repo.getAnime("anime-one")).toBeUndefined();
+    expect(await repo.getEntry("anime-two")).toBeUndefined();
+  });
+  it("restores the library and preserves completed sync history", async () => {
+    const repo = await createRepository();
+    const now = "2026-11-17T12:00:00.000Z";
+    const completedOperation: SyncOperation = {
+      id: "completed-operation",
+      sessionId: "completed-session",
+      provider: "mal",
+      direction: "local",
+      kind: "create",
+      animeId: "old-anime",
+      anime: makeAnime("old-anime"),
+      entry: makeEntry("old-anime", 4, now),
+      status: "succeeded",
+      attempts: 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await repo.saveSyncOperations([completedOperation]);
+    await repo.saveAnime(makeAnime("old-anime"));
+
+    await repo.restoreSnapshot(makeSnapshot(["restored-anime"], 7));
+
+    expect(await repo.getAnime("old-anime")).toBeUndefined();
+    expect(await repo.getAnime("restored-anime")).toBeDefined();
+    expect(await repo.getEntry("restored-anime")).toMatchObject({ progress: 7 });
+    expect(await repo.getSyncOperations()).toEqual([completedOperation]);
+  });
+
+  it("marks unfinished sync operations and their sessions as interrupted by restore", async () => {
+    const repo = await createRepository();
+    const now = "2026-11-17T12:00:00.000Z";
+    const session: SyncSession = {
+      sessionId: "restore-session",
+      provider: "anilist",
+      status: "running",
+      startedAt: now,
+      operationCount: 2,
+      succeededCount: 1,
+      failedCount: 0,
+      pendingCount: 1,
+      unchangedCount: 0,
+      conflictCount: 0,
+      recoveredCount: 0,
+    };
+    const succeeded: SyncOperation = {
+      id: "restore-succeeded",
+      sessionId: session.sessionId,
+      provider: "anilist",
+      direction: "local",
+      kind: "update",
+      animeId: "old-anime",
+      entry: makeEntry("old-anime", 2, now),
+      status: "succeeded",
+      attempts: 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const pending: SyncOperation = {
+      ...succeeded,
+      id: "restore-pending",
+      status: "pending",
+      attempts: 0,
+    };
+    await repo.saveSyncSession(session);
+    await repo.saveSyncOperations([succeeded, pending]);
+
+    await repo.restoreSnapshot(makeSnapshot(["restored-anime"]));
+
+    expect(await repo.getUnfinishedSyncOperations()).toEqual([]);
+    expect(await repo.getSyncOperations()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: succeeded.id, status: "succeeded" }),
+        expect.objectContaining({
+          id: pending.id,
+          status: "cancelled",
+          error: expect.stringContaining("прервана восстановлением"),
+        }),
+      ]),
+    );
+    expect(await repo.getSyncSessions()).toEqual([
+      expect.objectContaining({
+        sessionId: session.sessionId,
+        status: "cancelled",
+        pendingCount: 0,
+        succeededCount: 1,
+        failedCount: 0,
+        error: expect.stringContaining("прервана восстановлением"),
+      }),
+    ]);
+  });
+
+  it("clears local library data while preserving and closing sync history", async () => {
+    const repo = await createRepository();
+    const now = "2026-11-18T12:00:00.000Z";
+    await repo.saveAnime(makeAnime("remove-one"));
+    await repo.saveAnime(makeAnime("remove-two"));
+    await repo.saveEntry(makeEntry("remove-one", 4, now));
+    await repo.saveSourceEntry({
+      ...makeEntry("remove-one", 4, now),
+      source: "anilist",
+    });
+    await repo.saveAnimeRelation({
+      id: "remove-relation",
+      sourceAnimeId: "remove-one",
+      targetAnimeId: "remove-two",
+      type: "SEQUEL",
+    });
+
+    const session: SyncSession = {
+      sessionId: "clear-session",
+      provider: "mal",
+      status: "running",
+      startedAt: now,
+      operationCount: 1,
+      succeededCount: 0,
+      failedCount: 0,
+      pendingCount: 1,
+      unchangedCount: 0,
+      conflictCount: 0,
+      recoveredCount: 0,
+    };
+    const operation: SyncOperation = {
+      id: "clear-pending",
+      sessionId: session.sessionId,
+      provider: "mal",
+      direction: "local",
+      kind: "update",
+      animeId: "remove-one",
+      entry: makeEntry("remove-one", 4, now),
+      status: "pending",
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await repo.saveSyncSession(session);
+    await repo.saveSyncOperations([operation]);
+
+    await repo.clearLibrary();
+
+    const snapshot = await repo.snapshot();
+    expect(snapshot.anime).toEqual([]);
+    expect(snapshot.entries).toEqual([]);
+    expect(snapshot.sourceEntries).toEqual([]);
+    expect(snapshot.conflictResolutions).toEqual([]);
+    expect(snapshot.animeRelations).toEqual([]);
+    expect(snapshot.deletionIntents).toEqual([]);
+    expect(await repo.getUnfinishedSyncOperations()).toEqual([]);
+    expect(await repo.getSyncOperations()).toMatchObject([
+      {
+        id: operation.id,
+        status: "cancelled",
+        error: expect.stringContaining("полной очисткой"),
+      },
+    ]);
+    expect(await repo.getSyncSessions()).toMatchObject([
+      {
+        sessionId: session.sessionId,
+        status: "cancelled",
+        pendingCount: 0,
+        error: expect.stringContaining("полной очисткой"),
+      },
+    ]);
+  });
+
+  it("persists operations and tracks independent completion states", async () => {
+    const repo = await createRepository();
+    const now = "2026-11-17T12:00:00.000Z";
+    const operation: SyncOperation = {
+      id: "session-1-local-1",
+      sessionId: "session-1",
+      provider: "mal",
+      direction: "local",
+      kind: "create",
+      animeId: "anime-1",
+      anime: makeAnime("anime-1"),
+      entry: makeEntry("anime-1", 4, now),
+      status: "pending",
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await repo.saveSyncOperations([operation]);
+
+    expect(await repo.getUnfinishedSyncOperations("mal")).toEqual([operation]);
+    expect(await repo.getUnfinishedSyncOperations("anilist")).toEqual([]);
+
+    await repo.updateSyncOperation(operation.id, {
+      status: "in_progress",
+      attempts: 1,
+    });
+    await repo.updateSyncOperation(operation.id, {
+      status: "failed",
+      error: "Network interrupted",
+    });
+
+    expect(await repo.getUnfinishedSyncOperations()).toMatchObject([
+      {
+        id: operation.id,
+        status: "failed",
+        attempts: 1,
+        error: "Network interrupted",
+      },
+    ]);
+
+    await repo.updateSyncOperation(operation.id, { status: "succeeded" });
+
+    expect(await repo.getUnfinishedSyncOperations()).toEqual([]);
+    expect(await repo.getSyncOperations()).toMatchObject([
+      {
+        id: operation.id,
+        status: "succeeded",
+        attempts: 1,
+      },
+    ]);
+  });
+
+  it("rejects updates for unknown journal operations", async () => {
+    const repo = await createRepository();
+    await expect(
+      repo.updateSyncOperation("missing-operation", { status: "succeeded" }),
+    ).rejects.toThrow("Unknown sync operation: missing-operation");
+  });
+
+  it("persists sessions even when a sync has no operations", async () => {
+    const repo = await createRepository();
+    const session: SyncSession = {
+      sessionId: "no-op-session",
+      provider: "anilist",
+      status: "running",
+      startedAt: "2026-11-17T12:00:00.000Z",
+      operationCount: 0,
+      succeededCount: 0,
+      failedCount: 0,
+      pendingCount: 0,
+      unchangedCount: 0,
+      conflictCount: 0,
+      recoveredCount: 0,
+    };
+
+    await repo.saveSyncSession(session);
+    await repo.updateSyncSession(session.sessionId, {
+      status: "succeeded",
+      finishedAt: "2026-11-17T12:00:05.000Z",
+      unchangedCount: 42,
+    });
+
+    expect(await repo.getSyncSessions()).toEqual([{
+      ...session,
+      status: "succeeded",
+      finishedAt: "2026-11-17T12:00:05.000Z",
+      unchangedCount: 42,
+    }]);
+  });
+
+  it("rejects updates for unknown sync sessions", async () => {
+    const repo = await createRepository();
+    await expect(
+      repo.updateSyncSession("missing-session", { status: "failed" }),
+    ).rejects.toThrow("Unknown sync session: missing-session");
+  });
+
+  it("upgrades a version 5 journal and keeps unfinished operations readable", async () => {
+    const name = `anime-sync-v5-upgrade-${Date.now()}-${Math.random()}`;
+    const request = indexedDB.open(name, 5);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      database.createObjectStore("anime", { keyPath: "id" });
+      database.createObjectStore("entries", { keyPath: "animeId" });
+      database.createObjectStore("sourceEntries", { keyPath: ["animeId", "source"] });
+      database.createObjectStore("conflictResolutions", { keyPath: "animeId" });
+      database.createObjectStore("animeRelations", { keyPath: "id" });
+      const operations = database.createObjectStore("syncOperations", { keyPath: "id" });
+      operations.createIndex("by-session", "sessionId");
+      operations.createIndex("by-status", "status");
+      operations.createIndex("by-provider", "provider");
+    };
+    const oldDatabase = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const operation: SyncOperation = {
+      id: "legacy-session-local-0",
+      sessionId: "legacy-session",
+      provider: "mal",
+      direction: "local",
+      kind: "create",
+      animeId: "legacy-anime",
+      entry: makeEntry("legacy-anime", 2, "2026-11-17T12:00:00.000Z"),
+      status: "in_progress",
+      attempts: 1,
+      createdAt: "2026-11-17T12:00:00.000Z",
+      updatedAt: "2026-11-17T12:00:01.000Z",
+    };
+    await new Promise<void>((resolve, reject) => {
+      const transaction = oldDatabase.transaction("syncOperations", "readwrite");
+      transaction.objectStore("syncOperations").put(operation);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    oldDatabase.close();
+
+    const upgraded = await BrowserAnimeRepository.open(name);
+    repositories.push(upgraded);
+
+    expect(await upgraded.getUnfinishedSyncOperations("mal")).toEqual([operation]);
+    expect(await upgraded.getSyncSessions()).toEqual([]);
+  });
+
+  it("upgrades an existing version 4 database without losing its anime records", async () => {
+    const name = `anime-sync-v4-upgrade-${Date.now()}-${Math.random()}`;
+    const request = indexedDB.open(name, 4);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      database.createObjectStore("anime", { keyPath: "id" });
+      database.createObjectStore("entries", { keyPath: "animeId" });
+      database.createObjectStore("sourceEntries", { keyPath: ["animeId", "source"] });
+      database.createObjectStore("conflictResolutions", { keyPath: "animeId" });
+      database.createObjectStore("animeRelations", { keyPath: "id" });
+    };
+    const oldDatabase = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const transaction = oldDatabase.transaction("anime", "readwrite");
+      transaction.objectStore("anime").put(makeAnime("preserved-anime"));
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    oldDatabase.close();
+
+    const upgraded = await BrowserAnimeRepository.open(name);
+    repositories.push(upgraded);
+
+    expect(await upgraded.getAnime("preserved-anime")).toMatchObject({
+      id: "preserved-anime",
+    });
+    expect(await upgraded.getUnfinishedSyncOperations()).toEqual([]);
+  });
+});
+
+
+describe("BrowserAnimeRepository identity reconciliation", () => {
+  it("stores a cross-provider import on the existing canonical anime and keeps both source entries", async () => {
+    const repo = await createRepository();
+    const existing = makeAnime("mal:100");
+    existing.titles.english = "Example Anime";
+    existing.externalIds = { myanimelist: "100" };
+    await repo.saveAnime(existing);
+    await repo.saveSourceEntry({
+      ...makeEntry("mal:100", 10, "2026-11-18T10:00:00.000Z"),
+      source: "myanimelist",
+      score: 80,
+      sourceMetadata: { comments: "MAL note" },
+    });
+
+    const imported = makeAnime("anilist:200");
+    imported.titles.english = "Example Anime";
+    imported.externalIds = { myanimelist: "100", anilist: "200" };
+    await repo.saveAnimeWithEntry(imported, {
+      ...makeEntry("anilist:200", 8, "2026-11-18T11:00:00.000Z"),
+      source: "anilist",
+      score: 90,
+      favorite: true,
+      sourceMetadata: { repeat: 1 },
+    });
+
+    const snapshot = await repo.snapshot();
+    expect(snapshot.anime).toHaveLength(1);
+    expect(snapshot.anime[0]).toMatchObject({
+      id: "mal:100",
+      externalIds: { myanimelist: "100", anilist: "200" },
+    });
+    expect(snapshot.sourceEntries).toHaveLength(2);
+    expect(snapshot.sourceEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ animeId: "mal:100", source: "myanimelist", progress: 10, score: 80, sourceMetadata: { comments: "MAL note" } }),
+      expect.objectContaining({ animeId: "mal:100", source: "anilist", progress: 8, score: 90, favorite: true, sourceMetadata: { repeat: 1 } }),
+    ]));
+    expect(snapshot.entries[0]).toMatchObject({ animeId: "mal:100", progress: 10, favorite: true });
+  });
+
+  it("removes only the Shikimori source entry and preserves other providers", async () => {
+    const repo = await createRepository();
+    const anime = makeAnime("shikimori:41");
+    anime.externalIds = { shikimori: "41" };
+    await repo.saveAnime(anime);
+    await repo.saveSourceEntry({
+      ...makeEntry(anime.id, 5, "2026-11-18T10:00:00.000Z"),
+      source: "shikimori",
+      sourceMetadata: { shikimoriRateId: 901 },
+    });
+    await repo.saveSourceEntry({
+      ...makeEntry(anime.id, 3, "2026-11-18T11:00:00.000Z"),
+      source: "anilist",
+      sourceMetadata: { anilistEntryId: 902 },
+    });
+
+    await repo.deleteSourceEntry(anime.id, "shikimori");
+
+    const snapshot = await repo.snapshot();
+    expect(snapshot.anime).toHaveLength(1);
+    expect(snapshot.sourceEntries).toHaveLength(1);
+    expect(snapshot.sourceEntries[0]).toMatchObject({
+      animeId: anime.id,
+      source: "anilist",
+      sourceMetadata: { anilistEntryId: 902 },
+    });
+    expect(snapshot.entries[0]).toMatchObject({ animeId: anime.id, progress: 3 });
+  });
+
+  it("repairs an existing exact-ID duplicate pair without dropping provider baselines", async () => {
+    const repo = await createRepository();
+    const mal = makeAnime("mal:100");
+    mal.externalIds = { myanimelist: "100" };
+    const anilist = makeAnime("anilist:200");
+    anilist.externalIds = { myanimelist: "100", anilist: "200" };
+    await repo.saveAnime(mal);
+    await repo.saveAnime(anilist);
+    await repo.saveSourceEntry({
+      ...makeEntry("mal:100", 10, "2026-11-18T10:00:00.000Z"),
+      source: "myanimelist",
+      sourceMetadata: { comments: "preserve me" },
+    });
+    await repo.saveSourceEntry({
+      ...makeEntry("anilist:200", 8, "2026-11-18T11:00:00.000Z"),
+      source: "anilist",
+      sourceMetadata: { repeat: 2 },
+    });
+
+    const result = await repo.reconcileExactIdentityDuplicates();
+    const snapshot = await repo.snapshot();
+
+    expect(result).toEqual({ mergedPairs: 1, skippedPairs: 0 });
+    expect(snapshot.anime).toHaveLength(1);
+    expect(snapshot.anime[0]?.externalIds).toEqual({ myanimelist: "100", anilist: "200" });
+    expect(snapshot.sourceEntries).toHaveLength(2);
+    expect(snapshot.sourceEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "myanimelist", sourceMetadata: { comments: "preserve me" } }),
+      expect.objectContaining({ source: "anilist", sourceMetadata: { repeat: 2 } }),
+    ]));
+  });
+
+  it("remaps sync journal and pending deletion references when anime identities are merged", async () => {
+    const repo = await createRepository();
+    const mal = makeAnime("mal:100");
+    mal.externalIds = { myanimelist: "100" };
+    const anilist = makeAnime("anilist:200");
+    anilist.externalIds = { myanimelist: "100", anilist: "200" };
+    const malEntry: AnimeListEntry = {
+      ...makeEntry("mal:100", 6, "2026-11-18T10:00:00.000Z"),
+      source: "myanimelist",
+    };
+    const aniEntry: AnimeListEntry = {
+      ...makeEntry("anilist:200", 8, "2026-11-18T11:00:00.000Z"),
+      source: "anilist",
+    };
+    const deletionIntent: SyncDeletionIntent = {
+      id: "delete-mal-100",
+      provider: "mal",
+      animeId: "mal:100",
+      externalId: "100",
+      anime: mal,
+      entry: malEntry,
+      createdAt: "2026-11-18T12:00:00.000Z",
+    };
+
+    await repo.saveAnime(mal);
+    await repo.saveAnime(anilist);
+    await repo.saveSourceEntry(malEntry);
+    await repo.saveSourceEntry(aniEntry);
+
+    // Seed a pending intent directly: saving a source entry intentionally
+    // cancels a matching pending remote deletion.
+    const internal = repo as unknown as {
+      db: { put: (store: string, value: SyncDeletionIntent) => Promise<unknown> };
+    };
+    await internal.db.put("deletionIntents", deletionIntent);
+
+    const operation: SyncOperation = {
+      id: "operation-1",
+      sessionId: "session-1",
+      provider: "mal",
+      direction: "remote",
+      kind: "update",
+      animeId: "mal:100",
+      externalId: "100",
+      entry: malEntry,
+      anime: mal,
+      status: "pending",
+      attempts: 0,
+      createdAt: "2026-11-18T12:00:00.000Z",
+      updatedAt: "2026-11-18T12:00:00.000Z",
+    };
+    await repo.saveSyncOperations([operation]);
+
+    await repo.mergeAnimeRecords("mal:100", "anilist:200");
+
+    const operations = await repo.getSyncOperations();
+    const deletionIntents = await repo.getDeletionIntents();
+    const snapshot = await repo.snapshot();
+
+    expect(operations[0]).toMatchObject({
+      animeId: "anilist:200",
+      entry: { animeId: "anilist:200" },
+      anime: { id: "anilist:200" },
+    });
+    expect(deletionIntents[0]).toMatchObject({
+      animeId: "anilist:200",
+      externalId: "100",
+      entry: { animeId: "anilist:200" },
+      anime: { id: "anilist:200" },
+    });
+    expect(snapshot.anime).toHaveLength(1);
+    expect(snapshot.sourceEntries).toHaveLength(2);
+  });
+
+  it("skips duplicate groups that contain multiple records for the same provider", async () => {
+    const repo = await createRepository();
+    const first = makeAnime("first");
+    first.externalIds = { myanimelist: "100" };
+    const second = makeAnime("second");
+    second.externalIds = { myanimelist: "100", anilist: "200" };
+    await repo.saveAnime(first);
+    await repo.saveAnime(second);
+    await repo.saveSourceEntry(makeEntry("first", 5, "2026-11-18T10:00:00.000Z"));
+    await repo.saveSourceEntry(makeEntry("second", 7, "2026-11-18T11:00:00.000Z"));
+
+    const result = await repo.reconcileExactIdentityDuplicates();
+
+    expect(result).toEqual({ mergedPairs: 0, skippedPairs: 1 });
+    expect((await repo.snapshot()).anime).toHaveLength(2);
+  });
+});
+

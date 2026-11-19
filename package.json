@@ -5,9 +5,14 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
+    "check:extension": "node scripts/check-extension.mjs",
     "typecheck": "tsc --noEmit",
-    "dev": "vite",
+    "check:server": "node --check server/index.mjs",
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "vite",
+    "dev:api": "node server/index.mjs",
     "build": "tsc --noEmit && vite build",
+    "start": "node server/index.mjs",
     "preview": "vite preview"
   },
   "devDependencies": {
