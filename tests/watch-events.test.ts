@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createWatchSourceEntry, validateWatchEvent } from "../src/core/watch-events.js";
+import { createWatchSourceEntry, validateWatchEvent, type WatchEvent } from "../src/core/watch-events.js";
 import type { AnimeIdentity, AnimeSourceEntry } from "../src/core/types.js";
 
 const anime: AnimeIdentity = {
@@ -9,7 +9,7 @@ const anime: AnimeIdentity = {
   episodes: 12,
 };
 
-const event = {
+const event: WatchEvent = {
   service: "animego",
   title: "Example Anime",
   episode: 5,
