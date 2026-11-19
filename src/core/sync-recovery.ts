@@ -2,6 +2,7 @@ import type {
   AnimeListEntry,
   AnimeSnapshot,
   SyncOperation,
+  SyncProvider,
 } from "./types.js";
 
 export interface SyncRecoveryDependencies {
@@ -19,11 +20,11 @@ export interface SyncRecoveryDependencies {
  */
 export async function reconcileUnfinishedSyncOperations(
   operations: SyncOperation[],
-  provider: "mal" | "anilist",
+  provider: SyncProvider,
   remoteSnapshot: AnimeSnapshot,
   dependencies: SyncRecoveryDependencies,
 ): Promise<{ recoveredOperations: number }> {
-  const providerSource = provider === "mal" ? "myanimelist" : "anilist";
+  const providerSource = provider === "mal" ? "myanimelist" : provider === "anilist" ? "anilist" : "shikimori";
   let recoveredOperations = 0;
 
   for (const operation of operations) {
@@ -40,7 +41,7 @@ export async function reconcileUnfinishedSyncOperations(
           (entry) => entry.source === operation.entry.source,
         );
 
-    const expectedScore = provider === "mal"
+    const expectedScore = provider === "mal" || provider === "shikimori"
       ? operation.entry.score === null || operation.entry.score === 0
         ? null
         : Math.max(10, Math.min(100, Math.round(operation.entry.score / 10) * 10))
@@ -53,7 +54,7 @@ export async function reconcileUnfinishedSyncOperations(
           actualEntry.status === operation.entry.status &&
           actualEntry.progress === operation.entry.progress &&
           actualEntry.score === expectedScore &&
-          (provider === "mal" || actualEntry.favorite === operation.entry.favorite),
+          (provider !== "anilist" || actualEntry.favorite === operation.entry.favorite),
         );
 
     if (matchesTarget) {
