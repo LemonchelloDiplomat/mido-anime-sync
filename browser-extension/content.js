@@ -67,7 +67,7 @@
   }
 
   function normalizeWatchTitle(value) {
-    return String(value || "").trim().toLocaleLowerCase().replace(/\\s+/g, " ");
+    return String(value || "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
   }
 
   function textFrom(selector) {
