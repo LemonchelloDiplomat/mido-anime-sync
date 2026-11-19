@@ -136,6 +136,49 @@ void (async () => {
   await renderToolbarState(state);
 })();
 
+function isSupportedWatchUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+    const host = url.hostname.toLowerCase();
+    return [
+      "anime-go.org", "animego.online", "animego.me",
+      "yummyani.me", "yummy-ani.me",
+    ].some((domain) => host === domain || host.endsWith(`.${domain}`));
+  } catch {
+    return false;
+  }
+}
+
+async function refreshForActiveTab(tabId, knownTab) {
+  let tab = knownTab;
+  if (!tab?.url && chrome.tabs?.get) {
+    try {
+      tab = await chrome.tabs.get(tabId);
+    } catch {
+      return;
+    }
+  }
+  if (!isSupportedWatchUrl(tab?.url)) {
+    await clearToolbarState();
+    return;
+  }
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: "MIDAHOSHI_REFRESH_WATCH_CONTEXT" });
+  } catch {
+    // The content script will publish its context after it finishes loading.
+  }
+}
+
+chrome.tabs?.onActivated?.addListener(({ tabId }) => {
+  void refreshForActiveTab(tabId);
+});
+
+chrome.tabs?.onUpdated?.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === "complete" && tab.active) {
+    void refreshForActiveTab(tabId, tab);
+  }
+});
+
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === "MIDAHOSHI_DISMISS_ALERT") {
     void (async () => {
