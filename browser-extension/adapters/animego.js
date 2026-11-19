@@ -1,5 +1,5 @@
 (() => {
-  const hostnames = new Set(["animego.lt", "www.animego.lt", "animego.name", "www.animego.name"]);
+  const hostnames = new Set(["anime-go.org", "www.anime-go.org", "animego.online", "www.animego.online"]);
   if (!hostnames.has(location.hostname.toLowerCase())) return;
 
   window.__MIDA_WATCH_ADAPTERS = window.__MIDA_WATCH_ADAPTERS || [];
