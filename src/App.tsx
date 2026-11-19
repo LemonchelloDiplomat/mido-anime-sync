@@ -1942,7 +1942,7 @@ function App() {
         <div className="brand">
           <div className="brand-logo">M</div>
           <div>
-            <h2>mido-anime-sync</h2>
+            <h2>Mido Anime Sync</h2>
             <span>ANIME SYNC</span>
           </div>
         </div>
