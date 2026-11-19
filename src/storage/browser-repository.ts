@@ -675,7 +675,7 @@ export class BrowserAnimeRepository {
     const pendingDeletions = await deletionStore.getAll();
     await Promise.all(pendingDeletions
       .filter((intent) => {
-        const service = intent.provider === "mal" ? "myanimelist" : "anilist";
+        const service = getProviderServiceId(intent.provider);
         return anime.externalIds[service] === intent.externalId;
       })
       .map((intent) => deletionStore.delete(intent.id)));
