@@ -62,6 +62,11 @@ export function validateWatchEvent(value: unknown): WatchEvent {
   const currentTimeSeconds = optionalNumber("currentTimeSeconds");
   const durationSeconds = optionalNumber("durationSeconds");
 
+  // Keep only the page path. Query strings and fragments may contain
+  // account/session-specific values that are irrelevant to watch progress.
+  sourceUrl.search = "";
+  sourceUrl.hash = "";
+
   return {
     service: event.service,
     title: event.title.trim(),
