@@ -656,3 +656,47 @@ describe("snapshot export date validation", () => {
     expect(snapshot.exportedAt).toBe("1970-01-01T00:00:00.000Z");
   });
 });
+
+
+describe("Shikimori deletion intent snapshots", () => {
+  it("accepts a pending Shikimori deletion intent with matching provider identity", () => {
+    const deletedAnime = {
+      id: "deleted-shikimori-anime",
+      titles: { english: "Deleted anime", synonyms: [] },
+      externalIds: { shikimori: "41" },
+    };
+    const deletedEntry: AnimeListEntry = {
+      animeId: deletedAnime.id,
+      source: "shikimori",
+      status: "WATCHING",
+      progress: 4,
+      score: 80,
+      favorite: false,
+      updatedAt: "2026-11-15T12:00:00.000Z",
+    };
+    const snapshot = validateSnapshot({
+      schemaVersion: 4,
+      exportedAt: "2026-11-15T12:00:00.000Z",
+      anime: [],
+      entries: [],
+      sourceEntries: [],
+      conflictResolutions: [],
+      animeRelations: [],
+      deletionIntents: [{
+        id: "delete-shikimori-41",
+        provider: "shikimori",
+        animeId: deletedAnime.id,
+        externalId: "41",
+        anime: deletedAnime,
+        entry: deletedEntry,
+        createdAt: "2026-11-15T12:00:00.000Z",
+      }],
+    });
+
+    expect(snapshot.deletionIntents?.[0]).toMatchObject({
+      provider: "shikimori",
+      externalId: "41",
+      entry: { source: "shikimori" },
+    });
+  });
+});

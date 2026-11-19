@@ -1,10 +1,12 @@
+import { getProviderServiceId, providerSupportsFavorite, providerUsesTenPointScore } from "./provider-capabilities.js";
 import type {
   AnimeIdentity,
   AnimeListEntry,
   AnimeSnapshotV4,
+  SyncProvider,
 } from "./types.js";
 
-export type SyncProvider = "mal" | "anilist";
+export type { SyncProvider } from "./types.js";
 
 export interface LocalSyncItem {
   anime: AnimeIdentity;
@@ -65,7 +67,7 @@ function comparableFieldValue(
   field: SyncField | "favorite",
   value: unknown,
 ): unknown {
-  if (provider !== "mal" || field !== "score") return value;
+  if (!providerUsesTenPointScore(provider) || field !== "score") return value;
   if (value == null || value === 0) return null;
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return value;
@@ -94,7 +96,7 @@ export function createBidirectionalSyncPlan(
   remoteSnapshot: AnimeSnapshotV4,
   provider: SyncProvider,
 ): SyncPlan {
-  const service = provider === "mal" ? "myanimelist" : "anilist";
+  const service = getProviderServiceId(provider);
   const localByExternalId = new Map<string, LocalSyncItem>();
   const remoteByExternalId = new Map<string, { anime: AnimeIdentity; entry: AnimeListEntry }>();
   const remoteEntryByAnimeId = new Map(remoteSnapshot.entries.map((entry) => [entry.animeId, entry]));
@@ -143,7 +145,7 @@ export function createBidirectionalSyncPlan(
 
     const localTime = timestamp(local.entry.updatedAt);
     const remoteTime = timestamp(remote.entry.updatedAt);
-    const fields: Array<SyncField | "favorite"> = provider === "anilist"
+    const fields: Array<SyncField | "favorite"> = providerSupportsFavorite(provider)
       ? [...SYNC_FIELDS, "favorite"]
       : [...SYNC_FIELDS];
     const conflicts: SyncFieldConflict[] = [];
@@ -240,7 +242,7 @@ export function createBidirectionalSyncPlan(
     if (localDiffers) {
       plan.localUpdates.push({
         animeId: local.anime.id,
-        entry: { ...cloneEntry(desired, local.anime.id), source: provider === "mal" ? "myanimelist" : "anilist" },
+        entry: { ...cloneEntry(desired, local.anime.id), source: getProviderServiceId(provider) },
       });
     }
     if (remoteDiffers) {
@@ -266,7 +268,7 @@ export function createBidirectionalSyncPlan(
         animeId: local.anime.id,
         entry: {
           ...cloneEntry(remote.entry, local.anime.id),
-          source: provider === "mal" ? "myanimelist" : "anilist",
+          source: getProviderServiceId(provider),
         },
       });
     }

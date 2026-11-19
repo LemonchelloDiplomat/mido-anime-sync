@@ -13,6 +13,7 @@ import type {
   SyncOperation,
   SyncSession,
   SyncDeletionIntent,
+  SyncProvider,
 } from "./core/types.js";
 
 import { BrowserAnimeRepository } from "./storage/browser-repository.js";
@@ -23,12 +24,14 @@ import { parseMyAnimeListXml, readMyAnimeListExport } from "./services/myanimeli
 import { connectIntegration, disconnectIntegration, getIntegrationStatus, fetchAccountList, updateAccountEntry, deleteAccountEntry, type IntegrationStatus } from "./services/integrations-api.js";
 import { parseMyAnimeListApiList } from "./services/myanimelist-account.js";
 import { parseAniListAccountList, type AniListScoreFormat } from "./services/anilist-account.js";
+import { parseShikimoriAccountList } from "./services/shikimori-account.js";
 import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
 import { detectRemoteDeletions } from "./core/safe-deletions.js";
 import { executeRemoteDeletions, resolvePendingRemoteDeletionIntents } from "./core/remote-deletion.js";
 import { reconcileUnfinishedSyncOperations } from "./core/sync-recovery.js";
 import { reconcileInterruptedSyncSessions } from "./core/sync-session-recovery.js";
 import { findExactIdentityDuplicatePairs } from "./core/identity-reconciliation.js";
+import { getProviderLabel, getProviderServiceId } from "./core/provider-capabilities.js";
 
 import {
   createImportPreview,
@@ -179,7 +182,7 @@ function App() {
   const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus | null>(null);
   const [integrationStatusLoading, setIntegrationStatusLoading] = useState(false);
   const [integrationStatusError, setIntegrationStatusError] = useState("");
-  const [accountSyncing, setAccountSyncing] = useState<"mal" | "anilist" | null>(null);
+  const [accountSyncing, setAccountSyncing] = useState<SyncProvider | null>(null);
   const [syncConflictDialog, setSyncConflictDialog] = useState<{
     title: string;
     fields: string;
@@ -190,7 +193,7 @@ function App() {
   const [historySessionRecords, setHistorySessionRecords] = useState<SyncSession[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
-  const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | "mal" | "anilist">("all");
+  const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | SyncProvider>("all");
   const [historyStatusFilter, setHistoryStatusFilter] = useState<"all" | SyncOperation["status"]>("all");
 
   useEffect(() => {
@@ -825,7 +828,7 @@ function App() {
     }
   }
 
-  async function handleImportFromAccount(provider: "mal" | "anilist") {
+  async function handleImportFromAccount(provider: SyncProvider) {
     if (!repository || importing) return;
     setImporting(true);
     setError("");
@@ -833,14 +836,16 @@ function App() {
       const payload = await fetchAccountList(provider);
       const snapshot = provider === "mal"
         ? parseMyAnimeListApiList(payload.data)
-        : parseAniListAccountList(payload.data, payload.scoreFormat as AniListScoreFormat);
+        : provider === "anilist"
+          ? parseAniListAccountList(payload.data, payload.scoreFormat as AniListScoreFormat)
+          : parseShikimoriAccountList(payload.data);
       const currentLibrary = await repository.getAll();
       const analysis = createImportPreview(
         snapshot.anime,
         currentLibrary.map((item) => item.anime),
       );
       setImportSnapshot(snapshot);
-      setImportFormat(provider === "mal" ? "MyAnimeList account" : "AniList account");
+      setImportFormat(getProviderLabel(provider) + " account");
       setImportAnalysis(analysis);
       setSettingsOpen(false);
     } catch (err) {
@@ -850,7 +855,7 @@ function App() {
     }
   }
 
-  async function handleSyncToAccount(provider: "mal" | "anilist") {
+  async function handleSyncToAccount(provider: SyncProvider) {
     if (!repository || accountSyncing || syncInProgressRef.current || restoreInProgressRef.current) return;
 
     // Web Locks prevents another tab from running an account sync while this
@@ -881,7 +886,7 @@ function App() {
   }
 
   async function runSyncToAccount(
-    provider: "mal" | "anilist",
+    provider: SyncProvider,
     recoverInterruptedSessions: boolean,
   ) {
     if (!repository || accountSyncing || syncInProgressRef.current || restoreInProgressRef.current) return;
@@ -908,7 +913,9 @@ function App() {
       const payload = await fetchAccountList(provider);
       const remoteSnapshot = provider === "mal"
         ? parseMyAnimeListApiList(payload.data)
-        : parseAniListAccountList(payload.data, payload.scoreFormat as AniListScoreFormat);
+        : provider === "anilist"
+          ? parseAniListAccountList(payload.data, payload.scoreFormat as AniListScoreFormat)
+          : parseShikimoriAccountList(payload.data);
       if (payload.count !== remoteSnapshot.entries.length) {
         throw new Error("Количество записей в ответе сервиса не совпадает с разобранным списком. Синхронизация и удаления заблокированы.");
       }
@@ -973,7 +980,7 @@ function App() {
       }
 
       const baseItems = await activeRepository.getAll();
-      const providerSource = provider === "mal" ? "myanimelist" : "anilist";
+      const providerSource = getProviderServiceId(provider);
       const localItems = await Promise.all(baseItems.map(async (item) => {
         const sourceEntries = await activeRepository.getSourceEntries(item.anime.id);
         return {
@@ -1028,13 +1035,9 @@ function App() {
       for (const animeId of conflictAnimeIds) {
         const local = localItems.find((item) => item.anime.id === animeId);
         if (!local?.entry) continue;
-        const externalId = provider === "mal"
-          ? local.anime.externalIds.myanimelist
-          : local.anime.externalIds.anilist;
+        const externalId = local.anime.externalIds[providerSource];
         if (!externalId) continue;
-        const remoteAnime = remoteSnapshot.anime.find((anime) =>
-          (provider === "mal" ? anime.externalIds.myanimelist : anime.externalIds.anilist) === externalId
-        );
+        const remoteAnime = remoteSnapshot.anime.find((anime) => anime.externalIds[providerSource] === externalId);
         const remoteEntry = remoteAnime
           ? remoteSnapshot.entries.find((entry) => entry.animeId === remoteAnime.id)
           : undefined;
@@ -1061,7 +1064,7 @@ function App() {
             entry: {
               ...remoteEntry,
               animeId: local.anime.id,
-              source: provider === "mal" ? "myanimelist" : "anilist",
+              source: providerSource,
             },
           });
         }
@@ -1126,7 +1129,7 @@ function App() {
         return;
       }
 
-      const serviceName = provider === "mal" ? "MyAnimeList" : "AniList";
+      const serviceName = getProviderLabel(provider);
       const deletionNames = [
         ...deletionDetection.localRemovals.map((item) => "• " + item.title + " (удалено на сервисе, будет удалена локальная запись)"),
         ...remoteDeletionCandidates.map((item) => "• " + (item.intent.anime.titles.english || item.intent.anime.titles.romaji || item.intent.animeId) + " (удалено локально, будет удалена запись на сервисе)"),
@@ -1289,12 +1292,26 @@ function App() {
           attempts: operation.attempts + 1,
         });
         try {
+          const existingRemoteAnime = remoteSnapshot.anime.find(
+            (anime) => anime.externalIds[providerSource] === change.externalId,
+          );
+          const existingRemoteEntry = existingRemoteAnime
+            ? remoteSnapshot.entries.find((entry) => entry.animeId === existingRemoteAnime.id)
+            : undefined;
+          const shikimoriRateId = provider === "shikimori"
+            ? Number(existingRemoteEntry?.sourceMetadata?.shikimoriRateId)
+            : undefined;
+          if (provider === "shikimori" && existingRemoteAnime &&
+              (!Number.isSafeInteger(shikimoriRateId) || shikimoriRateId! <= 0)) {
+            throw new Error("Не удалось определить Shikimori rate ID для обновления записи. Синхронизация не создаст дубликат.");
+          }
           await updateAccountEntry(provider, {
             externalId: change.externalId,
             status: change.entry.status,
             progress: change.entry.progress,
             score: change.entry.score,
             ...(provider === "anilist" ? { favorite: change.entry.favorite } : {}),
+            ...(shikimoriRateId !== undefined ? { entryId: shikimoriRateId } : {}),
           });
         } catch (err) {
           const message = err instanceof Error ? err.message : "ошибка записи";
@@ -1372,7 +1389,9 @@ function App() {
           const refreshedPayload = await fetchAccountList(provider);
           const refreshedSnapshot = provider === "mal"
             ? parseMyAnimeListApiList(refreshedPayload.data)
-            : parseAniListAccountList(refreshedPayload.data, refreshedPayload.scoreFormat as AniListScoreFormat);
+            : provider === "anilist"
+              ? parseAniListAccountList(refreshedPayload.data, refreshedPayload.scoreFormat as AniListScoreFormat)
+              : parseShikimoriAccountList(refreshedPayload.data);
           if (refreshedPayload.count !== refreshedSnapshot.entries.length) {
             throw new Error("Количество записей в повторном ответе сервиса не совпадает с разобранным списком.");
           }
@@ -1932,13 +1951,13 @@ function App() {
                 </button>
               </div>
               {integrationStatusError && <div className="error-message">{integrationStatusError}</div>}
-              {(["myanimelist", "anilist"] as const).map((provider) => {
-                const label = provider === "myanimelist" ? "MyAnimeList" : "AniList";
+              {(["myanimelist", "anilist", "shikimori"] as const).map((provider) => {
+                const label = provider === "myanimelist" ? "MyAnimeList" : provider === "anilist" ? "AniList" : "Shikimori";
                 const status = integrationStatus?.[provider];
-                const routeProvider = provider === "myanimelist" ? "mal" : "anilist";
+                const routeProvider: SyncProvider = provider === "myanimelist" ? "mal" : provider;
                 return (
                   <article className="integration-provider" key={provider}>
-                    <div className="integration-provider-mark">{provider === "myanimelist" ? "MAL" : "AL"}</div>
+                    <div className="integration-provider-mark">{provider === "myanimelist" ? "MAL" : provider === "anilist" ? "AL" : "SHI"}</div>
                     <div className="integration-provider-info">
                       <h3>{label}</h3>
                       <p>
@@ -1947,7 +1966,7 @@ function App() {
                           : !integrationStatus
                             ? "Локальный API-сервер не отвечает."
                             : !status?.configured
-                              ? (routeProvider === "anilist" ? "Нужно добавить Client ID и Client Secret в .env.local." : "Нужно добавить Client ID в .env.local.")
+                              ? (routeProvider === "mal" ? "Нужно добавить MAL_CLIENT_ID в .env.local." : routeProvider === "anilist" ? "Нужно добавить ANILIST_CLIENT_ID и ANILIST_CLIENT_SECRET в .env.local." : "Нужно добавить SHIKIMORI_CLIENT_ID и SHIKIMORI_CLIENT_SECRET в .env.local.")
                               : status.connected
                                 ? "Подключён аккаунт: " + (status.username || "пользователь")
                                 : "Приложение настроено, аккаунт ещё не подключён."}
@@ -1985,7 +2004,7 @@ function App() {
               <div className="integration-danger-zone">
                 <div>
                   <h3>Исправление дублей библиотеки</h3>
-                  <p>Ищет записи с одинаковыми внешними ID MAL/AniList. Перед объединением скачивается резервная копия. Неоднозначные совпадения и пары с двумя записями одного сервиса пропускаются.</p>
+                  <p>Ищет записи с одинаковыми внешними ID разных сервисов. Перед объединением скачивается резервная копия. Неоднозначные совпадения и пары с двумя записями одного сервиса пропускаются.</p>
                 </div>
                 <button
                   type="button"
@@ -2053,6 +2072,7 @@ function App() {
                     <option value="all">Все сервисы</option>
                     <option value="mal">MyAnimeList</option>
                     <option value="anilist">AniList</option>
+                    <option value="shikimori">Shikimori</option>
                   </select>
                 </label>
                 <label>
@@ -2089,7 +2109,7 @@ function App() {
                         <header className="history-session-header">
                           <div>
                             <span className="history-session-date">{formatHistoryDate(session.createdAt)}</span>
-                            <h2>{session.provider === "mal" ? "MyAnimeList" : "AniList"}</h2>
+                            <h2>{getProviderLabel(session.provider)}</h2>
                             <small>{session.sessionId}</small>
                             <span className={"history-session-status " + session.status}>
                               {session.status === "running" ? "Выполняется" : session.status === "succeeded" ? "Успешно" : session.status === "failed" ? "Ошибка" : "Отменено"}
@@ -2124,7 +2144,7 @@ function App() {
                                   <small>
                                     {operation.direction === "remote" ? "Отправка в сервис" : "Запись в библиотеку"}
                                     {" · "}{operation.kind === "create" ? "Создание" : operation.kind === "delete" ? "Удаление" : "Обновление"}
-                                    {" · "}{operation.provider === "mal" ? "MAL" : "AniList"}
+                                    {" · "}{getProviderLabel(operation.provider)}
                                   </small>
                                 </span>
                                 <span className={"history-status-label " + operation.status}>{historyStatusLabel(operation.status)}</span>

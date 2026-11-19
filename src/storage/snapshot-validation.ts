@@ -381,7 +381,7 @@ function validateDeletionIntents(
       !intent ||
       typeof intent.id !== "string" ||
       intent.id.trim().length === 0 ||
-      (intent.provider !== "mal" && intent.provider !== "anilist") ||
+      (intent.provider !== "mal" && intent.provider !== "anilist" && intent.provider !== "shikimori") ||
       typeof intent.animeId !== "string" ||
       intent.animeId.trim().length === 0 ||
       typeof intent.externalId !== "string" ||
@@ -406,7 +406,7 @@ function validateDeletionIntents(
     validateAnimeList([intent.anime]);
     validateEntry(intent.entry);
 
-    const service = intent.provider === "mal" ? "myanimelist" : "anilist";
+    const service = intent.provider === "mal" ? "myanimelist" : intent.provider === "anilist" ? "anilist" : "shikimori";
     if (intent.entry.source !== service || intent.anime.externalIds[service] !== intent.externalId) {
       throw new Error("Deletion intent provider identity does not match its anime and entry");
     }

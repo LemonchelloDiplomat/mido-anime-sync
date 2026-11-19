@@ -231,3 +231,104 @@ describe("bidirectional sync planner", () => {
 
 });
 
+
+
+describe("Shikimori bidirectional sync", () => {
+  it("maps Shikimori IDs and imports remote-only entries", () => {
+    const remoteAnime: AnimeIdentity = {
+      id: "shikimori:41",
+      titles: { romaji: "Example", synonyms: [] },
+      externalIds: { shikimori: "41" },
+    };
+    const remoteEntry: AnimeListEntry = {
+      animeId: remoteAnime.id,
+      source: "shikimori",
+      status: "WATCHING",
+      progress: 4,
+      score: 80,
+      favorite: false,
+      updatedAt: "2026-11-17T10:00:00.000Z",
+      sourceMetadata: { shikimoriRateId: 901 },
+    };
+    const plan = createBidirectionalSyncPlan([], remoteSnapshot([remoteAnime], [remoteEntry]), "shikimori");
+
+    expect(plan.localCreates).toHaveLength(1);
+    expect(plan.localCreates[0]?.anime.externalIds.shikimori).toBe("41");
+    expect(plan.localCreates[0]?.entry.source).toBe("shikimori");
+  });
+
+  it("attaches a remote Shikimori entry to an existing catalog anime with the correct source", () => {
+    const localAnime: AnimeIdentity = {
+      id: "catalog:41",
+      titles: { romaji: "Example", synonyms: [] },
+      externalIds: { shikimori: "41" },
+    };
+    const remoteAnime: AnimeIdentity = {
+      id: "shikimori:41",
+      titles: { romaji: "Example", synonyms: [] },
+      externalIds: { shikimori: "41" },
+    };
+    const remoteEntry: AnimeListEntry = {
+      animeId: remoteAnime.id,
+      source: "shikimori",
+      status: "WATCHING",
+      progress: 4,
+      score: 80,
+      favorite: false,
+      updatedAt: "2026-11-17T10:00:00.000Z",
+      sourceMetadata: { shikimoriRateId: 901 },
+    };
+
+    const plan = createBidirectionalSyncPlan(
+      [{ anime: localAnime, entry: undefined }],
+      remoteSnapshot([remoteAnime], [remoteEntry]),
+      "shikimori",
+    );
+
+    expect(plan.localCreates).toHaveLength(0);
+    expect(plan.localUpdates).toHaveLength(1);
+    expect(plan.localUpdates[0]).toMatchObject({
+      animeId: "catalog:41",
+      entry: { animeId: "catalog:41", source: "shikimori", progress: 4 },
+    });
+  });
+
+  it("uses the ten-point score precision and does not sync favorites", () => {
+    const localAnime: AnimeIdentity = {
+      id: "local:41",
+      titles: { romaji: "Example", synonyms: [] },
+      externalIds: { shikimori: "41" },
+    };
+    const localEntry: AnimeListEntry = {
+      animeId: localAnime.id,
+      source: "local",
+      status: "WATCHING",
+      progress: 4,
+      score: 84,
+      favorite: true,
+      updatedAt: "2026-11-17T10:00:00.000Z",
+    };
+    const remoteAnime: AnimeIdentity = {
+      ...localAnime,
+      id: "shikimori:41",
+    };
+    const remoteEntry: AnimeListEntry = {
+      ...localEntry,
+      animeId: remoteAnime.id,
+      source: "shikimori",
+      score: 80,
+      favorite: false,
+      sourceMetadata: { shikimoriRateId: 901 },
+    };
+    const plan = createBidirectionalSyncPlan(
+      [{ anime: localAnime, entry: localEntry }],
+      remoteSnapshot([remoteAnime], [remoteEntry]),
+      "shikimori",
+    );
+
+    expect(plan.conflicts).toHaveLength(0);
+    expect(plan.remoteUpdates).toHaveLength(0);
+    expect(plan.localUpdates).toHaveLength(0);
+    expect(plan.unchanged).toBe(1);
+  });
+});

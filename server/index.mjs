@@ -14,6 +14,35 @@ const HOST = process.env.HOST || "127.0.0.1";
 const MAL_API = "https://api.myanimelist.net/v2";
 const MAL_OAUTH = "https://myanimelist.net/v1/oauth2";
 const ANILIST_GRAPHQL = "https://graphql.anilist.co";
+const SHIKIMORI_API = "https://shikimori.io/api";
+const SHIKIMORI_OAUTH = "https://shikimori.io/oauth";
+let shikimoriQueue = Promise.resolve();
+let shikimoriLastRequestAt = 0;
+let shikimoriRequestStarts = [];
+
+async function acquireShikimoriRequestSlot() {
+  const previous = shikimoriQueue;
+  let release;
+  shikimoriQueue = new Promise((resolve) => { release = resolve; });
+  await previous;
+
+  try {
+    let now = Date.now();
+    shikimoriRequestStarts = shikimoriRequestStarts.filter((startedAt) => now - startedAt < 60000);
+    const spacingDelay = Math.max(0, shikimoriLastRequestAt + 220 - now);
+    const minuteDelay = shikimoriRequestStarts.length >= 80
+      ? Math.max(0, shikimoriRequestStarts[0] + 60000 - now)
+      : 0;
+    const delay = Math.max(spacingDelay, minuteDelay);
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+    now = Date.now();
+    shikimoriLastRequestAt = now;
+    shikimoriRequestStarts.push(now);
+  } finally {
+    release();
+  }
+}
+
 const sessions = new Map();
 
 async function loadLocalEnv() {
@@ -119,7 +148,9 @@ async function fetchJson(url, options = {}) {
 }
 
 function getRedirectUri(provider) {
-  const configured = provider === "mal" ? process.env.MAL_REDIRECT_URI : process.env.ANILIST_REDIRECT_URI;
+  const configured = provider === "mal" ? process.env.MAL_REDIRECT_URI
+    : provider === "anilist" ? process.env.ANILIST_REDIRECT_URI
+    : process.env.SHIKIMORI_REDIRECT_URI;
   return configured || ("http://127.0.0.1:" + PORT + "/api/auth/" + provider + "/callback");
 }
 
@@ -182,6 +213,61 @@ async function malRequest(url, tokens) {
   });
 }
 
+async function exchangeShikimoriToken(fields) {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(fields)) form.append(key, String(value));
+  return fetchJson(SHIKIMORI_OAUTH + "/token", {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "User-Agent": process.env.SHIKIMORI_USER_AGENT || "MidaHoshiAnimeSync/0.2.0",
+    },
+    body: form,
+  });
+}
+
+async function getShikimoriAccessToken(tokens) {
+  const shikimori = tokens.shikimori;
+  if (!shikimori?.accessToken) throw new Error("Shikimori ещё не подключён.");
+  if (Number(shikimori.expiresAt) > Date.now() + 60000) return shikimori.accessToken;
+  if (!shikimori.refreshToken) throw new Error("Сессия Shikimori истекла. Подключи аккаунт заново.");
+
+  const refreshed = await exchangeShikimoriToken({
+    grant_type: "refresh_token",
+    client_id: process.env.SHIKIMORI_CLIENT_ID,
+    client_secret: process.env.SHIKIMORI_CLIENT_SECRET,
+    refresh_token: shikimori.refreshToken,
+  });
+  const accessToken = String(refreshed.access_token || "");
+  const expiresIn = Number(refreshed.expires_in);
+  if (accessToken.length < 20 || !Number.isFinite(expiresIn) || expiresIn <= 0) {
+    throw new Error("Shikimori вернул некорректный ответ при обновлении токена.");
+  }
+  tokens.shikimori = {
+    ...shikimori,
+    accessToken,
+    refreshToken: refreshed.refresh_token || shikimori.refreshToken,
+    expiresAt: Date.now() + expiresIn * 1000,
+  };
+  await writeTokens(tokens);
+  return accessToken;
+}
+
+async function shikimoriRequest(pathname, tokens, options = {}) {
+  const accessToken = await getShikimoriAccessToken(tokens);
+  await acquireShikimoriRequestSlot();
+  return fetchJson(SHIKIMORI_API + pathname, {
+    ...options,
+    headers: {
+      "User-Agent": process.env.SHIKIMORI_USER_AGENT || "MidaHoshiAnimeSync/0.2.0",
+      Authorization: "Bearer " + accessToken,
+      Accept: "application/json",
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...options.headers,
+    },
+  });
+}
+
 async function anilistRequest(query, variables, token) {
   const payload = await fetchJson(ANILIST_GRAPHQL, {
     method: "POST",
@@ -218,6 +304,12 @@ async function handleRequest(request, response) {
         connected: Boolean(tokens.anilist?.accessToken && tokens.anilist.expiresAt > Date.now()),
         username: tokens.anilist?.username || null,
         expiresAt: tokens.anilist?.expiresAt || null,
+      },
+      shikimori: {
+        configured: Boolean(process.env.SHIKIMORI_CLIENT_ID && process.env.SHIKIMORI_CLIENT_SECRET),
+        connected: Boolean(tokens.shikimori?.refreshToken || tokens.shikimori?.accessToken),
+        username: tokens.shikimori?.username || null,
+        expiresAt: tokens.shikimori?.expiresAt || null,
       },
     });
   }
@@ -338,10 +430,71 @@ async function handleRequest(request, response) {
     }
   }
 
+  if (method === "GET" && url.pathname === "/api/auth/shikimori/start") {
+    if (!process.env.SHIKIMORI_CLIENT_ID || !process.env.SHIKIMORI_CLIENT_SECRET) {
+      return sendJson(response, 400, { error: "Сначала добавь SHIKIMORI_CLIENT_ID и SHIKIMORI_CLIENT_SECRET в .env.local." });
+    }
+    const state = randomBytes(24).toString("hex");
+    const redirectUri = getRedirectUri("shikimori");
+    sessions.set("shikimori:" + state, { redirectUri, expiresAt: Date.now() + 600000 });
+    const authorize = new URL(SHIKIMORI_OAUTH + "/authorize");
+    authorize.searchParams.set("client_id", process.env.SHIKIMORI_CLIENT_ID);
+    authorize.searchParams.set("redirect_uri", redirectUri);
+    authorize.searchParams.set("response_type", "code");
+    authorize.searchParams.set("scope", "user_rates");
+    authorize.searchParams.set("state", state);
+    response.writeHead(302, { Location: authorize.toString(), "Cache-Control": "no-store" });
+    return response.end();
+  }
+
+  if (method === "GET" && url.pathname === "/api/auth/shikimori/callback") {
+    const state = url.searchParams.get("state") || "";
+    const pending = sessions.get("shikimori:" + state);
+    sessions.delete("shikimori:" + state);
+    if (!pending || pending.expiresAt < Date.now()) {
+      return sendHtml(response, 400, "<h2>Авторизация Shikimori не завершена</h2><p>Состояние авторизации устарело. Повтори подключение из приложения.</p><a href='/'>Вернуться</a>");
+    }
+    if (url.searchParams.has("error")) {
+      return sendHtml(response, 400, "<h2>Shikimori отклонил подключение</h2><p>" + escapeHtml(url.searchParams.get("error_description") || url.searchParams.get("error")) + "</p><a href='/'>Вернуться</a>");
+    }
+    const code = url.searchParams.get("code");
+    if (!code) return sendHtml(response, 400, "<h2>Shikimori не вернул код авторизации.</h2><a href='/'>Вернуться</a>");
+    try {
+      const token = await exchangeShikimoriToken({
+        grant_type: "authorization_code",
+        client_id: process.env.SHIKIMORI_CLIENT_ID,
+        client_secret: process.env.SHIKIMORI_CLIENT_SECRET,
+        code,
+        redirect_uri: pending.redirectUri,
+      });
+      const accessToken = String(token.access_token || "");
+      const expiresIn = Number(token.expires_in);
+      const refreshToken = String(token.refresh_token || "");
+      if (accessToken.length < 20 || refreshToken.length < 10 || !Number.isFinite(expiresIn) || expiresIn <= 0) {
+        throw new Error("Shikimori вернул некорректный ответ при авторизации.");
+      }
+      const tokens = await readTokens();
+      tokens.shikimori = {
+        accessToken,
+        refreshToken,
+        expiresAt: Date.now() + expiresIn * 1000,
+        username: null,
+        userId: null,
+      };
+      const me = await shikimoriRequest("/users/whoami", tokens);
+      tokens.shikimori.username = me.nickname || me.name || null;
+      tokens.shikimori.userId = me.id || null;
+      await writeTokens(tokens);
+      return sendHtml(response, 200, "<h2>Shikimori подключён ✓</h2><p>Токены сохранены в зашифрованном локальном хранилище.</p><a href='/'>Вернуться в MidaHoshi Anime Sync</a>");
+    } catch (error) {
+      return sendHtml(response, 502, "<h2>Не удалось подключить Shikimori</h2><p>" + escapeHtml(error.message) + "</p><a href='/'>Вернуться</a>");
+    }
+  }
+
   if (method === "POST" && url.pathname === "/api/integrations/disconnect") {
     const body = await readJson(request);
     const provider = body.provider;
-    if (provider !== "mal" && provider !== "anilist") return sendJson(response, 400, { error: "Неизвестный сервис." });
+    if (provider !== "mal" && provider !== "anilist" && provider !== "shikimori") return sendJson(response, 400, { error: "Неизвестный сервис." });
     const tokens = await readTokens();
     delete tokens[provider];
     await writeTokens(tokens);
@@ -519,6 +672,106 @@ async function handleRequest(request, response) {
       }
       // A false result means the entry was already absent, so the delete is idempotently complete.
       return sendJson(response, 200, { ok: true, deleted: data.DeleteMediaListEntry.deleted });
+    } catch (error) {
+      return sendJson(response, error.status || 502, { error: error.message });
+    }
+  }
+
+  if (method === "GET" && url.pathname === "/api/shikimori/list") {
+    const tokens = await readTokens();
+    if (!tokens.shikimori?.accessToken) return sendJson(response, 401, { error: "Shikimori ещё не подключён." });
+    try {
+      if (!tokens.shikimori.userId) {
+        const me = await shikimoriRequest("/users/whoami", tokens);
+        tokens.shikimori.userId = me.id || null;
+        tokens.shikimori.username = me.nickname || me.name || tokens.shikimori.username || null;
+        await writeTokens(tokens);
+      }
+      if (!tokens.shikimori.userId) throw new Error("Shikimori не вернул ID текущего пользователя.");
+      const items = [];
+      const limit = 5000;
+      let page = 1;
+      while (page <= 100) {
+        const query = new URLSearchParams({ limit: String(limit), page: String(page) });
+        const result = await shikimoriRequest(
+          "/users/" + encodeURIComponent(String(tokens.shikimori.userId)) + "/anime_rates?" + query.toString(),
+          tokens,
+        );
+        if (!Array.isArray(result)) throw new Error("Shikimori вернул список в неожиданном формате.");
+        items.push(...result);
+        if (result.length < limit) break;
+        page += 1;
+      }
+      if (page > 100) throw new Error("Список Shikimori слишком большой: достигнут лимит страниц.");
+      return sendJson(response, 200, { data: items, count: items.length });
+    } catch (error) {
+      return sendJson(response, error.status || 502, { error: error.message });
+    }
+  }
+
+  if (method === "POST" && url.pathname === "/api/shikimori/entry") {
+    const body = await readJson(request);
+    const targetId = Number(body.externalId);
+    const entryId = body.entryId == null ? null : Number(body.entryId);
+    const status = String(body.status || "");
+    const progress = Number(body.progress);
+    const score = body.score == null ? 0 : Number(body.score);
+    const statuses = ["PLANNING", "WATCHING", "COMPLETED", "ON_HOLD", "DROPPED", "REWATCHING"];
+    if (!Number.isSafeInteger(targetId) || targetId <= 0 ||
+        (entryId !== null && (!Number.isSafeInteger(entryId) || entryId <= 0)) ||
+        !statuses.includes(status) ||
+        !Number.isSafeInteger(progress) || progress < 0 ||
+        !Number.isFinite(score) || score < 0 || score > 100) {
+      return sendJson(response, 400, { error: "Некорректные данные записи для Shikimori." });
+    }
+    const tokens = await readTokens();
+    if (!tokens.shikimori?.accessToken) return sendJson(response, 401, { error: "Shikimori ещё не подключён." });
+    try {
+      if (!tokens.shikimori.userId) {
+        const me = await shikimoriRequest("/users/whoami", tokens);
+        tokens.shikimori.userId = me.id || null;
+        await writeTokens(tokens);
+      }
+      if (!tokens.shikimori.userId) throw new Error("Shikimori не вернул ID текущего пользователя.");
+      const remoteStatus = status === "PLANNING" ? "planned"
+        : status === "WATCHING" ? "watching"
+        : status === "REWATCHING" ? "rewatching"
+        : status === "COMPLETED" ? "completed"
+        : status === "ON_HOLD" ? "on_hold" : "dropped";
+      const userRate = {
+        target_id: targetId,
+        target_type: "Anime",
+        status: remoteStatus,
+        score: score === 0 ? 0 : Math.max(1, Math.min(10, Math.round(score / 10))),
+        episodes: progress,
+        ...(entryId === null ? { user_id: tokens.shikimori.userId } : {}),
+      };
+      const result = entryId === null
+        ? await shikimoriRequest("/v2/user_rates", tokens, {
+            method: "POST",
+            body: JSON.stringify({ user_rate: userRate }),
+          })
+        : await shikimoriRequest("/v2/user_rates/" + entryId, tokens, {
+            method: "PATCH",
+            body: JSON.stringify({ user_rate: userRate }),
+          });
+      return sendJson(response, 200, { ok: true, result });
+    } catch (error) {
+      return sendJson(response, error.status || 502, { error: error.message });
+    }
+  }
+
+  if (method === "POST" && url.pathname === "/api/shikimori/entry/delete") {
+    const body = await readJson(request);
+    const entryId = Number(body.entryId);
+    if (!Number.isSafeInteger(entryId) || entryId <= 0) {
+      return sendJson(response, 400, { error: "Некорректный Shikimori rate ID для удаления." });
+    }
+    const tokens = await readTokens();
+    if (!tokens.shikimori?.accessToken) return sendJson(response, 401, { error: "Shikimori ещё не подключён." });
+    try {
+      await shikimoriRequest("/v2/user_rates/" + entryId, tokens, { method: "DELETE" });
+      return sendJson(response, 200, { ok: true });
     } catch (error) {
       return sendJson(response, error.status || 502, { error: error.message });
     }

@@ -169,3 +169,54 @@ describe("unfinished sync operation recovery", () => {
     expect(update).toHaveBeenCalledWith(updateOperation.id, { status: "succeeded" });
   });
 });
+
+
+describe("Shikimori sync recovery", () => {
+  it("compares scores at Shikimori's ten-point precision", async () => {
+    const remoteAnime: AnimeIdentity = {
+      id: "shikimori:41",
+      titles: { english: "Example anime", synonyms: [] },
+      externalIds: { shikimori: "41" },
+    };
+    const remoteEntry: AnimeListEntry = {
+      animeId: remoteAnime.id,
+      source: "shikimori",
+      status: "WATCHING",
+      progress: 4,
+      score: 80,
+      favorite: false,
+      updatedAt: "2026-11-17T10:00:00.000Z",
+      sourceMetadata: { shikimoriRateId: 901 },
+    };
+    const updateOperation = operation({
+      id: "sync-shikimori-remote-update-0",
+      sessionId: "sync-shikimori",
+      provider: "shikimori",
+      kind: "update",
+      animeId: remoteAnime.id,
+      externalId: "41",
+      entry: { ...remoteEntry, score: 84 },
+    });
+    const update = vi.fn(async () => undefined);
+    const result = await reconcileUnfinishedSyncOperations(
+      [updateOperation],
+      "shikimori",
+      {
+        schemaVersion: 4,
+        exportedAt: "2026-11-17T10:00:00.000Z",
+        anime: [remoteAnime],
+        entries: [remoteEntry],
+        sourceEntries: [remoteEntry],
+        conflictResolutions: [],
+        animeRelations: [],
+      },
+      {
+        getSourceEntries: vi.fn(async () => []),
+        updateSyncOperation: update,
+      },
+    );
+
+    expect(result.recoveredOperations).toBe(1);
+    expect(update).toHaveBeenCalledWith(updateOperation.id, { status: "succeeded" });
+  });
+});

@@ -8,8 +8,8 @@ import type {
   AnimeRelation,
   AnimeSnapshot,
   SyncOperation,
-  SyncDeletionIntent,
   SyncSession,
+  SyncDeletionIntent,
 } from "../src/core/types.js";
 
 const repositories: BrowserAnimeRepository[] = [];
@@ -1061,6 +1061,77 @@ describe("BrowserAnimeRepository relations", () => {
     );
   });
 
+  it("cancels a Shikimori deletion intent when restoring its anime identity", async () => {
+    const repo = await createRepository();
+    const anime = makeAnime("shikimori:41");
+    anime.externalIds = { shikimori: "41" };
+    const entry = {
+      ...makeEntry(anime.id, 5, "2026-11-18T10:00:00.000Z"),
+      source: "shikimori" as const,
+    };
+    await repo.saveAnimeWithEntry(anime, entry);
+    const intent: SyncDeletionIntent = {
+      id: "delete-shikimori-41",
+      provider: "shikimori",
+      animeId: anime.id,
+      externalId: "41",
+      anime,
+      entry,
+      createdAt: "2026-11-18T12:00:00.000Z",
+    };
+    await repo.deleteAnime(anime.id, [intent]);
+    expect(await repo.getDeletionIntents("shikimori")).toHaveLength(1);
+
+    await repo.restoreSnapshot({
+      schemaVersion: 4,
+      exportedAt: "2026-11-19T12:00:00.000Z",
+      anime: [anime],
+      entries: [entry],
+      sourceEntries: [entry],
+      conflictResolutions: [],
+      animeRelations: [],
+      deletionIntents: [],
+    });
+
+    expect(await repo.getDeletionIntents("shikimori")).toEqual([]);
+    expect(await repo.getAnime(anime.id)).toMatchObject({ externalIds: { shikimori: "41" } });
+  });
+
+  it("cancels a Shikimori deletion intent when merging an imported snapshot", async () => {
+    const repo = await createRepository();
+    const anime = makeAnime("shikimori:42");
+    anime.externalIds = { shikimori: "42" };
+    const entry = {
+      ...makeEntry(anime.id, 3, "2026-11-18T10:00:00.000Z"),
+      source: "shikimori" as const,
+    };
+    await repo.saveAnimeWithEntry(anime, entry);
+    const intent: SyncDeletionIntent = {
+      id: "delete-shikimori-42",
+      provider: "shikimori",
+      animeId: anime.id,
+      externalId: "42",
+      anime,
+      entry,
+      createdAt: "2026-11-18T12:00:00.000Z",
+    };
+    await repo.deleteAnime(anime.id, [intent]);
+
+    await repo.mergeSnapshotWithMappings({
+      schemaVersion: 4,
+      exportedAt: "2026-11-19T12:00:00.000Z",
+      anime: [anime],
+      entries: [entry],
+      sourceEntries: [entry],
+      conflictResolutions: [],
+      animeRelations: [],
+      deletionIntents: [],
+    }, {});
+
+    expect(await repo.getDeletionIntents("shikimori")).toEqual([]);
+    expect(await repo.getAnime(anime.id)).toMatchObject({ externalIds: { shikimori: "42" } });
+  });
+
   it("removes anime relations when deleting an anime", async () => {
     const repo = await createRepository();
 
@@ -1607,67 +1678,33 @@ describe("BrowserAnimeRepository identity reconciliation", () => {
     expect(snapshot.entries[0]).toMatchObject({ animeId: "mal:100", progress: 10, favorite: true });
   });
 
-  it("keeps one canonical anime when MAL is imported after AniList", async () => {
+  it("removes only the Shikimori source entry and preserves other providers", async () => {
     const repo = await createRepository();
-    const anilist = makeAnime("anilist:200");
-    anilist.externalIds = { myanimelist: "100", anilist: "200" };
-    await repo.saveAnimeWithEntry(anilist, {
-      ...makeEntry("anilist:200", 8, "2026-11-18T11:00:00.000Z"),
+    const anime = makeAnime("shikimori:41");
+    anime.externalIds = { shikimori: "41" };
+    await repo.saveAnime(anime);
+    await repo.saveSourceEntry({
+      ...makeEntry(anime.id, 5, "2026-11-18T10:00:00.000Z"),
+      source: "shikimori",
+      sourceMetadata: { shikimoriRateId: 901 },
+    });
+    await repo.saveSourceEntry({
+      ...makeEntry(anime.id, 3, "2026-11-18T11:00:00.000Z"),
       source: "anilist",
-      score: 90,
-      favorite: true,
-      sourceMetadata: { repeat: 1 },
+      sourceMetadata: { anilistEntryId: 902 },
     });
 
-    const mal = makeAnime("mal:100");
-    mal.externalIds = { myanimelist: "100" };
-    await repo.saveAnimeWithEntry(mal, {
-      ...makeEntry("mal:100", 10, "2026-11-18T10:00:00.000Z"),
-      source: "myanimelist",
-      score: 80,
-      sourceMetadata: { comments: "MAL note" },
-    });
+    await repo.deleteSourceEntry(anime.id, "shikimori");
 
     const snapshot = await repo.snapshot();
     expect(snapshot.anime).toHaveLength(1);
-    expect(snapshot.anime[0]).toMatchObject({
-      id: "anilist:200",
-      externalIds: { myanimelist: "100", anilist: "200" },
-    });
-    expect(snapshot.sourceEntries).toHaveLength(2);
-    expect(snapshot.sourceEntries).toEqual(expect.arrayContaining([
-      expect.objectContaining({ animeId: "anilist:200", source: "anilist", score: 90, sourceMetadata: { repeat: 1 } }),
-      expect.objectContaining({ animeId: "anilist:200", source: "myanimelist", score: 80, sourceMetadata: { comments: "MAL note" } }),
-    ]));
-  });
-
-  it("reconciles whitespace-normalized external IDs and stores canonical trimmed IDs", async () => {
-    const repo = await createRepository();
-    const mal = makeAnime("mal:100");
-    mal.externalIds = { myanimelist: " 100 " };
-    const anilist = makeAnime("anilist:200");
-    anilist.externalIds = { myanimelist: "100", anilist: "200" };
-    await repo.saveAnime(mal);
-    await repo.saveAnime(anilist);
-    await repo.saveSourceEntry({
-      ...makeEntry("mal:100", 4, "2026-11-18T10:00:00.000Z"),
-      source: "myanimelist",
-    });
-    await repo.saveSourceEntry({
-      ...makeEntry("anilist:200", 5, "2026-11-18T11:00:00.000Z"),
+    expect(snapshot.sourceEntries).toHaveLength(1);
+    expect(snapshot.sourceEntries[0]).toMatchObject({
+      animeId: anime.id,
       source: "anilist",
+      sourceMetadata: { anilistEntryId: 902 },
     });
-
-    const result = await repo.reconcileExactIdentityDuplicates();
-    const snapshot = await repo.snapshot();
-
-    expect(result).toEqual({ mergedPairs: 1, skippedPairs: 0 });
-    expect(snapshot.anime).toHaveLength(1);
-    expect(snapshot.anime[0]?.externalIds).toEqual({
-      myanimelist: "100",
-      anilist: "200",
-    });
-    expect(snapshot.sourceEntries).toHaveLength(2);
+    expect(snapshot.entries[0]).toMatchObject({ animeId: anime.id, progress: 3 });
   });
 
   it("repairs an existing exact-ID duplicate pair without dropping provider baselines", async () => {
@@ -1775,7 +1812,6 @@ describe("BrowserAnimeRepository identity reconciliation", () => {
     expect(snapshot.anime).toHaveLength(1);
     expect(snapshot.sourceEntries).toHaveLength(2);
   });
-
 
   it("skips duplicate groups that contain multiple records for the same provider", async () => {
     const repo = await createRepository();

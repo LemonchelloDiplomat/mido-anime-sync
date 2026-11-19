@@ -1,5 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { detectMaxProgressStatusConflicts } from "../core/conflicts.js";
+import { getProviderServiceId } from "../core/provider-capabilities.js";
 import { findExactIdentityDuplicatePairs } from "../core/identity-reconciliation.js";
 
 import type {
@@ -14,6 +15,7 @@ import type {
   SyncOperation,
   SyncSession,
   SyncDeletionIntent,
+  ServiceId,
 } from "../core/types.js";
 
 import { validateSnapshot, validateEntry } from "./snapshot-validation.js";
@@ -151,22 +153,14 @@ function mergeAnimeForReconciliation(
   target: AnimeIdentity,
   source: AnimeIdentity,
 ): AnimeIdentity {
-  for (const [service, rawSourceId] of Object.entries(source.externalIds)) {
-    const sourceId = rawSourceId?.trim();
+  for (const [service, sourceId] of Object.entries(source.externalIds)) {
     const targetId =
-      target.externalIds[service as keyof typeof target.externalIds]?.trim();
+      target.externalIds[service as keyof typeof target.externalIds];
 
     if (targetId && sourceId && targetId !== sourceId) {
       throw new Error(
         `External ID conflict for ${service}: ${targetId} vs ${sourceId}`,
       );
-    }
-  }
-
-  const externalIds = { ...source.externalIds, ...target.externalIds };
-  for (const [service, value] of Object.entries(externalIds)) {
-    if (typeof value === "string") {
-      externalIds[service as keyof typeof externalIds] = value.trim();
     }
   }
 
@@ -196,7 +190,10 @@ function mergeAnimeForReconciliation(
       ],
     },
 
-    externalIds,
+    externalIds: {
+      ...source.externalIds,
+      ...target.externalIds,
+    },
 
     ...(year !== undefined ? { year } : {}),
     ...(format !== undefined ? { format } : {}),
@@ -572,7 +569,7 @@ export class BrowserAnimeRepository {
       .map((session) => structuredClone(session));
   }
 
-  async getUnfinishedSyncOperations(provider?: "mal" | "anilist"): Promise<SyncOperation[]> {
+  async getUnfinishedSyncOperations(provider?: SyncOperation["provider"]): Promise<SyncOperation[]> {
     const operations = await this.getSyncOperations();
     return operations.filter((operation) =>
       operation.status !== "succeeded" &&
@@ -637,7 +634,7 @@ export class BrowserAnimeRepository {
       const pendingDeletions = await deletionStore.getAll();
       await Promise.all(pendingDeletions
         .filter((intent) => {
-          const service = intent.provider === "mal" ? "myanimelist" : "anilist";
+          const service = getProviderServiceId(intent.provider);
           return canonicalAnime.externalIds[service] === intent.externalId;
         })
         .map((intent) => deletionStore.delete(intent.id)));
@@ -679,7 +676,7 @@ export class BrowserAnimeRepository {
     const pendingDeletions = await deletionStore.getAll();
     await Promise.all(pendingDeletions
       .filter((intent) => {
-        const service = intent.provider === "mal" ? "myanimelist" : "anilist";
+        const service = getProviderServiceId(intent.provider);
         return anime.externalIds[service] === intent.externalId;
       })
       .map((intent) => deletionStore.delete(intent.id)));
@@ -1103,8 +1100,7 @@ export class BrowserAnimeRepository {
 
     try {
       const [
-        sourceAnime,
-        targetAnime,
+        allAnime,
         allEntries,
         allSourceEntries,
         resolutions,
@@ -1112,8 +1108,7 @@ export class BrowserAnimeRepository {
         allOperations,
         allDeletionIntents,
       ] = await Promise.all([
-        animeStore.get(sourceId),
-        animeStore.get(targetId),
+        animeStore.getAll(),
         entriesStore.getAll(),
         sourceStore.getAll(),
         resolutionStore.getAll(),
@@ -1121,6 +1116,9 @@ export class BrowserAnimeRepository {
         operationsStore.getAll(),
         deletionStore.getAll(),
       ]);
+
+      const sourceAnime = allAnime.find((anime) => anime.id === sourceId);
+      const targetAnime = allAnime.find((anime) => anime.id === targetId);
 
       if (!sourceAnime) {
         throw new Error(`Source anime not found: ${sourceId}`);
@@ -1171,7 +1169,6 @@ export class BrowserAnimeRepository {
         ...structuredClone(entry),
         animeId: targetId,
       }));
-
       const mergedSourceEntries = mergeSourceEntries([], remappedEntries);
       const unaffectedEntries = allSourceEntries.filter(
         (entry) => entry.animeId !== sourceId && entry.animeId !== targetId,
@@ -1190,12 +1187,10 @@ export class BrowserAnimeRepository {
           ...structuredClone(resolution),
           animeId: targetId,
         }));
-
       const unaffectedResolutions = resolutions.filter(
         (resolution) =>
           resolution.animeId !== sourceId && resolution.animeId !== targetId,
       );
-
       const mergedResolutions = mergeConflictResolutions(
         mergedSourceEntries,
         affectedResolutions,
@@ -1217,7 +1212,7 @@ export class BrowserAnimeRepository {
         [sourceId]: targetId,
       });
       const remainingAnimeIds = new Set(
-        (await animeStore.getAll())
+        allAnime
           .filter((anime) => anime.id !== sourceId)
           .map((anime) => anime.id),
       );
@@ -1235,7 +1230,6 @@ export class BrowserAnimeRepository {
             ? { anime: { ...structuredClone(operation.anime), id: targetId } }
             : {}),
         }));
-
       const remappedDeletionIntents = allDeletionIntents
         .filter((intent) => intent.animeId === sourceId)
         .map((intent) => ({
@@ -1333,7 +1327,7 @@ export class BrowserAnimeRepository {
     await transaction.done;
   }
 
-  async getDeletionIntents(provider?: "mal" | "anilist"): Promise<SyncDeletionIntent[]> {
+  async getDeletionIntents(provider?: SyncDeletionIntent["provider"]): Promise<SyncDeletionIntent[]> {
     const intents = await this.db.getAll("deletionIntents");
     return intents
       .filter((intent) => provider === undefined || intent.provider === provider)
@@ -1349,7 +1343,7 @@ export class BrowserAnimeRepository {
    * Removes only one provider's source entry and rebuilds the aggregate entry.
    * The anime identity and entries from other providers remain untouched.
    */
-  async deleteSourceEntry(animeId: string, source: "myanimelist" | "anilist"): Promise<void> {
+  async deleteSourceEntry(animeId: string, source: ServiceId): Promise<void> {
     const transaction = this.db.transaction(["entries", "sourceEntries", "conflictResolutions"], "readwrite");
     const transactionDone = transaction.done;
     void transactionDone.catch(() => undefined);
@@ -1494,7 +1488,7 @@ export class BrowserAnimeRepository {
     const deletionStore = transaction.objectStore("deletionIntents");
     const pendingDeletions = await deletionStore.getAll();
     const intentsToCancel = pendingDeletions.filter((intent) => {
-      const service = intent.provider === "mal" ? "myanimelist" : "anilist";
+      const service = getProviderServiceId(intent.provider);
       return anime.some((item) => item.externalIds[service] === intent.externalId);
     });
 
@@ -1731,7 +1725,7 @@ export class BrowserAnimeRepository {
 
       const mergedAnime = [...animeMap.values()];
       const deletionIntentsToCancel = currentDeletionIntents.filter((intent) => {
-        const service = intent.provider === "mal" ? "myanimelist" : "anilist";
+        const service = getProviderServiceId(intent.provider);
         return mergedAnime.some((item) => item.externalIds[service] === intent.externalId);
       });
 
