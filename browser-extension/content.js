@@ -417,6 +417,12 @@
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === "MIDAHOSHI_REFRESH_WATCH_CONTEXT" && !isAnimeGoPlayerFrame) {
+      lastPublishedContextKey = "";
+      publishCurrentWatchContext();
+      sendResponse({ ok: true });
+      return true;
+    }
     if (message?.type === "MIDAHOSHI_DETECT_WATCH_EVENT" && !isAnimeGoPlayerFrame) {
       sendResponse(detect());
     }
