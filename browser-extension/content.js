@@ -171,6 +171,19 @@
     };
   }
 
+  // CVH nests its player iframe inside the open shadow root of <video-player>.
+  // document.querySelectorAll() does not cross shadow DOM boundaries, so walk
+  // open roots when locating the child frame that requested AnimeGO metadata.
+  function queryAllDeep(selector, root = document) {
+    const matches = [];
+    if (!root || typeof root.querySelectorAll !== "function") return matches;
+    matches.push(...root.querySelectorAll(selector));
+    for (const element of root.querySelectorAll("*")) {
+      if (element.shadowRoot) matches.push(...queryAllDeep(selector, element.shadowRoot));
+    }
+    return matches;
+  }
+
   function sendParentMetadataToFrame(frame) {
     if (service !== "animego" || isAniBoomFrame || !frame?.contentWindow) return;
     let frameUrl;
@@ -201,7 +214,7 @@
 
   function syncParentMetadataToFrames() {
     if (service !== "animego" || isAniBoomFrame) return;
-    document.querySelectorAll("iframe").forEach(sendParentMetadataToFrame);
+    queryAllDeep("iframe").forEach(sendParentMetadataToFrame);
   }
 
   let parentMetadataRetryTimer = null;
@@ -268,7 +281,7 @@
         if (event.source === window.parent ||
             event.origin !== "https://player.cdnvideohub.com" ||
             event.data?.type !== "MIDAHOSHI_REQUEST_PARENT_METADATA") return;
-        const frame = Array.from(document.querySelectorAll("iframe"))
+        const frame = queryAllDeep("iframe")
           .find((candidate) => candidate.contentWindow === event.source);
         if (frame) sendParentMetadataToFrame(frame);
       });
