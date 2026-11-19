@@ -15,7 +15,7 @@ assert.ok(manifest.permissions.includes("tabs"));
 assert.ok(!manifest.permissions.includes("cookies"), "Extension must not request cookies access");
 assert.ok(!manifest.host_permissions.some((host) => host.includes("<all_urls>")), "Extension must not request broad host access");
 
-for (const file of ["content.js", "popup.js", "options.js", "background.js"]) {
+for (const file of ["content.js", "popup.js", "options.js", "background.js", "bridge.js"]) {
   const source = await read("browser-extension/" + file);
   new vm.Script(source, { filename: file });
 }
