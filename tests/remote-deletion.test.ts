@@ -187,3 +187,86 @@ describe("safe remote deletion workflow", () => {
     expect(pending.size).toBe(0);
   });
 });
+
+
+describe("Shikimori remote deletion", () => {
+  it("uses the persisted Shikimori rate ID for idempotent deletion", async () => {
+    const deletedAnime: AnimeIdentity = {
+      id: "local:shikimori:41",
+      titles: { english: "Example anime", synonyms: [] },
+      externalIds: { shikimori: "41" },
+    };
+    const deletedEntry: AnimeListEntry = {
+      animeId: deletedAnime.id,
+      source: "shikimori",
+      status: "WATCHING",
+      progress: 4,
+      score: 80,
+      favorite: false,
+      updatedAt: "2026-11-17T10:00:00.000Z",
+    };
+    const deletionIntent: SyncDeletionIntent = {
+      id: "delete-shikimori-41",
+      provider: "shikimori",
+      animeId: deletedAnime.id,
+      externalId: "41",
+      anime: deletedAnime,
+      entry: deletedEntry,
+      createdAt: "2026-11-17T10:00:00.000Z",
+    };
+    const remoteAnime: AnimeIdentity = {
+      ...deletedAnime,
+      id: "shikimori:41",
+    };
+    const remoteEntry: AnimeListEntry = {
+      ...deletedEntry,
+      animeId: remoteAnime.id,
+      source: "shikimori",
+      sourceMetadata: { shikimoriRateId: 901 },
+    };
+    const snapshot: AnimeSnapshotV4 = {
+      schemaVersion: 4,
+      exportedAt: "2026-11-17T10:00:00.000Z",
+      anime: [remoteAnime],
+      entries: [remoteEntry],
+      sourceEntries: [remoteEntry],
+      conflictResolutions: [],
+      animeRelations: [],
+    };
+    const candidates = await resolvePendingRemoteDeletionIntents(
+      [deletionIntent],
+      snapshot,
+      "shikimori",
+      vi.fn(async () => undefined),
+    );
+    expect(candidates[0]?.entryId).toBe(901);
+
+    const shikimoriOperation: SyncOperation = {
+      ...operation(),
+      id: "sync-shikimori-remote-delete-0",
+      sessionId: "sync-shikimori",
+      provider: "shikimori",
+      animeId: deletedAnime.id,
+      externalId: "41",
+      entry: deletedEntry,
+      anime: deletedAnime,
+    };
+    const deleteAccountEntry = vi.fn(async () => ({ ok: true }));
+    const result = await executeRemoteDeletions(
+      "shikimori",
+      candidates,
+      [shikimoriOperation],
+      {
+        deleteAccountEntry,
+        deleteDeletionIntent: vi.fn(async () => undefined),
+        updateSyncOperation: vi.fn(async () => undefined),
+      },
+    );
+
+    expect(deleteAccountEntry).toHaveBeenCalledWith("shikimori", {
+      externalId: "41",
+      entryId: 901,
+    });
+    expect(result).toMatchObject({ succeeded: 1, deleted: 1, failures: [] });
+  });
+});
