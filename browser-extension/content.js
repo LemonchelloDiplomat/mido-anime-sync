@@ -4,7 +4,8 @@
   const isCvhFrame = host === "animego.me" && location.pathname.startsWith("/cdn-iframe/");
   const isCvhPlayerFrame = host === "player.cdnvideohub.com";
   const isCvhTrackingFrame = isCvhFrame || isCvhPlayerFrame;
-  const isAnimeGoPlayerFrame = isAniBoomFrame || isCvhTrackingFrame;
+  const isKodikFrame = host === "kodikplayer.com";
+  const isAnimeGoPlayerFrame = isAniBoomFrame || isCvhTrackingFrame || isKodikFrame;
   const service = isAnimeGoPlayerFrame ? "animego" : host.includes("yummy") ? "yummyanime"
     : host.includes("anixart") ? "anixart"
     : "animego";
@@ -23,6 +24,19 @@
         (hostname === "anime-go.org" || hostname.endsWith(".anime-go.org") ||
           hostname === "animego.online" || hostname.endsWith(".animego.online") ||
           hostname === "animego.me" || hostname.endsWith(".animego.me"));
+    } catch {
+      return false;
+    }
+  }
+
+  function isAllowedWatchSourceUrl(rawUrl) {
+    try {
+      const url = new URL(rawUrl);
+      const hostname = url.hostname.toLowerCase();
+      return isAllowedAnimeGoUrl(rawUrl) ||
+        ((url.protocol === "https:" || url.protocol === "http:") &&
+          (hostname === "yummyani.me" || hostname.endsWith(".yummyani.me") ||
+            hostname === "yummy-ani.me" || hostname.endsWith(".yummy-ani.me")));
     } catch {
       return false;
     }
@@ -136,6 +150,25 @@
       };
     }
 
+    if (isKodikFrame && parentMetadata) {
+      const video = videoOverride || findMainVideo();
+      const currentTimeSeconds = video && Number.isFinite(video.currentTime) ? Math.floor(video.currentTime) : null;
+      const durationSeconds = video && Number.isFinite(video.duration) && video.duration > 0
+        ? Math.floor(video.duration)
+        : null;
+      return {
+        service: parentMetadata.service || "animego",
+        title: parentMetadata.title,
+        episode: parentMetadata.episode,
+        sourceUrl: parentMetadata.sourceUrl,
+        currentTimeSeconds,
+        durationSeconds,
+        hasVideoElement: Boolean(video),
+        manualOnly: !video || durationSeconds == null,
+        pageTitle: document.title,
+      };
+    }
+
     if (isAniBoomFrame && parentMetadata) {
       const video = videoOverride || findMainVideo();
       const currentTimeSeconds = video && Number.isFinite(video.currentTime) ? Math.floor(video.currentTime) : null;
@@ -216,22 +249,22 @@
   }
 
   function sendParentMetadataToFrame(frame) {
-    if (service !== "animego" || isAniBoomFrame || !frame?.contentWindow) return;
+    if ((service !== "animego" && service !== "yummyanime") || isAnimeGoPlayerFrame || !frame?.contentWindow) return;
     let frameUrl;
     try {
       frameUrl = new URL(frame.src, location.href);
     } catch {
       return;
     }
-    const isAniBoomTarget = frameUrl.hostname.toLowerCase() === "aniboom.one";
+    const targetHost = frameUrl.hostname.toLowerCase();
+    const isAniBoomTarget = targetHost === "aniboom.one";
     // AnimeGO does not consistently expose providerSlug on its iframe.
     // The CVH iframe URL itself is the stable provider signal.
-    const isCvhTarget = frameUrl.hostname.toLowerCase() === "animego.me" &&
-      frameUrl.pathname.startsWith("/cdn-iframe/");
-    const isCvhPlayerTarget = frameUrl.hostname.toLowerCase() === "player.cdnvideohub.com";
-    if (!isAniBoomTarget && !isCvhTarget && !isCvhPlayerTarget) return;
-
-    const detected = detect();
+    const isCvhTarget = targetHost === "animego.me" && frameUrl.pathname.startsWith("/cdn-iframe/");
+    const isCvhPlayerTarget = targetHost === "player.cdnvideohub.com";
+    const isKodikTarget = targetHost === "kodikplayer.com";
+    if (!isAniBoomTarget && !isCvhTarget && !isCvhPlayerTarget && !isKodikTarget) return;
+    if ((isAniBoomTarget || isCvhTarget || isCvhPlayerTarget) && service !== "animego") return;
     if (!detected.title || !Number.isSafeInteger(detected.episode) || detected.episode < 1) return;
     frame.contentWindow.postMessage({
       type: "MIDAHOSHI_PARENT_METADATA",
@@ -239,12 +272,13 @@
         title: detected.title,
         episode: detected.episode,
         sourceUrl: detected.sourceUrl,
+        service: detected.service,
       },
     }, frameUrl.origin);
   }
 
   function syncParentMetadataToFrames() {
-    if (service !== "animego" || isAniBoomFrame) return;
+    if ((service !== "animego" && service !== "yummyanime") || isAnimeGoPlayerFrame) return;
     queryAllDeep("iframe").forEach(sendParentMetadataToFrame);
   }
 
@@ -266,7 +300,10 @@
     };
 
     window.addEventListener("message", (event) => {
-      if (event.source !== window.parent || !isAllowedAnimeGoUrl(event.origin)) return;
+      const validParentOrigin = isKodikFrame
+        ? isAllowedWatchSourceUrl(event.origin)
+        : isAllowedAnimeGoUrl(event.origin);
+      if (event.source !== window.parent || !validParentOrigin) return;
       if (event.data?.type !== "MIDAHOSHI_PARENT_METADATA") return;
       const metadata = event.data.metadata;
       if (
@@ -275,14 +312,16 @@
         metadata.title.trim().length < 2 ||
         !Number.isSafeInteger(metadata.episode) ||
         metadata.episode < 1 ||
-        !isAllowedAnimeGoUrl(metadata.sourceUrl) ||
-        new URL(metadata.sourceUrl).origin !== event.origin
+        !isAllowedWatchSourceUrl(metadata.sourceUrl) ||
+        new URL(metadata.sourceUrl).origin !== event.origin ||
+        (isKodikFrame && metadata.service !== "animego" && metadata.service !== "yummyanime")
       ) return;
       const sourceUrl = new URL(metadata.sourceUrl);
       const nextMetadata = {
         title: metadata.title.trim(),
         episode: metadata.episode,
         sourceUrl: sourceUrl.origin + sourceUrl.pathname,
+        service: isKodikFrame ? metadata.service : "animego",
       };
       const nextMetadataKey = [
         nextMetadata.title.trim().toLocaleLowerCase(),
@@ -337,6 +376,7 @@
   } else {
     window.addEventListener("message", (event) => {
       if (event.origin !== "https://aniboom.one" &&
+          event.origin !== "https://kodikplayer.com" &&
           event.origin !== location.origin) return;
       if (event.data?.type !== "MIDAHOSHI_REQUEST_PARENT_METADATA") return;
       const frame = queryAllDeep("iframe")
