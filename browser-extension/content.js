@@ -14,7 +14,11 @@
   let previousCvhTime = null;
   let cvhMetadataKey = null;
   let cvhAwaitingEpisodeStart = false;
+  let kodikMetadataKey = null;
+  let kodikAwaitingEpisodeStart = false;
+  let previousKodikTime = null;
   const sentCvhKeys = new Set();
+  const sentKodikKeys = new Set();
 
   function isAllowedAnimeGoUrl(rawUrl) {
     try {
@@ -328,6 +332,13 @@
         nextMetadata.episode,
         nextMetadata.sourceUrl,
       ].join("|");
+      if (isKodikFrame && kodikMetadataKey !== null && kodikMetadataKey !== nextMetadataKey) {
+        // A reused Kodik player may briefly retain the previous episode's
+        // playback position after the parent page changes episode metadata.
+        previousKodikTime = null;
+        kodikAwaitingEpisodeStart = true;
+      }
+      if (isKodikFrame) kodikMetadataKey = nextMetadataKey;
       if (isCvhPlayerFrame && cvhMetadataKey !== null && cvhMetadataKey !== nextMetadataKey) {
         // The CVH player can briefly report the previous episode's near-end
         // timestamp after AnimeGO has already switched the episode metadata.
@@ -431,6 +442,51 @@
     });
   }
 
+  function maybeSendKodikVideo(video) {
+    if (!isKodikFrame || !parentMetadata) return;
+    const duration = Number(video.duration);
+    const currentTime = Number(video.currentTime);
+    if (!Number.isFinite(duration) || duration <= 0 ||
+        !Number.isFinite(currentTime) || currentTime < 0 || video.paused === true) {
+      previousKodikTime = null;
+      return;
+    }
+
+    const previousTime = previousKodikTime;
+    previousKodikTime = currentTime;
+    if (kodikAwaitingEpisodeStart) {
+      const timelineReset = currentTime <= Math.min(10, duration * 0.02) ||
+        (previousTime !== null && currentTime < previousTime - 5);
+      if (timelineReset) {
+        kodikAwaitingEpisodeStart = false;
+        previousKodikTime = currentTime;
+      }
+      return;
+    }
+
+    const delta = previousTime === null ? 0 : currentTime - previousTime;
+    if (delta < 0.15 || delta > 5 || currentTime / duration < 0.9) return;
+
+    const detected = detect(video);
+    if (!detected.title || !Number.isSafeInteger(detected.episode) || detected.episode < 1) return;
+    const eventKey = [detected.sourceUrl, detected.episode, video.currentSrc || video.src || ""].join("|");
+    if (sentKodikKeys.has(eventKey)) return;
+    sentKodikKeys.add(eventKey);
+
+    chrome.runtime.sendMessage({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: {
+        ...detected,
+        currentTimeSeconds: Math.floor(currentTime),
+        durationSeconds: Math.floor(duration),
+        hasVideoElement: true,
+        manualOnly: false,
+        eventId: crypto.randomUUID(),
+        observedAt: new Date().toISOString(),
+      },
+    });
+  }
+
   function attachVideo(video) {
     const existingHandler = videoWatchHandlers.get(video);
     if (existingHandler) {
@@ -441,6 +497,10 @@
     }
 
     const maybeSend = () => {
+      if (isKodikFrame) {
+        maybeSendKodikVideo(video);
+        return;
+      }
       const duration = Number(video.duration);
       const currentTime = Number(video.currentTime);
       if (!Number.isFinite(duration) || duration <= 0 || currentTime / duration < 0.9) return;
