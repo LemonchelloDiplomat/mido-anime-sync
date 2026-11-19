@@ -8,6 +8,7 @@ on:
       - fix/library-identity-integrity
       - feat/provider-adapter-architecture
       - feat/streaming-site-bridge
+      - feat/streaming-site-bridge-stacked
   pull_request:
 
 jobs:
@@ -25,6 +26,8 @@ jobs:
         run: npm ci
       - name: Run tests
         run: npm test
+      - name: Validate browser extension
+        run: npm run check:extension
       - name: Check API server syntax
         run: npm run check:server
       - name: Build
