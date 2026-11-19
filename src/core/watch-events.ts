@@ -31,7 +31,7 @@ export function validateWatchEvent(value: unknown): WatchEvent {
     : event.service === "yummyanime"
       ? ["yummyani.me", "yummy-ani.me", "yummyanime.club", "yummyanime.info"].some((domain) => host === domain || host.endsWith("." + domain))
       : event.service === "anixart"
-        ? host === "anixart-app.com" || host.endsWith(".anixart-app.com")
+        ? host === "anixart-app.com" || host.endsWith(".anixart-app.com") || host === "anixartapp.com" || host.endsWith(".anixartapp.com")
         : false;
   if (
 
