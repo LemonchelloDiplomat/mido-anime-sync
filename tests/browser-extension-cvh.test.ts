@@ -14,7 +14,7 @@ const cvhPageScript = await readFile(
 describe("AnimeGO CVH iframe tracking", () => {
   it("uses parent AnimeGO metadata and requires real forward playback at 90%", () => {
     const parentListeners: Record<string, (event: any) => void> = {};
-    const frameListeners: Record<string, (event: any) => void> = {};
+    const frameListeners: Record<string, ((event: any) => void)[]> = {};
     const sentEvents: any[] = [];
     let frameWindow: any;
 
@@ -35,14 +35,16 @@ describe("AnimeGO CVH iframe tracking", () => {
       setInterval() { return 1; },
       clearInterval() {},
       addEventListener(type: string, listener: (event: any) => void) {
-        frameListeners[type] = listener;
+        (frameListeners[type] ||= []).push(listener);
       },
       postMessage(data: unknown) {
-        frameListeners.message?.({
-          origin: "https://animego.me",
-          source: parentWindow,
-          data,
-        });
+        for (const listener of frameListeners.message || []) {
+          listener({
+            origin: "https://animego.me",
+            source: parentWindow,
+            data,
+          });
+        }
       },
     };
 
@@ -125,14 +127,16 @@ describe("AnimeGO CVH iframe tracking", () => {
     });
 
     const sendSample = (currentTime: number, episode = 7) => {
-      frameListeners.message?.({
-        source: frameWindow,
-        origin: "https://animego.me",
-        data: {
-          type: "MIDAHOSHI_CVH_STATE",
-          state: { currentTime, duration: 100, episode },
-        },
-      });
+      for (const listener of frameListeners.message || []) {
+        listener({
+          source: frameWindow,
+          origin: "https://animego.me",
+          data: {
+            type: "MIDAHOSHI_CVH_STATE",
+            state: { currentTime, duration: 100, episode },
+          },
+        });
+      }
     };
 
     sendSample(95);
