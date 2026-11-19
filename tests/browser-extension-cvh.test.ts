@@ -165,7 +165,7 @@ describe("AnimeGO CVH iframe tracking", () => {
 
 
   it("tracks CVH from the native video inside VK player's internal shadow root", () => {
-    const listeners: Record<string, (event: any) => void> = {};
+    const listeners: Record<string, ((event: any) => void)[]> = {};
     const sentEvents: any[] = [];
     const activeItem = {
       getAttribute: (name: string) => name === "data-episode-number" ? "7" : null,
@@ -187,7 +187,7 @@ describe("AnimeGO CVH iframe tracking", () => {
     };
     const window = {
       addEventListener(type: string, listener: (event: any) => void) {
-        listeners[type] = listener;
+        (listeners[type] ||= []).push(listener);
       },
     };
     class FakeMutationObserver {
@@ -220,20 +220,22 @@ describe("AnimeGO CVH iframe tracking", () => {
     });
 
     const sendSample = (currentTime: number, overrides = {}) => {
-      listeners.message?.({
-        source: window,
-        origin: "https://animego.me",
-        data: {
-          type: "MIDAHOSHI_CVH_PAGE_STATE",
-          state: {
-            currentTime,
-            duration: 100,
-            paused: false,
-            readyState: 4,
-            ...overrides,
+      for (const listener of listeners.message || []) {
+        listener({
+          source: window,
+          origin: "https://animego.me",
+          data: {
+            type: "MIDAHOSHI_CVH_PAGE_STATE",
+            state: {
+              currentTime,
+              duration: 100,
+              paused: false,
+              readyState: 4,
+              ...overrides,
+            },
           },
-        },
-      });
+        });
+      }
     };
 
     sendSample(95);
