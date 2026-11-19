@@ -30,8 +30,8 @@
   function findEpisode(text) {
     const value = String(text || "");
     const patterns = [
-      /(?:серия|эпизод|episode|ep\\.?)[\\s:#№-]*(\\d{1,4})/i,
-      /(\\d{1,4})\\s*(?:серия|эпизод|episode|ep\\.?)/i,
+      /(?:серия|эпизод|episode|ep\.?)[\s:#№-]*(\d{1,4})/i,
+      /(\d{1,4})\s*(?:серия|эпизод|episode|ep\.?)/i,
     ];
     for (const pattern of patterns) {
       const match = value.match(pattern);
@@ -43,7 +43,7 @@
   function findAnimeGoActiveEpisode() {
     const activeItem = document.querySelector(".player-video-bar__item.active[data-episode-number]");
     const rawNumber = activeItem?.getAttribute("data-episode-number") || "";
-    if (/^\\d{1,4}$/.test(rawNumber)) {
+    if (/^\d{1,4}$/.test(rawNumber)) {
       const episode = Number(rawNumber);
       if (Number.isSafeInteger(episode) && episode > 0) return episode;
     }
@@ -76,9 +76,9 @@
     ].filter(Boolean);
     let title = titleCandidates.find((candidate) => candidate.length > 2) || "";
     title = title
-      .replace(/\\s*[|·-]\\s*(AnimeGO|YummyAnime|Anixart).*$/i, "")
-      .replace(/\\s*[|·-]\\s*(смотреть аниме онлайн).*$/i, "")
-      .replace(/\\s*(?:серия|эпизод|episode|ep\\.?)[\\s:#№-]*\\d{1,4}.*$/i, "")
+      .replace(/\s*[|·-]\s*(AnimeGO|YummyAnime|Anixart).*$/i, "")
+      .replace(/\s*[|·-]\s*(смотреть аниме онлайн).*$/i, "")
+      .replace(/\s*(?:серия|эпизод|episode|ep\.?)[\s:#№-]*\d{1,4}.*$/i, "")
       .trim();
 
     const activeAnimeGoEpisode = service === "animego" ? findAnimeGoActiveEpisode() : null;
