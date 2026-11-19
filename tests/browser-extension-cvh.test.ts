@@ -11,94 +11,49 @@ const cvhPageScript = await readFile(
   "utf8",
 );
 
-describe("AnimeGO CVH iframe tracking", () => {
-  it("uses parent AnimeGO metadata and requires real forward playback at 90%", () => {
-    const parentListeners: Record<string, (event: any) => void> = {};
-    const frameListeners: Record<string, ((event: any) => void)[]> = {};
-    const sentEvents: any[] = [];
-    let frameWindow: any;
+class FakeMutationObserver {
+  observe() {}
+  disconnect() {}
+}
 
-    const parentWindow = {
-      addEventListener(type: string, listener: (event: any) => void) {
-        parentListeners[type] = listener;
-      },
-      postMessage(data: unknown) {
-        parentListeners.message?.({
-          origin: "https://animego.me",
-          source: frameWindow,
-          data,
-        });
+class FakeHTMLSelectElement {}
+
+const common = {
+  MutationObserver: FakeMutationObserver,
+  HTMLSelectElement: FakeHTMLSelectElement,
+  URL,
+  Date,
+};
+
+describe("AnimeGO CVH iframe tracking", () => {
+  it("forwards AnimeGO metadata from its CVH iframe to the nested player iframe", () => {
+    const listeners: Record<string, ((event: any) => void)[]> = {};
+    const forwardedMessages: any[] = [];
+    const parentWindow = { postMessage() {} };
+    const playerWindow = {
+      postMessage(data: unknown, origin: string) {
+        forwardedMessages.push({ data, origin });
       },
     };
-    frameWindow = {
+    const playerFrame = {
+      src: "https://player.cdnvideohub.com/s2/v2.43.56/frame/",
+      contentWindow: playerWindow,
+    };
+    const window = {
       parent: parentWindow,
+      addEventListener(type: string, listener: (event: any) => void) {
+        (listeners[type] ||= []).push(listener);
+      },
       setInterval() { return 1; },
       clearInterval() {},
-      addEventListener(type: string, listener: (event: any) => void) {
-        (frameListeners[type] ||= []).push(listener);
-      },
-      postMessage(data: unknown) {
-        for (const listener of frameListeners.message || []) {
-          listener({
-            origin: "https://animego.me",
-            source: parentWindow,
-            data,
-          });
-        }
-      },
     };
-
-    const activeItem = {
-      getAttribute(name: string) {
-        return name === "data-episode-number" ? "7" : null;
-      },
-      querySelector() { return null; },
-    };
-    const titleElement = {
-      textContent: "Агенты четырёх сезонов: Весенний танец",
-      getAttribute() { return null; },
-    };
-    const iframe = {
-      src: "https://animego.me/cdn-iframe/61443/Jam%20Club/1/7",
-      contentWindow: frameWindow,
-    };
-    const parentDocument = {
-      title: "AnimeGO",
-      documentElement: {},
-      querySelector(selector: string) {
-        if (selector === "h1") return titleElement;
-        if (selector === ".player-video-bar__item.active") return activeItem;
-        return null;
-      },
-      querySelectorAll(selector: string) {
-        return selector === "iframe" ? [iframe] : [];
-      },
-    };
-    const frameDocument = {
+    const document = {
       title: "CVH — JAM CLUB",
       documentElement: {},
       querySelector() { return null; },
-      querySelectorAll() { return []; },
-    };
-
-    class FakeMutationObserver {
-      observe() {}
-      disconnect() {}
-    }
-    class FakeHTMLSelectElement {}
-
-    const common = {
-      HTMLSelectElement: FakeHTMLSelectElement,
-      MutationObserver: FakeMutationObserver,
-      chrome: {
-        runtime: {
-          onMessage: { addListener() {} },
-          sendMessage(message: unknown) { sentEvents.push(message); },
-        },
+      querySelectorAll(selector: string) {
+        return selector === "iframe" ? [playerFrame] : [];
       },
-      crypto: { randomUUID: () => "cvh-test-event-id" },
-      Date,
-      URL,
     };
 
     vm.runInNewContext(contentScript, {
@@ -109,140 +64,110 @@ describe("AnimeGO CVH iframe tracking", () => {
         pathname: "/cdn-iframe/61443/Jam%20Club/1/7",
         href: "https://animego.me/cdn-iframe/61443/Jam%20Club/1/7",
       },
-      document: frameDocument,
-      window: frameWindow,
+      document,
+      window,
+      chrome: { runtime: { onMessage: { addListener() {} }, sendMessage() {} } },
     });
+
+    for (const listener of listeners.message || []) {
+      listener({
+        source: parentWindow,
+        origin: "https://animego.me",
+        data: {
+          type: "MIDAHOSHI_PARENT_METADATA",
+          metadata: {
+            title: "Агенты четырёх сезонов: Весенний танец",
+            episode: 7,
+            sourceUrl: "https://animego.me/anime/example",
+          },
+        },
+      });
+    }
+
+    expect(forwardedMessages).toHaveLength(1);
+    expect(forwardedMessages[0]).toMatchObject({
+      origin: "https://player.cdnvideohub.com",
+      data: {
+        type: "MIDAHOSHI_PARENT_METADATA",
+        metadata: {
+          title: "Агенты четырёх сезонов: Весенний танец",
+          episode: 7,
+          sourceUrl: "https://animego.me/anime/example",
+        },
+      },
+    });
+  });
+
+  it("records a CVH watch event from real playback samples in the nested player frame", () => {
+    const listeners: Record<string, ((event: any) => void)[]> = {};
+    const sentEvents: any[] = [];
+    const parentWindow = { postMessage() {} };
+    const window = {
+      parent: parentWindow,
+      addEventListener(type: string, listener: (event: any) => void) {
+        (listeners[type] ||= []).push(listener);
+      },
+      setInterval() { return 1; },
+      clearInterval() {},
+    };
+    const document = { title: "", documentElement: {}, querySelectorAll() { return []; } };
 
     vm.runInNewContext(contentScript, {
       ...common,
       location: {
-        hostname: "animego.me",
-        origin: "https://animego.me",
-        pathname: "/anime/example",
-        href: "https://animego.me/anime/example",
-      },
-      document: parentDocument,
-      window: parentWindow,
-    });
-
-    const sendSample = (currentTime: number, episode = 7) => {
-      for (const listener of frameListeners.message || []) {
-        listener({
-          source: frameWindow,
-          origin: "https://animego.me",
-          data: {
-            type: "MIDAHOSHI_CVH_STATE",
-            state: { currentTime, duration: 100, episode },
-          },
-        });
-      }
-    };
-
-    sendSample(95);
-    expect(sentEvents).toHaveLength(0);
-    sendSample(95, 6);
-    expect(sentEvents).toHaveLength(0);
-    sendSample(95);
-    expect(sentEvents).toHaveLength(0);
-    sendSample(96);
-    expect(sentEvents).toHaveLength(1);
-    expect(sentEvents[0]).toMatchObject({
-      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
-      event: {
-        service: "animego",
-        title: "Агенты четырёх сезонов: Весенний танец",
-        episode: 7,
-        sourceUrl: "https://animego.me/anime/example",
-        currentTimeSeconds: 96,
-        durationSeconds: 100,
-      },
-    });
-
-    sendSample(97);
-    expect(sentEvents).toHaveLength(1);
-  });
-
-
-  it("tracks CVH from the native video inside VK player's internal shadow root", () => {
-    const listeners: Record<string, ((event: any) => void)[]> = {};
-    const sentEvents: any[] = [];
-    const activeItem = {
-      getAttribute: (name: string) => name === "data-episode-number" ? "7" : null,
-      querySelector: () => null,
-    };
-    const h1 = {
-      textContent: "Агенты четырёх сезонов: Весенний танец",
-      getAttribute: () => null,
-    };
-    const document = {
-      title: "AnimeGO",
-      documentElement: {},
-      querySelector(selector: string) {
-        if (selector === "h1") return h1;
-        if (selector === ".player-video-bar__item.active") return activeItem;
-        return null;
-      },
-      querySelectorAll() { return []; },
-    };
-    const window = {
-      addEventListener(type: string, listener: (event: any) => void) {
-        (listeners[type] ||= []).push(listener);
-      },
-    };
-    class FakeMutationObserver {
-      observe() {}
-      disconnect() {}
-    }
-    class FakeHTMLSelectElement {}
-
-    vm.runInNewContext(contentScript, {
-      location: {
-        hostname: "animego.me",
-        origin: "https://animego.me",
-        pathname: "/anime/example",
-        href: "https://animego.me/anime/example",
+        hostname: "player.cdnvideohub.com",
+        origin: "https://player.cdnvideohub.com",
+        pathname: "/s2/v2.43.56/frame/",
+        href: "https://player.cdnvideohub.com/s2/v2.43.56/frame/",
       },
       document,
       window,
-      MutationObserver: FakeMutationObserver,
-      HTMLSelectElement: FakeHTMLSelectElement,
       chrome: {
         runtime: {
           onMessage: { addListener() {} },
           sendMessage(message: unknown) { sentEvents.push(message); },
         },
       },
-      crypto: { randomUUID: () => "cvh-page-test-id" },
-      Date,
-      URL,
-      getComputedStyle: () => ({ display: "block", visibility: "visible" }),
+      crypto: { randomUUID: () => "cvh-player-test-event-id" },
+    });
+
+    const dispatch = (event: any) => {
+      for (const listener of listeners.message || []) listener(event);
+    };
+
+    dispatch({
+      source: parentWindow,
+      origin: "https://animego.me",
+      data: {
+        type: "MIDAHOSHI_PARENT_METADATA",
+        metadata: {
+          title: "Агенты четырёх сезонов: Весенний танец",
+          episode: 7,
+          sourceUrl: "https://animego.me/anime/example",
+        },
+      },
     });
 
     const sendSample = (currentTime: number, overrides = {}) => {
-      for (const listener of listeners.message || []) {
-        listener({
-          source: window,
-          origin: "https://animego.me",
-          data: {
-            type: "MIDAHOSHI_CVH_PAGE_STATE",
-            state: {
-              currentTime,
-              duration: 100,
-              paused: false,
-              readyState: 4,
-              ...overrides,
-            },
+      dispatch({
+        source: window,
+        origin: "https://player.cdnvideohub.com",
+        data: {
+          type: "MIDAHOSHI_CVH_STATE",
+          state: {
+            currentTime,
+            duration: 1427.712,
+            paused: false,
+            readyState: 4,
+            ...overrides,
           },
-        });
-      }
+        },
+      });
     };
 
-    sendSample(95);
+    sendSample(1420);
     expect(sentEvents).toHaveLength(0);
-    sendSample(96, { paused: true });
-    expect(sentEvents).toHaveLength(0);
-    sendSample(96);
-    sendSample(97);
+    sendSample(1421);
     expect(sentEvents).toHaveLength(1);
     expect(sentEvents[0]).toMatchObject({
       type: "MIDAHOSHI_AUTO_WATCH_EVENT",
@@ -251,27 +176,29 @@ describe("AnimeGO CVH iframe tracking", () => {
         title: "Агенты четырёх сезонов: Весенний танец",
         episode: 7,
         sourceUrl: "https://animego.me/anime/example",
-        currentTimeSeconds: 97,
-        durationSeconds: 100,
+        currentTimeSeconds: 1421,
+        durationSeconds: 1427,
         hasVideoElement: true,
         manualOnly: false,
       },
     });
-    sendSample(98);
+
+    sendSample(1422);
     expect(sentEvents).toHaveLength(1);
   });
 
-  it("samples the native video from VK player's internal shadow root", () => {
+  it("samples the native video from the VK player's internal open shadow root", () => {
     const messages: any[] = [];
     let intervalCallback: (() => void) | undefined;
     const video = {
-      currentTime: 136.3,
-      duration: 1443.264,
+      currentTime: 166.289,
+      duration: 1427.712,
       paused: false,
       readyState: 4,
     };
     const player = {
       _shadowRoot: {
+        mode: "open",
         querySelector: (selector: string) => selector === "video" ? video : null,
       },
     };
@@ -282,27 +209,36 @@ describe("AnimeGO CVH iframe tracking", () => {
       },
       addEventListener() {},
       clearInterval() {},
-      postMessage(message: unknown) { messages.push(message); },
+      postMessage(message: unknown, targetOrigin: string) {
+        messages.push({ message, targetOrigin });
+      },
     };
-    fakeWindow.top = fakeWindow;
 
     vm.runInNewContext(cvhPageScript, {
-      location: { hostname: "animego.me", origin: "https://animego.me", pathname: "/cdn-iframe/61443/Jam%20Club/1/7" },
-      document: { querySelector: (selector: string) => selector === "vk-video-player" ? player : null },
+      location: {
+        hostname: "player.cdnvideohub.com",
+        origin: "https://player.cdnvideohub.com",
+        pathname: "/s2/v2.43.56/frame/",
+      },
+      document: {
+        querySelector: (selector: string) => selector === "vk-video-player" ? player : null,
+      },
       window: fakeWindow,
       Number,
     });
 
     intervalCallback?.();
-    expect(messages.length).toBeGreaterThanOrEqual(1);
+    expect(messages.length).toBeGreaterThanOrEqual(2);
     expect(messages[0]).toMatchObject({
-      type: "MIDAHOSHI_CVH_STATE",
-      state: {
-        episode: 7,
-        currentTime: 136.3,
-        duration: 1443.264,
-        paused: false,
-        readyState: 4,
+      targetOrigin: "https://player.cdnvideohub.com",
+      message: {
+        type: "MIDAHOSHI_CVH_STATE",
+        state: {
+          currentTime: 166.289,
+          duration: 1427.712,
+          paused: false,
+          readyState: 4,
+        },
       },
     });
   });
