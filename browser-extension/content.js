@@ -41,7 +41,7 @@
   }
 
   function findAnimeGoActiveEpisode() {
-    const activeItem = document.querySelector(".player-video-bar__item.active[data-episode-number]");
+    const activeItem = document.querySelector(".player-video-bar__item.active");
     const rawNumber = activeItem?.getAttribute("data-episode-number") || "";
     if (/^\d{1,4}$/.test(rawNumber)) {
       const episode = Number(rawNumber);
