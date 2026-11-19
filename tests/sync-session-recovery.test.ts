@@ -56,7 +56,6 @@ describe("interrupted sync session recovery", () => {
   it("marks a session interrupted when the app closed before the operation journal was saved", async () => {
     const updateSyncSession = vi.fn(async () => undefined);
     const result = await reconcileInterruptedSyncSessions(
-      "mal",
       "current-session",
       [session("abandoned-session")],
       [],
@@ -79,7 +78,6 @@ describe("interrupted sync session recovery", () => {
   it("marks a session succeeded when every journal operation was reconciled successfully", async () => {
     const updateSyncSession = vi.fn(async () => undefined);
     const result = await reconcileInterruptedSyncSessions(
-      "mal",
       "current-session",
       [session("completed-session")],
       [
@@ -102,7 +100,6 @@ describe("interrupted sync session recovery", () => {
   it("marks a session failed when a reconciled operation failed", async () => {
     const updateSyncSession = vi.fn(async () => undefined);
     await reconcileInterruptedSyncSessions(
-      "mal",
       "current-session",
       [session("failed-session")],
       [operation("failed-session", "failed", { error: "provider rejected write" })],
@@ -116,10 +113,9 @@ describe("interrupted sync session recovery", () => {
     }));
   });
 
-  it("does not touch the current session, another provider, or sessions with unresolved operations", async () => {
+  it("does not touch the current session or sessions with unresolved operations", async () => {
     const updateSyncSession = vi.fn(async () => undefined);
     await reconcileInterruptedSyncSessions(
-      "mal",
       "current-session",
       [
         session("current-session"),
@@ -130,6 +126,7 @@ describe("interrupted sync session recovery", () => {
       { updateSyncSession },
     );
 
-    expect(updateSyncSession).not.toHaveBeenCalled();
+    expect(updateSyncSession).toHaveBeenCalledTimes(1);
+    expect(updateSyncSession).toHaveBeenCalledWith("anilist-session", expect.objectContaining({ status: "failed" }));
   });
 });
