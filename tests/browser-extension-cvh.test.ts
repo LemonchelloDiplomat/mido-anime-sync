@@ -288,7 +288,7 @@ describe("AnimeGO CVH iframe tracking", () => {
     fakeWindow.top = fakeWindow;
 
     vm.runInNewContext(cvhPageScript, {
-      location: { hostname: "animego.me", origin: "https://animego.me" },
+      location: { hostname: "animego.me", origin: "https://animego.me", pathname: "/cdn-iframe/61443/Jam%20Club/1/7" },
       document: { querySelector: (selector: string) => selector === "vk-video-player" ? player : null },
       window: fakeWindow,
       Number,
@@ -297,8 +297,9 @@ describe("AnimeGO CVH iframe tracking", () => {
     intervalCallback?.();
     expect(messages.length).toBeGreaterThanOrEqual(1);
     expect(messages[0]).toMatchObject({
-      type: "MIDAHOSHI_CVH_PAGE_STATE",
+      type: "MIDAHOSHI_CVH_STATE",
       state: {
+        episode: 7,
         currentTime: 136.3,
         duration: 1443.264,
         paused: false,
