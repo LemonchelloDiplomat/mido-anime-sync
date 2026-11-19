@@ -27,7 +27,7 @@ export function validateWatchEvent(value: unknown): WatchEvent {
   }
   const host = sourceUrl?.hostname.toLowerCase() ?? "";
   const allowedHost = event.service === "animego"
-    ? host === "anime-go.org" || host.endsWith(".anime-go.org") || host === "animego.online" || host.endsWith(".animego.online")
+    ? host === "anime-go.org" || host.endsWith(".anime-go.org") || host === "animego.online" || host.endsWith(".animego.online") || host === "animego.me" || host.endsWith(".animego.me")
     : event.service === "yummyanime"
       ? ["yummyani.me", "yummy-ani.me"].some((domain) => host === domain || host.endsWith("." + domain))
       : event.service === "anixart"

@@ -3,7 +3,11 @@
   "name": "mido-anime-sync Bridge",
   "version": "0.1.0",
   "description": "Передаёт подтверждённый прогресс просмотра в локальную библиотеку mido-anime-sync.",
-  "permissions": ["activeTab", "tabs", "storage"],
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "storage"
+  ],
   "background": {
     "service_worker": "background.js"
   },
@@ -29,10 +33,14 @@
         "*://*.yummyani.me/*",
         "*://*.yummy-ani.me/*",
         "*://*.anixart-app.com/*",
-        "*://*.anixartapp.com/*"
+        "*://*.anixartapp.com/*",
+        "*://aniboom.one/*"
       ],
-      "js": ["content.js"],
-      "run_at": "document_idle"
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
     },
     {
       "matches": [
@@ -43,7 +51,9 @@
         "http://127.0.0.1:4173/*",
         "http://localhost:4173/*"
       ],
-      "js": ["bridge.js"],
+      "js": [
+        "bridge.js"
+      ],
       "run_at": "document_idle"
     }
   ]

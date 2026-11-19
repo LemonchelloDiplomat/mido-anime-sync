@@ -31,6 +31,14 @@ describe("watch source events", () => {
     expect(() => validateWatchEvent({ ...event, episode: 0 })).toThrow("некорректные данные");
   });
 
+  it("accepts AnimeGO's animego.me domain for iframe-originated watch events", () => {
+    const normalized = validateWatchEvent({
+      ...event,
+      sourceUrl: "https://animego.me/anime/example?translation=16",
+    });
+    expect(normalized.sourceUrl).toBe("https://animego.me/anime/example");
+  });
+
   it("removes query strings and fragments from stored source URLs", () => {
     const normalized = validateWatchEvent({
       ...event,

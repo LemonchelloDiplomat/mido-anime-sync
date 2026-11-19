@@ -1,8 +1,23 @@
 (() => {
   const host = location.hostname.toLowerCase();
-  const service = host.includes("yummy") ? "yummyanime"
+  const isAniBoomFrame = host === "aniboom.one";
+  const service = isAniBoomFrame ? "animego" : host.includes("yummy") ? "yummyanime"
     : host.includes("anixart") ? "anixart"
     : "animego";
+  let parentMetadata = null;
+
+  function isAllowedAnimeGoUrl(rawUrl) {
+    try {
+      const url = new URL(rawUrl);
+      const hostname = url.hostname.toLowerCase();
+      return (url.protocol === "https:" || url.protocol === "http:") &&
+        (hostname === "anime-go.org" || hostname.endsWith(".anime-go.org") ||
+          hostname === "animego.online" || hostname.endsWith(".animego.online") ||
+          hostname === "animego.me" || hostname.endsWith(".animego.me"));
+    } catch {
+      return false;
+    }
+  }
 
   const titleSelectors = service === "animego"
     ? ["h1", ".anime-title", ".watch-title", ".video-title", "[itemprop='name']"]
@@ -17,6 +32,7 @@
       : ["[data-episode]", ".episode-title"];
 
   const sentVideoKeys = new WeakMap();
+  const videoWatchHandlers = new WeakMap();
 
   function textFrom(selector) {
     const element = document.querySelector(selector);
@@ -68,6 +84,25 @@
   }
 
   function detect(videoOverride) {
+    if (isAniBoomFrame && parentMetadata) {
+      const video = videoOverride || findMainVideo();
+      const currentTimeSeconds = video && Number.isFinite(video.currentTime) ? Math.floor(video.currentTime) : null;
+      const durationSeconds = video && Number.isFinite(video.duration) && video.duration > 0
+        ? Math.floor(video.duration)
+        : null;
+      return {
+        service: "animego",
+        title: parentMetadata.title,
+        episode: parentMetadata.episode,
+        sourceUrl: parentMetadata.sourceUrl,
+        currentTimeSeconds,
+        durationSeconds,
+        hasVideoElement: Boolean(video),
+        manualOnly: !video || durationSeconds == null,
+        pageTitle: document.title,
+      };
+    }
+
     const titleMeta = document.querySelector("meta[property='og:title']");
     const titleCandidates = [
       ...titleSelectors.map(textFrom),
@@ -115,9 +150,90 @@
     };
   }
 
+  function sendParentMetadataToFrame(frame) {
+    if (service !== "animego" || isAniBoomFrame || !frame?.contentWindow) return;
+    let frameUrl;
+    try {
+      frameUrl = new URL(frame.src, location.href);
+    } catch {
+      return;
+    }
+    if (frameUrl.hostname.toLowerCase() !== "aniboom.one") return;
+
+    const detected = detect();
+    if (!detected.title || !Number.isSafeInteger(detected.episode) || detected.episode < 1) return;
+    frame.contentWindow.postMessage({
+      type: "MIDAHOSHI_PARENT_METADATA",
+      metadata: {
+        title: detected.title,
+        episode: detected.episode,
+        sourceUrl: detected.sourceUrl,
+      },
+    }, frameUrl.origin);
+  }
+
+  function syncParentMetadataToFrames() {
+    if (service !== "animego" || isAniBoomFrame) return;
+    document.querySelectorAll("iframe").forEach(sendParentMetadataToFrame);
+  }
+
+  let parentMetadataRetryTimer = null;
+
+  if (isAniBoomFrame) {
+    const requestParentMetadata = () => {
+      if (!parentMetadata) {
+        // The iframe can load before the parent content script. Retry until
+        // AnimeGO responds instead of losing the one-time startup handshake.
+        window.parent.postMessage({ type: "MIDAHOSHI_REQUEST_PARENT_METADATA" }, "*");
+      } else if (parentMetadataRetryTimer !== null) {
+        window.clearInterval(parentMetadataRetryTimer);
+        parentMetadataRetryTimer = null;
+      }
+    };
+
+    window.addEventListener("message", (event) => {
+      if (event.source !== window.parent || !isAllowedAnimeGoUrl(event.origin)) return;
+      if (event.data?.type !== "MIDAHOSHI_PARENT_METADATA") return;
+      const metadata = event.data.metadata;
+      if (
+        !metadata ||
+        typeof metadata.title !== "string" ||
+        metadata.title.trim().length < 2 ||
+        !Number.isSafeInteger(metadata.episode) ||
+        metadata.episode < 1 ||
+        !isAllowedAnimeGoUrl(metadata.sourceUrl) ||
+        new URL(metadata.sourceUrl).origin !== event.origin
+      ) return;
+      const sourceUrl = new URL(metadata.sourceUrl);
+      parentMetadata = {
+        title: metadata.title.trim(),
+        episode: metadata.episode,
+        sourceUrl: sourceUrl.origin + sourceUrl.pathname,
+      };
+      requestParentMetadata();
+      scanVideos();
+    });
+
+    requestParentMetadata();
+    parentMetadataRetryTimer = window.setInterval(requestParentMetadata, 750);
+  } else {
+    window.addEventListener("message", (event) => {
+      if (event.origin !== "https://aniboom.one" ||
+          event.data?.type !== "MIDAHOSHI_REQUEST_PARENT_METADATA") return;
+      const frame = Array.from(document.querySelectorAll("iframe"))
+        .find((candidate) => candidate.contentWindow === event.source);
+      if (frame) sendParentMetadataToFrame(frame);
+    });
+  }
+
   function attachVideo(video) {
-    if (video.dataset.midahoshiWatchAttached === "true") return;
-    video.dataset.midahoshiWatchAttached = "true";
+    const existingHandler = videoWatchHandlers.get(video);
+    if (existingHandler) {
+      // Metadata may arrive after the video has already reached 90% or ended.
+      // Recheck on every scan so late parent metadata cannot miss the event.
+      existingHandler();
+      return;
+    }
 
     const maybeSend = () => {
       const duration = Number(video.duration);
@@ -146,8 +262,12 @@
       });
     };
 
+    videoWatchHandlers.set(video, maybeSend);
     video.addEventListener("timeupdate", maybeSend, { passive: true });
     video.addEventListener("ended", maybeSend, { passive: true });
+    // Also handle videos that were already past the threshold before metadata
+    // or the event listeners became available.
+    maybeSend();
   }
 
   function scanVideos() {
@@ -156,14 +276,26 @@
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === "MIDAHOSHI_DETECT_WATCH_EVENT") {
+    if (message?.type === "MIDAHOSHI_DETECT_WATCH_EVENT" && !isAniBoomFrame) {
       sendResponse(detect());
     }
     return true;
   });
 
   scanVideos();
-  const observer = new MutationObserver(scanVideos);
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  syncParentMetadataToFrames();
+  const observer = new MutationObserver(() => {
+    scanVideos();
+    syncParentMetadataToFrames();
+  });
+  const observerOptions = {
+    childList: true,
+    subtree: true,
+    ...(!isAniBoomFrame ? {
+      attributes: true,
+      attributeFilter: ["class", "data-episode-number", "src"],
+    } : {}),
+  };
+  observer.observe(document.documentElement, observerOptions);
   window.addEventListener("pagehide", () => observer.disconnect(), { once: true });
 })();
