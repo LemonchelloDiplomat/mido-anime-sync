@@ -603,21 +603,47 @@ export class BrowserAnimeRepository {
       const resolutionStore = transaction.objectStore("conflictResolutions");
       const deletionStore = transaction.objectStore("deletionIntents");
 
+      const currentAnime = await animeStore.getAll();
+      const exactMatches = currentAnime.filter((candidate) =>
+        candidate.id === anime.id ||
+        Object.entries(anime.externalIds).some(([service, externalId]) => {
+          if (!externalId?.trim()) return false;
+          const candidateId = candidate.externalIds[service as keyof AnimeIdentity["externalIds"]];
+          return Boolean(candidateId?.trim() && candidateId.trim() === externalId.trim());
+        }),
+      );
+
+      if (exactMatches.length > 1) {
+        throw new Error(
+          `Найдено несколько локальных записей с тем же внешним ID для ${anime.titles.english ?? anime.titles.romaji ?? anime.id}. Сначала объедини точные дубли в настройках библиотеки.`,
+        );
+      }
+
+      const matchedAnime = exactMatches[0];
+      const canonicalAnime = matchedAnime
+        ? mergeAnimeForReconciliation(matchedAnime, anime)
+        : structuredClone(anime);
+      const canonicalId = canonicalAnime.id;
+      const canonicalEntry = {
+        ...structuredClone(entry),
+        animeId: canonicalId,
+      };
+
       const pendingDeletions = await deletionStore.getAll();
       await Promise.all(pendingDeletions
         .filter((intent) => {
           const service = intent.provider === "mal" ? "myanimelist" : "anilist";
-          return anime.externalIds[service] === intent.externalId;
+          return canonicalAnime.externalIds[service] === intent.externalId;
         })
         .map((intent) => deletionStore.delete(intent.id)));
 
-      await animeStore.put(structuredClone(anime));
-      await sourceStore.put(structuredClone(entry));
+      await animeStore.put(canonicalAnime);
+      await sourceStore.put(canonicalEntry);
 
       const sourceEntries = await sourceStore.getAll(
-        IDBKeyRange.bound([anime.id, ""], [anime.id, "\uffff"]),
+        IDBKeyRange.bound([canonicalId, ""], [canonicalId, "\\uffff"]),
       );
-      const resolution = await resolutionStore.get(anime.id);
+      const resolution = await resolutionStore.get(canonicalId);
       const validResolutions = mergeConflictResolutions(
         sourceEntries,
         resolution ? [resolution] : [],
@@ -626,7 +652,7 @@ export class BrowserAnimeRepository {
 
       if (mergedEntry) await entriesStore.put(mergedEntry);
       if (resolution && validResolutions.length === 0) {
-        await resolutionStore.delete(anime.id);
+        await resolutionStore.delete(canonicalId);
       }
 
       await transactionDone;
