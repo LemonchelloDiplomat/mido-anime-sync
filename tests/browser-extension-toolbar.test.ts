@@ -87,7 +87,7 @@ function createBackgroundHarness() {
   });
 
   const flush = async () => {
-    for (let index = 0; index < 8; index += 1) await Promise.resolve();
+    for (let index = 0; index < 30; index += 1) await Promise.resolve();
   };
   return { storage, messages, calls, flush };
 }
