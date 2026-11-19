@@ -15,6 +15,7 @@ import type {
   SyncOperation,
   SyncSession,
   SyncDeletionIntent,
+  ServiceId,
 } from "../core/types.js";
 
 import { validateSnapshot, validateEntry } from "./snapshot-validation.js";
@@ -568,7 +569,7 @@ export class BrowserAnimeRepository {
       .map((session) => structuredClone(session));
   }
 
-  async getUnfinishedSyncOperations(provider?: "mal" | "anilist"): Promise<SyncOperation[]> {
+  async getUnfinishedSyncOperations(provider?: SyncOperation["provider"]): Promise<SyncOperation[]> {
     const operations = await this.getSyncOperations();
     return operations.filter((operation) =>
       operation.status !== "succeeded" &&
@@ -1323,7 +1324,7 @@ export class BrowserAnimeRepository {
    * Removes only one provider's source entry and rebuilds the aggregate entry.
    * The anime identity and entries from other providers remain untouched.
    */
-  async deleteSourceEntry(animeId: string, source: "myanimelist" | "anilist" | "shikimori"): Promise<void> {
+  async deleteSourceEntry(animeId: string, source: ServiceId): Promise<void> {
     const transaction = this.db.transaction(["entries", "sourceEntries", "conflictResolutions"], "readwrite");
     const transactionDone = transaction.done;
     void transactionDone.catch(() => undefined);
