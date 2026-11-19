@@ -12,20 +12,28 @@ describe("AnimeGO AniBoom iframe tracking", () => {
     const parentListeners: Record<string, (event: any) => void> = {};
     const frameListeners: Record<string, (event: any) => void> = {};
     const sentEvents: any[] = [];
+    let frameWindow: any;
     const parentWindow = {
       addEventListener(type: string, listener: (event: any) => void) {
         parentListeners[type] = listener;
-      },
-    };
-    const frameWindow = {
-      parent: parentWindow,
-      addEventListener(type: string, listener: (event: any) => void) {
-        frameListeners[type] = listener;
       },
       postMessage(data: unknown) {
         parentListeners.message?.({
           origin: "https://aniboom.one",
           source: frameWindow,
+          data,
+        });
+      },
+    };
+    frameWindow = {
+      parent: parentWindow,
+      addEventListener(type: string, listener: (event: any) => void) {
+        frameListeners[type] = listener;
+      },
+      postMessage(data: unknown) {
+        frameListeners.message?.({
+          origin: "https://animego.me",
+          source: parentWindow,
           data,
         });
       },
