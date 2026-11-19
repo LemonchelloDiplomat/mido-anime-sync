@@ -69,7 +69,7 @@ export function createWatchSourceEntry(
   return {
     animeId: anime.id,
     source,
-    status: completed ? "COMPLETED" : existing?.status === "DROPPED" ? "WATCHING" : existing?.status ?? "WATCHING",
+    status: completed ? "COMPLETED" : "WATCHING",
     progress,
     score: existing?.score ?? null,
     favorite: existing?.favorite ?? false,
