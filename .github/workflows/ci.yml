@@ -5,6 +5,9 @@ on:
     branches:
       - main
       - feature/library-search-filters
+      - fix/library-identity-integrity
+      - feat/provider-adapter-architecture
+      - feat/streaming-site-bridge
   pull_request:
 
 jobs:
