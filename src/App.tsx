@@ -166,6 +166,7 @@ function App() {
   const [restorePreview, setRestorePreview] = useState<RestorePreview | null>(null);
   const [restoreFormat, setRestoreFormat] = useState("");
   const [restoring, setRestoring] = useState(false);
+  const [deletingLibrary, setDeletingLibrary] = useState(false);
   const restoreInProgressRef = useRef(false);
   const restoreFileInputRef = useRef<HTMLInputElement | null>(null);
   const syncInProgressRef = useRef(false);
@@ -695,6 +696,71 @@ function App() {
     } finally {
       restoreInProgressRef.current = false;
       setRestoring(false);
+    }
+  }
+
+  async function handleClearLocalLibrary() {
+    if (!repository || deletingLibrary) return;
+    if (syncInProgressRef.current || accountSyncing || restoreInProgressRef.current || metadataEnriching || importing || restoring || saving || addingCatalogId) {
+      setError("Сначала дождись завершения всех операций с библиотекой и синхронизации.");
+      return;
+    }
+
+    const count = library.length;
+    const confirmed = window.confirm(
+      `Удалить всю локальную библиотеку? Будет удалено аниме и все локальные записи (${count} тайтлов), исходные записи сервисов, связи, решения конфликтов и ожидающие удаления. Данные на MyAnimeList и AniList НЕ изменятся. История синхронизации и подключения аккаунтов сохранятся. Перед очисткой приложение скачает резервную копию.`,
+    );
+    if (!confirmed) return;
+
+    const phrase = window.prompt('Это действие нельзя отменить. Введи УДАЛИТЬ для подтверждения:');
+    if (phrase !== "УДАЛИТЬ") return;
+
+    setDeletingLibrary(true);
+    setError("");
+
+    const clear = async () => {
+      if (syncInProgressRef.current || accountSyncing || restoreInProgressRef.current || metadataEnriching || importing || restoring || saving || addingCatalogId) {
+        throw new Error("Появилась другая операция с библиотекой. Очистка отменена.");
+      }
+      const backup = await repository.snapshot();
+      downloadSnapshot(backup);
+      await repository.clearLibrary();
+      await refreshLibrary();
+
+      const [operations, sessions] = await Promise.all([
+        repository.getSyncOperations(),
+        repository.getSyncSessions(),
+      ]);
+      setHistoryOperations(operations);
+      setHistorySessionRecords(sessions);
+      setImportSnapshot(null);
+      setImportAnalysis(null);
+      setImportFormat("");
+      setRestoreBackup(null);
+      setRestorePreview(null);
+      setRestoreFormat("");
+      window.alert("Локальная библиотека очищена. Резервная копия скачана. Данные на MAL и AniList не затронуты.");
+    };
+
+    try {
+      if (typeof navigator !== "undefined" && "locks" in navigator) {
+        await navigator.locks.request(
+          "midahoshi-anime-sync:account-sync",
+          { mode: "exclusive", ifAvailable: true },
+          async (lock) => {
+            if (!lock) {
+              throw new Error("Синхронизация выполняется в другой вкладке. Дождись её завершения и повтори очистку.");
+            }
+            await clear();
+          },
+        );
+      } else {
+        await clear();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось очистить локальную библиотеку.");
+    } finally {
+      setDeletingLibrary(false);
     }
   }
 
@@ -1854,6 +1920,20 @@ function App() {
               })}
               <div className="integration-security-note">
                 <strong>Безопасность:</strong> токены сохраняются локально в зашифрованном виде. Не публикуй .env.local и папку .local-data.
+              </div>
+              <div className="integration-danger-zone">
+                <div>
+                  <h3>Очистка локальной библиотеки</h3>
+                  <p>Удаляет все локальные записи и данные библиотеки. Аккаунты MAL и AniList, а также данные на самих сервисах не затрагиваются. Перед очисткой автоматически скачивается резервная копия.</p>
+                </div>
+                <button
+                  type="button"
+                  className="danger-button"
+                  onClick={() => void handleClearLocalLibrary()}
+                  disabled={deletingLibrary || loading || library.length === 0 || syncInProgressRef.current || accountSyncing !== null || restoring || importing || metadataEnriching || saving || addingCatalogId !== null}
+                >
+                  {deletingLibrary ? "Очищаем библиотеку..." : "Удалить всю локальную библиотеку"}
+                </button>
               </div>
             </section>
           )}
