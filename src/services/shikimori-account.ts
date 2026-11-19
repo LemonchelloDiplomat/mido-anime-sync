@@ -6,13 +6,13 @@ import type {
   AnimeStatus,
 } from "../core/types.js";
 
-interface ShikimoriAnimeTarget {
+interface ShikimoriAnime {
   id: number;
   name: string;
   russian?: string | null;
   kind?: string | null;
   episodes?: number | null;
-  score?: number | null;
+  score?: number | string | null;
   aired_on?: string | null;
   image?: {
     original?: string | null;
@@ -23,15 +23,13 @@ interface ShikimoriAnimeTarget {
 
 interface ShikimoriAnimeRate {
   id: number;
-  target_id: number;
-  target_type?: string;
   status: string;
   score?: number | null;
   episodes?: number | null;
   rewatches?: number | null;
   text?: string | null;
   updated_at?: string | null;
-  target: ShikimoriAnimeTarget;
+  anime: ShikimoriAnime;
 }
 
 function mapStatus(value: string): AnimeStatus {
@@ -73,11 +71,17 @@ function normalizePoster(value?: string | null): string | null {
 function safeDate(value?: string | null): string | undefined {
   if (!value) return undefined;
   const date = value.slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return undefined;
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) return undefined;
   const parsed = new Date(date + "T00:00:00.000Z");
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date
     ? date
     : undefined;
+}
+
+function finiteNumber(value: number | string | null | undefined): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function parseShikimoriAccountList(
@@ -92,47 +96,54 @@ export function parseShikimoriAccountList(
   const seenAnimeIds = new Set<number>();
 
   for (const raw of input as ShikimoriAnimeRate[]) {
+    const animeData = raw?.anime;
     if (
       !raw ||
       !Number.isSafeInteger(raw.id) ||
       raw.id <= 0 ||
-      !Number.isSafeInteger(raw.target_id) ||
-      raw.target_id <= 0 ||
-      !raw.target ||
-      raw.target.id !== raw.target_id ||
-      !raw.target.name ||
-      (raw.target_type !== undefined && raw.target_type !== "Anime")
+      !animeData ||
+      !Number.isSafeInteger(animeData.id) ||
+      animeData.id <= 0 ||
+      typeof animeData.name !== "string" ||
+      !animeData.name.trim() ||
+      typeof raw.status !== "string"
     ) {
       throw new Error("В списке Shikimori обнаружена некорректная запись.");
     }
     if (seenRateIds.has(raw.id)) throw new Error("Shikimori вернул повторяющийся ID записи: " + raw.id);
-    if (seenAnimeIds.has(raw.target_id)) throw new Error("Shikimori вернул повторяющийся ID аниме: " + raw.target_id);
+    if (seenAnimeIds.has(animeData.id)) throw new Error("Shikimori вернул повторяющийся ID аниме: " + animeData.id);
     seenRateIds.add(raw.id);
-    seenAnimeIds.add(raw.target_id);
+    seenAnimeIds.add(animeData.id);
 
-    const id = "shikimori:" + raw.target_id;
-    const airedOn = safeDate(raw.target.aired_on);
+    const id = "shikimori:" + animeData.id;
+    const airedOn = safeDate(animeData.aired_on);
     const updatedAt = raw.updated_at && Number.isFinite(Date.parse(raw.updated_at))
       ? new Date(raw.updated_at).toISOString()
       : exportedAt;
+    const averageScore = finiteNumber(animeData.score);
     const identity: AnimeIdentity = {
       id,
       titles: {
-        romaji: raw.target.name,
-        synonyms: raw.target.russian ? [raw.target.russian] : [],
+        romaji: animeData.name,
+        synonyms: animeData.russian ? [animeData.russian] : [],
       },
-      externalIds: { shikimori: String(raw.target_id) },
+      externalIds: { shikimori: String(animeData.id) },
       ...(airedOn ? { startDate: airedOn, year: Number(airedOn.slice(0, 4)) } : {}),
-      ...(mapFormat(raw.target.kind) ? { format: mapFormat(raw.target.kind)! } : {}),
-      episodes: typeof raw.target.episodes === "number" && Number.isInteger(raw.target.episodes) ? raw.target.episodes : null,
-      averageScore: typeof raw.target.score === "number" ? raw.target.score : null,
-      posterUrl: normalizePoster(raw.target.image?.original || raw.target.image?.preview || raw.target.image?.x96),
+      ...(mapFormat(animeData.kind) ? { format: mapFormat(animeData.kind)! } : {}),
+      episodes: typeof animeData.episodes === "number" && Number.isInteger(animeData.episodes)
+        ? animeData.episodes
+        : null,
+      averageScore,
+      posterUrl: normalizePoster(
+        animeData.image?.original || animeData.image?.preview || animeData.image?.x96,
+      ),
     };
+    const personalScore = finiteNumber(raw.score);
     const entry: AnimeListEntry = {
       animeId: id,
       status: mapStatus(raw.status),
-      progress: Math.max(0, Number(raw.episodes) || 0),
-      score: Number(raw.score) > 0 ? Number(raw.score) * 10 : null,
+      progress: Math.max(0, finiteNumber(raw.episodes) ?? 0),
+      score: personalScore !== null && personalScore > 0 ? personalScore * 10 : null,
       favorite: false,
       updatedAt,
       source: "shikimori",
