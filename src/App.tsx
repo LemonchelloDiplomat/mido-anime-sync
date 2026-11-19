@@ -13,6 +13,7 @@ import type {
   SyncOperation,
   SyncSession,
   SyncDeletionIntent,
+  SyncProvider,
 } from "./core/types.js";
 
 import { BrowserAnimeRepository } from "./storage/browser-repository.js";
@@ -23,12 +24,14 @@ import { parseMyAnimeListXml, readMyAnimeListExport } from "./services/myanimeli
 import { connectIntegration, disconnectIntegration, getIntegrationStatus, fetchAccountList, updateAccountEntry, deleteAccountEntry, type IntegrationStatus } from "./services/integrations-api.js";
 import { parseMyAnimeListApiList } from "./services/myanimelist-account.js";
 import { parseAniListAccountList, type AniListScoreFormat } from "./services/anilist-account.js";
+import { parseShikimoriAccountList } from "./services/shikimori-account.js";
 import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
 import { detectRemoteDeletions } from "./core/safe-deletions.js";
 import { executeRemoteDeletions, resolvePendingRemoteDeletionIntents } from "./core/remote-deletion.js";
 import { reconcileUnfinishedSyncOperations } from "./core/sync-recovery.js";
 import { reconcileInterruptedSyncSessions } from "./core/sync-session-recovery.js";
 import { findExactIdentityDuplicatePairs } from "./core/identity-reconciliation.js";
+import { getProviderLabel, getProviderServiceId } from "./core/provider-capabilities.js";
 
 import {
   createImportPreview,
@@ -179,7 +182,7 @@ function App() {
   const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus | null>(null);
   const [integrationStatusLoading, setIntegrationStatusLoading] = useState(false);
   const [integrationStatusError, setIntegrationStatusError] = useState("");
-  const [accountSyncing, setAccountSyncing] = useState<"mal" | "anilist" | null>(null);
+  const [accountSyncing, setAccountSyncing] = useState<SyncProvider | null>(null);
   const [syncConflictDialog, setSyncConflictDialog] = useState<{
     title: string;
     fields: string;
@@ -190,7 +193,7 @@ function App() {
   const [historySessionRecords, setHistorySessionRecords] = useState<SyncSession[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
-  const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | "mal" | "anilist">("all");
+  const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | SyncProvider>("all");
   const [historyStatusFilter, setHistoryStatusFilter] = useState<"all" | SyncOperation["status"]>("all");
 
   useEffect(() => {
@@ -825,7 +828,7 @@ function App() {
     }
   }
 
-  async function handleImportFromAccount(provider: "mal" | "anilist") {
+  async function handleImportFromAccount(provider: SyncProvider) {
     if (!repository || importing) return;
     setImporting(true);
     setError("");
@@ -833,14 +836,16 @@ function App() {
       const payload = await fetchAccountList(provider);
       const snapshot = provider === "mal"
         ? parseMyAnimeListApiList(payload.data)
-        : parseAniListAccountList(payload.data, payload.scoreFormat as AniListScoreFormat);
+        : provider === "anilist"
+          ? parseAniListAccountList(payload.data, payload.scoreFormat as AniListScoreFormat)
+          : parseShikimoriAccountList(payload.data);
       const currentLibrary = await repository.getAll();
       const analysis = createImportPreview(
         snapshot.anime,
         currentLibrary.map((item) => item.anime),
       );
       setImportSnapshot(snapshot);
-      setImportFormat(provider === "mal" ? "MyAnimeList account" : "AniList account");
+      setImportFormat(getProviderLabel(provider) + " account");
       setImportAnalysis(analysis);
       setSettingsOpen(false);
     } catch (err) {
@@ -850,7 +855,7 @@ function App() {
     }
   }
 
-  async function handleSyncToAccount(provider: "mal" | "anilist") {
+  async function handleSyncToAccount(provider: SyncProvider) {
     if (!repository || accountSyncing || syncInProgressRef.current || restoreInProgressRef.current) return;
 
     // Web Locks prevents another tab from running an account sync while this
@@ -881,7 +886,7 @@ function App() {
   }
 
   async function runSyncToAccount(
-    provider: "mal" | "anilist",
+    provider: SyncProvider,
     recoverInterruptedSessions: boolean,
   ) {
     if (!repository || accountSyncing || syncInProgressRef.current || restoreInProgressRef.current) return;
@@ -973,7 +978,7 @@ function App() {
       }
 
       const baseItems = await activeRepository.getAll();
-      const providerSource = provider === "mal" ? "myanimelist" : "anilist";
+      const providerSource = getProviderServiceId(provider);
       const localItems = await Promise.all(baseItems.map(async (item) => {
         const sourceEntries = await activeRepository.getSourceEntries(item.anime.id);
         return {
@@ -1028,13 +1033,9 @@ function App() {
       for (const animeId of conflictAnimeIds) {
         const local = localItems.find((item) => item.anime.id === animeId);
         if (!local?.entry) continue;
-        const externalId = provider === "mal"
-          ? local.anime.externalIds.myanimelist
-          : local.anime.externalIds.anilist;
+        const externalId = local.anime.externalIds[providerSource];
         if (!externalId) continue;
-        const remoteAnime = remoteSnapshot.anime.find((anime) =>
-          (provider === "mal" ? anime.externalIds.myanimelist : anime.externalIds.anilist) === externalId
-        );
+        const remoteAnime = remoteSnapshot.anime.find((anime) => anime.externalIds[providerSource] === externalId);
         const remoteEntry = remoteAnime
           ? remoteSnapshot.entries.find((entry) => entry.animeId === remoteAnime.id)
           : undefined;
@@ -1061,7 +1062,7 @@ function App() {
             entry: {
               ...remoteEntry,
               animeId: local.anime.id,
-              source: provider === "mal" ? "myanimelist" : "anilist",
+              source: providerSource,
             },
           });
         }
@@ -1126,7 +1127,7 @@ function App() {
         return;
       }
 
-      const serviceName = provider === "mal" ? "MyAnimeList" : "AniList";
+      const serviceName = getProviderLabel(provider);
       const deletionNames = [
         ...deletionDetection.localRemovals.map((item) => "• " + item.title + " (удалено на сервисе, будет удалена локальная запись)"),
         ...remoteDeletionCandidates.map((item) => "• " + (item.intent.anime.titles.english || item.intent.anime.titles.romaji || item.intent.animeId) + " (удалено локально, будет удалена запись на сервисе)"),
@@ -2124,7 +2125,7 @@ function App() {
                                   <small>
                                     {operation.direction === "remote" ? "Отправка в сервис" : "Запись в библиотеку"}
                                     {" · "}{operation.kind === "create" ? "Создание" : operation.kind === "delete" ? "Удаление" : "Обновление"}
-                                    {" · "}{operation.provider === "mal" ? "MAL" : "AniList"}
+                                    {" · "}{getProviderLabel(operation.provider)}
                                   </small>
                                 </span>
                                 <span className={"history-status-label " + operation.status}>{historyStatusLabel(operation.status)}</span>
