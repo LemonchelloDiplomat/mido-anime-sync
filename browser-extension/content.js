@@ -30,14 +30,26 @@
   function findEpisode(text) {
     const value = String(text || "");
     const patterns = [
-      /(?:серия|эпизод|episode|ep\.?)[\s:#№-]*(\d{1,4})/i,
-      /(\d{1,4})\s*(?:серия|эпизод|episode|ep\.?)/i,
+      /(?:сер(?:ия|ии|ию)|эпизод|episode|ep\.?)[\s:#№-]*(\d{1,4})/i,
+      /(\d{1,4})\s*(?:сер(?:ия|ии|ию)|эпизод|episode|ep\.?)/i,
     ];
     for (const pattern of patterns) {
       const match = value.match(pattern);
       if (match) return Number(match[1]);
     }
     return null;
+  }
+
+  function findAnimeGoActiveEpisode() {
+    const activeItem = document.querySelector(".player-video-bar__item.active");
+    const rawNumber = activeItem?.getAttribute("data-episode-number") || "";
+    if (/^\d{1,4}$/.test(rawNumber)) {
+      const episode = Number(rawNumber);
+      if (Number.isSafeInteger(episode) && episode > 0) return episode;
+    }
+
+    const activeButton = activeItem?.querySelector("button.player-video-bar__number");
+    return findEpisode(activeButton?.getAttribute("aria-label") || activeButton?.textContent || "");
   }
 
   function findMainVideo() {
@@ -66,19 +78,22 @@
     title = title
       .replace(/\s*[|·-]\s*(AnimeGO|YummyAnime|Anixart).*$/i, "")
       .replace(/\s*[|·-]\s*(смотреть аниме онлайн).*$/i, "")
-      .replace(/\s*(?:серия|эпизод|episode|ep\.?)[\s:#№-]*\d{1,4}.*$/i, "")
+      .replace(/\s*(?:сер(?:ия|ии|ию)|эпизод|episode|ep\.?)[\s:#№-]*\d{1,4}.*$/i, "")
       .trim();
 
+    const activeAnimeGoEpisode = service === "animego" ? findAnimeGoActiveEpisode() : null;
     const episodeCandidates = [
       ...episodeSelectors.map(textFrom),
       document.title,
       ...Array.from(document.querySelectorAll("h1,h2,h3")).slice(0, 8).map((el) => el.textContent || ""),
       location.pathname,
     ];
-    let episode = null;
-    for (const candidate of episodeCandidates) {
-      episode = findEpisode(candidate);
-      if (episode) break;
+    let episode = activeAnimeGoEpisode;
+    if (!episode) {
+      for (const candidate of episodeCandidates) {
+        episode = findEpisode(candidate);
+        if (episode) break;
+      }
     }
 
     const video = videoOverride || findMainVideo();
