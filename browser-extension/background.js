@@ -23,7 +23,7 @@ function allowedSourceUrl(service, rawUrl) {
 }
 
 function normalizeTitle(title) {
-  return String(title || "").trim().toLocaleLowerCase().replace(/\\s+/g, " ");
+  return String(title || "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
 }
 
 function drawToolbarIcon(alerted) {
