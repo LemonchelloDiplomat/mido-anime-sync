@@ -141,6 +141,22 @@ describe("import preview", () => {
     );
   });
 
+  it("matches external IDs after trimming surrounding whitespace", () => {
+    const imported = createAnime({
+      id: "mal:1",
+      externalIds: { myanimelist: " 1 " },
+    });
+    const existing = createAnime({
+      id: "anilist:2",
+      externalIds: { myanimelist: "1", anilist: "2" },
+    });
+
+    const preview = createImportPreview([imported], [existing]);
+
+    expect(preview.items[0]?.status).toBe("matched");
+    expect(preview.items[0]?.matchedAnime?.id).toBe("anilist:2");
+  });
+
   it("does not modify original anime records", () => {
     const imported = createAnime({ id: "imported" });
     const existing = createAnime({ id: "existing" });
