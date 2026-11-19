@@ -1079,6 +1079,7 @@ export class BrowserAnimeRepository {
         "sourceEntries",
         "conflictResolutions",
         "animeRelations",
+        "deletionIntents",
       ],
       "readwrite",
     );
@@ -1091,6 +1092,7 @@ export class BrowserAnimeRepository {
     const sourceStore = transaction.objectStore("sourceEntries");
     const resolutionStore = transaction.objectStore("conflictResolutions");
     const relationStore = transaction.objectStore("animeRelations");
+    const deletionStore = transaction.objectStore("deletionIntents");
 
     try {
       const [
@@ -1099,12 +1101,14 @@ export class BrowserAnimeRepository {
         allSourceEntries,
         resolutions,
         allRelations,
+        allDeletionIntents,
       ] = await Promise.all([
         animeStore.get(sourceId),
         animeStore.get(targetId),
         sourceStore.getAll(),
         resolutionStore.getAll(),
         relationStore.getAll(),
+        deletionStore.getAll(),
       ]);
 
       if (!sourceAnime) {
@@ -1175,6 +1179,18 @@ export class BrowserAnimeRepository {
         [sourceId]: targetId,
       });
 
+      const remappedDeletionIntents = allDeletionIntents
+        .filter((intent) => intent.animeId === sourceId || intent.animeId === targetId)
+        .map((intent) => ({
+          ...structuredClone(intent),
+          animeId: targetId,
+          anime: intent.animeId === sourceId ? mergedAnime : structuredClone(intent.anime),
+          entry: { ...structuredClone(intent.entry), animeId: targetId },
+        }));
+      const unaffectedDeletionIntents = allDeletionIntents.filter(
+        (intent) => intent.animeId !== sourceId && intent.animeId !== targetId,
+      );
+
       assertRelationsReferenceExistingAnime(
         remappedRelations,
         new Set([
@@ -1213,7 +1229,7 @@ export class BrowserAnimeRepository {
         ),
 
         relationStore.clear(),
-      ]);
+        ...allDeletionIntents\n          .filter((intent) => intent.animeId === sourceId || intent.animeId === targetId)\n          .map((intent) => deletionStore.delete(intent.id)),\n      ]);
 
       await Promise.all([
         ...mergedSourceEntries.map((entry) =>
@@ -1230,6 +1246,10 @@ export class BrowserAnimeRepository {
 
         ...remappedRelations.map((relation) =>
           relationStore.put(structuredClone(relation)),
+        ),
+
+        ...remappedDeletionIntents.map((intent) =>
+          deletionStore.put(structuredClone(intent)),
         ),
       ]);
 
