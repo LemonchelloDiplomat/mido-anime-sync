@@ -268,7 +268,7 @@ export function createBidirectionalSyncPlan(
         animeId: local.anime.id,
         entry: {
           ...cloneEntry(remote.entry, local.anime.id),
-          source: provider === "mal" ? "myanimelist" : "anilist",
+          source: getProviderServiceId(provider),
         },
       });
     }
