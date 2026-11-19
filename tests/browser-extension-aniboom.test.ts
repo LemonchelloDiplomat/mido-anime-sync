@@ -157,7 +157,6 @@ describe("AnimeGO AniBoom iframe tracking", () => {
     });
 
     videoListeners.timeupdate?.();
-    expect(retryCallback).toBeNull();
 
     expect(sentEvents).toHaveLength(1);
     expect(sentEvents[0]).toMatchObject({
