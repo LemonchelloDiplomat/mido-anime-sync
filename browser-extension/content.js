@@ -30,8 +30,8 @@
   function findEpisode(text) {
     const value = String(text || "");
     const patterns = [
-      /(?:серия|эпизод|episode|ep\.?)[\s:#№-]*(\d{1,4})/i,
-      /(\d{1,4})\s*(?:серия|эпизод|episode|ep\.?)/i,
+      /(?:сер(?:ия|ии|ию)|эпизод|episode|ep\.?)[\s:#№-]*(\d{1,4})/i,
+      /(\d{1,4})\s*(?:сер(?:ия|ии|ию)|эпизод|episode|ep\.?)/i,
     ];
     for (const pattern of patterns) {
       const match = value.match(pattern);
@@ -78,7 +78,7 @@
     title = title
       .replace(/\s*[|·-]\s*(AnimeGO|YummyAnime|Anixart).*$/i, "")
       .replace(/\s*[|·-]\s*(смотреть аниме онлайн).*$/i, "")
-      .replace(/\s*(?:серия|эпизод|episode|ep\.?)[\s:#№-]*\d{1,4}.*$/i, "")
+      .replace(/\s*(?:сер(?:ия|ии|ию)|эпизод|episode|ep\.?)[\s:#№-]*\d{1,4}.*$/i, "")
       .trim();
 
     const activeAnimeGoEpisode = service === "animego" ? findAnimeGoActiveEpisode() : null;
