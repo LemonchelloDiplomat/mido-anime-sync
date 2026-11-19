@@ -83,6 +83,25 @@
   }
 
   function detect(videoOverride) {
+    if (isAniBoomFrame && parentMetadata) {
+      const video = videoOverride || findMainVideo();
+      const currentTimeSeconds = video && Number.isFinite(video.currentTime) ? Math.floor(video.currentTime) : null;
+      const durationSeconds = video && Number.isFinite(video.duration) && video.duration > 0
+        ? Math.floor(video.duration)
+        : null;
+      return {
+        service: "animego",
+        title: parentMetadata.title,
+        episode: parentMetadata.episode,
+        sourceUrl: parentMetadata.sourceUrl,
+        currentTimeSeconds,
+        durationSeconds,
+        hasVideoElement: Boolean(video),
+        manualOnly: !video || durationSeconds == null,
+        pageTitle: document.title,
+      };
+    }
+
     const titleMeta = document.querySelector("meta[property='og:title']");
     const titleCandidates = [
       ...titleSelectors.map(textFrom),
