@@ -39,7 +39,7 @@ assert.ok(
   cvhPageWorldScript.matches.includes("https://animego.me/*"),
   "CVH page-world sampler must run on AnimeGO pages containing the VK player component",
 );
-assert.equal(cvhPageWorldScript.all_frames, undefined, "CVH sampler must run only in the top AnimeGO page");
+assert.equal(cvhPageWorldScript.all_frames, true, "CVH sampler must run inside the embedded CVH player iframe");
 
 const matches = manifest.content_scripts.flatMap((script) => script.matches);
 for (const host of ["anime-go.org", "animego.online", "animego.me", "yummyani.me", "yummy-ani.me", "anixart-app.com", "anixartapp.com"]) {
