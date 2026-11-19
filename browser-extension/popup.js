@@ -86,7 +86,13 @@ document.getElementById("send").addEventListener("click", async () => {
   let destination;
   try {
     destination = new URL(appUrl);
-    if (!["http:", "https:"].includes(destination.protocol)) throw new Error("invalid protocol");
+    const allowedHosts = new Set(["127.0.0.1", "localhost"]);
+    const allowedPorts = new Set(["5173", "3001", "4173"]);
+    if (
+      destination.protocol !== "http:" ||
+      !allowedHosts.has(destination.hostname) ||
+      !allowedPorts.has(destination.port || "80")
+    ) throw new Error("unsupported local app address");
     destination.searchParams.set("watchEvent", JSON.stringify(event));
   } catch {
     status("Некорректный адрес локального приложения. Проверь настройки расширения.");
