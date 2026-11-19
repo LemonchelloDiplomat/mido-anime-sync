@@ -99,7 +99,7 @@
         sourceUrl: parentMetadata.sourceUrl,
         currentTimeSeconds: latestCvhSample ? Math.ceil(latestCvhSample.currentTime) : null,
         durationSeconds: latestCvhSample ? Math.floor(latestCvhSample.duration) : null,
-        hasVideoElement: false,
+        hasVideoElement: Boolean(latestCvhSample),
         manualOnly: !latestCvhSample,
         pageTitle: document.title,
       };
