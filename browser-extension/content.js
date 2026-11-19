@@ -11,6 +11,8 @@
   let parentMetadata = null;
   let latestCvhSample = null;
   let previousCvhTime = null;
+  let cvhMetadataKey = null;
+  let cvhAwaitingEpisodeStart = false;
   const sentCvhKeys = new Set();
 
   function isAllowedAnimeGoUrl(rawUrl) {
@@ -277,11 +279,25 @@
         new URL(metadata.sourceUrl).origin !== event.origin
       ) return;
       const sourceUrl = new URL(metadata.sourceUrl);
-      parentMetadata = {
+      const nextMetadata = {
         title: metadata.title.trim(),
         episode: metadata.episode,
         sourceUrl: sourceUrl.origin + sourceUrl.pathname,
       };
+      const nextMetadataKey = [
+        nextMetadata.title.trim().toLocaleLowerCase(),
+        nextMetadata.episode,
+        nextMetadata.sourceUrl,
+      ].join("|");
+      if (isCvhPlayerFrame && cvhMetadataKey !== null && cvhMetadataKey !== nextMetadataKey) {
+        // The CVH player can briefly report the previous episode's near-end
+        // timestamp after AnimeGO has already switched the episode metadata.
+        // Do not attribute that stale playback position to the new episode.
+        previousCvhTime = null;
+        cvhAwaitingEpisodeStart = true;
+      }
+      cvhMetadataKey = nextMetadataKey;
+      parentMetadata = nextMetadata;
       requestParentMetadata();
       scanVideos();
       if (isCvhFrame) syncParentMetadataToFrames();
@@ -338,6 +354,19 @@
     }
     const previousTime = previousCvhTime;
     previousCvhTime = currentTime;
+
+    if (cvhAwaitingEpisodeStart) {
+      // A new episode is not considered active until its playback timeline
+      // visibly resets. This filters stale near-end samples carried over from
+      // the previous episode when the same CVH player is reused.
+      const timelineReset = currentTime <= Math.min(10, duration * 0.02) ||
+        (previousTime !== null && currentTime < previousTime - 5);
+      if (timelineReset) {
+        cvhAwaitingEpisodeStart = false;
+        previousCvhTime = currentTime;
+      }
+      return;
+    }
 
     // Require real forward playback between consecutive samples. This avoids
     // treating a seek, paused position, or a page restored near the end as a watch.
