@@ -1,3 +1,5 @@
+import type { SyncProvider } from "../core/types.js";
+
 export interface ProviderConnectionStatus {
   configured: boolean;
   connected: boolean;
@@ -32,14 +34,14 @@ export function getIntegrationStatus(): Promise<IntegrationStatus> {
   return request<IntegrationStatus>("/api/integrations/status");
 }
 
-export async function disconnectIntegration(provider: "mal" | "anilist" | "shikimori"): Promise<void> {
+export async function disconnectIntegration(provider: SyncProvider | "shikimori"): Promise<void> {
   await request("/api/integrations/disconnect", {
     method: "POST",
     body: JSON.stringify({ provider }),
   });
 }
 
-export function connectIntegration(provider: "mal" | "anilist"): void {
+export function connectIntegration(provider: SyncProvider): void {
   window.location.assign("/api/auth/" + provider + "/start");
 }
 
@@ -49,7 +51,7 @@ export interface RemoteAccountListPayload {
   scoreFormat?: string;
 }
 
-export function fetchAccountList(provider: "mal" | "anilist"): Promise<RemoteAccountListPayload> {
+export function fetchAccountList(provider: SyncProvider): Promise<RemoteAccountListPayload> {
   const endpoint = provider === "mal" ? "/api/mal/list" : provider === "anilist" ? "/api/anilist/list" : "/api/shikimori/list";
   return request<RemoteAccountListPayload>(endpoint);
 }
@@ -65,7 +67,7 @@ export interface AccountEntryUpdate {
 
 
 export async function deleteAccountEntry(
-  provider: "mal" | "anilist",
+  provider: SyncProvider,
   entry: { externalId: string; entryId?: number },
 ): Promise<{ ok: boolean }> {
   const result = await request<{ ok: boolean }>(
@@ -79,7 +81,7 @@ export async function deleteAccountEntry(
   return result;
 }
 
-export async function updateAccountEntry(provider: "mal" | "anilist", entry: AccountEntryUpdate): Promise<{ ok: boolean }> {
+export async function updateAccountEntry(provider: SyncProvider, entry: AccountEntryUpdate): Promise<{ ok: boolean }> {
   const result = await request<{ ok: boolean }>(
     provider === "mal" ? "/api/mal/entry" : provider === "anilist" ? "/api/anilist/entry" : "/api/shikimori/entry",
     {
