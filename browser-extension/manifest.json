@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "MidaHoshi Anime Watch Bridge",
+  "version": "0.1.0",
+  "description": "Передаёт подтверждённые просмотры из поддерживаемых аниме-сайтов в локальную библиотеку MidaHoshi Anime Sync.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "https://animego.lt/*",
+    "https://animego.name/*",
+    "https://yummyani.me/*",
+    "https://www.yummyani.me/*",
+    "https://yummy-ani.me/*",
+    "http://127.0.0.1:5173/*",
+    "http://localhost:5173/*",
+    "http://127.0.0.1:3001/*",
+    "http://localhost:3001/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://animego.lt/*",
+        "https://animego.name/*",
+        "https://yummyani.me/*",
+        "https://www.yummyani.me/*",
+        "https://yummy-ani.me/*"
+      ],
+      "js": [
+        "adapters/animego.js",
+        "adapters/yummyanime.js",
+        "adapters/anixart.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://127.0.0.1:5173/*",
+        "http://localhost:5173/*",
+        "http://127.0.0.1:3001/*",
+        "http://localhost:3001/*"
+      ],
+      "js": ["bridge.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
