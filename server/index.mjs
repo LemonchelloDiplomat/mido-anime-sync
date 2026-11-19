@@ -16,6 +16,33 @@ const MAL_OAUTH = "https://myanimelist.net/v1/oauth2";
 const ANILIST_GRAPHQL = "https://graphql.anilist.co";
 const SHIKIMORI_API = "https://shikimori.io/api";
 const SHIKIMORI_OAUTH = "https://shikimori.io/oauth";
+let shikimoriQueue = Promise.resolve();
+let shikimoriLastRequestAt = 0;
+let shikimoriRequestStarts = [];
+
+async function acquireShikimoriRequestSlot() {
+  const previous = shikimoriQueue;
+  let release;
+  shikimoriQueue = new Promise((resolve) => { release = resolve; });
+  await previous;
+
+  try {
+    let now = Date.now();
+    shikimoriRequestStarts = shikimoriRequestStarts.filter((startedAt) => now - startedAt < 60000);
+    const spacingDelay = Math.max(0, shikimoriLastRequestAt + 220 - now);
+    const minuteDelay = shikimoriRequestStarts.length >= 80
+      ? Math.max(0, shikimoriRequestStarts[0] + 60000 - now)
+      : 0;
+    const delay = Math.max(spacingDelay, minuteDelay);
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+    now = Date.now();
+    shikimoriLastRequestAt = now;
+    shikimoriRequestStarts.push(now);
+  } finally {
+    release();
+  }
+}
+
 const sessions = new Map();
 
 async function loadLocalEnv() {
@@ -225,6 +252,7 @@ async function getShikimoriAccessToken(tokens) {
 
 async function shikimoriRequest(pathname, tokens, options = {}) {
   const accessToken = await getShikimoriAccessToken(tokens);
+  await acquireShikimoriRequestSlot();
   return fetchJson(SHIKIMORI_API + pathname, {
     ...options,
     headers: {
