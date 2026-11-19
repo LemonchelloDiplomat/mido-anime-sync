@@ -19,14 +19,31 @@ export function isWatchSource(value: unknown): value is WatchSource {
 export function validateWatchEvent(value: unknown): WatchEvent {
   if (!value || typeof value !== "object") throw new Error("Некорректное событие просмотра.");
   const event = value as Record<string, unknown>;
+  let sourceUrl: URL | null = null;
+  try {
+    sourceUrl = typeof event.sourceUrl === "string" ? new URL(event.sourceUrl) : null;
+  } catch {
+    sourceUrl = null;
+  }
+  const host = sourceUrl?.hostname.toLowerCase() ?? "";
+  const allowedHost = event.service === "animego"
+    ? host === "anime-go.org" || host.endsWith(".anime-go.org") || host === "animego.online" || host.endsWith(".animego.online")
+    : event.service === "yummyanime"
+      ? ["yummyani.me", "yummy-ani.me", "yummyanime.club", "yummyanime.info"].some((domain) => host === domain || host.endsWith("." + domain))
+      : event.service === "anixart"
+        ? host === "anixart-app.com" || host.endsWith(".anixart-app.com")
+        : false;
   if (
+
     !isWatchSource(event.service) ||
     typeof event.title !== "string" ||
     event.title.trim().length === 0 ||
     !Number.isInteger(event.episode) ||
     Number(event.episode) < 1 ||
-    typeof event.sourceUrl !== "string" ||
-    !/^https?:\/\//i.test(event.sourceUrl) ||
+    !sourceUrl ||
+    (sourceUrl.protocol !== "https:" && sourceUrl.protocol !== "http:") ||
+    Boolean(sourceUrl.username || sourceUrl.password) ||
+    !allowedHost ||
     typeof event.observedAt !== "string" ||
     !Number.isFinite(Date.parse(event.observedAt))
   ) {
