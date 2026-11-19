@@ -242,7 +242,7 @@ export function createBidirectionalSyncPlan(
     if (localDiffers) {
       plan.localUpdates.push({
         animeId: local.anime.id,
-        entry: { ...cloneEntry(desired, local.anime.id), source: provider === "mal" ? "myanimelist" : "anilist" },
+        entry: { ...cloneEntry(desired, local.anime.id), source: getProviderServiceId(provider) },
       });
     }
     if (remoteDiffers) {
