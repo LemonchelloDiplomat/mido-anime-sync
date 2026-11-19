@@ -3,6 +3,7 @@ import { randomBytes, createCipheriv, createDecipheriv } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { toMyAnimeListScore } from "./mal-score.mjs";
+import { deleteMyAnimeListEntry } from "./mal-delete.mjs";
 
 const ROOT = process.cwd();
 const DATA_DIR = path.join(ROOT, ".local-data");
@@ -419,13 +420,11 @@ async function handleRequest(request, response) {
     try {
       const tokens = await readTokens();
       const accessToken = await getMalAccessToken(tokens);
-      await fetchJson(MAL_API + "/anime/" + id + "/my_list_status", {
-        method: "DELETE",
-        headers: {
-          "X-MAL-CLIENT-ID": process.env.MAL_CLIENT_ID,
-          Authorization: "Bearer " + accessToken,
-          Accept: "application/json",
-        },
+      await deleteMyAnimeListEntry({
+        animeId: id,
+        accessToken,
+        clientId: process.env.MAL_CLIENT_ID,
+        requestJson: fetchJson,
       });
       return sendJson(response, 200, { ok: true });
     } catch (error) {
