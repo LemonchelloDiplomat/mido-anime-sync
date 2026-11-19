@@ -9,6 +9,7 @@ export interface IntegrationStatus {
   server: { ok: boolean; mode: string };
   myanimelist: ProviderConnectionStatus;
   anilist: ProviderConnectionStatus;
+  shikimori: ProviderConnectionStatus;
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -31,7 +32,7 @@ export function getIntegrationStatus(): Promise<IntegrationStatus> {
   return request<IntegrationStatus>("/api/integrations/status");
 }
 
-export async function disconnectIntegration(provider: "mal" | "anilist"): Promise<void> {
+export async function disconnectIntegration(provider: "mal" | "anilist" | "shikimori"): Promise<void> {
   await request("/api/integrations/disconnect", {
     method: "POST",
     body: JSON.stringify({ provider }),
@@ -49,7 +50,8 @@ export interface RemoteAccountListPayload {
 }
 
 export function fetchAccountList(provider: "mal" | "anilist"): Promise<RemoteAccountListPayload> {
-  return request<RemoteAccountListPayload>(provider === "mal" ? "/api/mal/list" : "/api/anilist/list");
+  const endpoint = provider === "mal" ? "/api/mal/list" : provider === "anilist" ? "/api/anilist/list" : "/api/shikimori/list";
+  return request<RemoteAccountListPayload>(endpoint);
 }
 
 export interface AccountEntryUpdate {
@@ -58,6 +60,7 @@ export interface AccountEntryUpdate {
   progress: number;
   score: number | null;
   favorite?: boolean;
+  entryId?: number;
 }
 
 
@@ -66,7 +69,7 @@ export async function deleteAccountEntry(
   entry: { externalId: string; entryId?: number },
 ): Promise<{ ok: boolean }> {
   const result = await request<{ ok: boolean }>(
-    provider === "mal" ? "/api/mal/entry/delete" : "/api/anilist/entry/delete",
+    provider === "mal" ? "/api/mal/entry/delete" : provider === "anilist" ? "/api/anilist/entry/delete" : "/api/shikimori/entry/delete",
     {
       method: "POST",
       body: JSON.stringify(entry),
@@ -78,7 +81,7 @@ export async function deleteAccountEntry(
 
 export async function updateAccountEntry(provider: "mal" | "anilist", entry: AccountEntryUpdate): Promise<{ ok: boolean }> {
   const result = await request<{ ok: boolean }>(
-    provider === "mal" ? "/api/mal/entry" : "/api/anilist/entry",
+    provider === "mal" ? "/api/mal/entry" : provider === "anilist" ? "/api/anilist/entry" : "/api/shikimori/entry",
     {
       method: "POST",
       body: JSON.stringify(entry),
