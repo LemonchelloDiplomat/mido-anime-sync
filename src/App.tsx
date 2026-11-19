@@ -1942,7 +1942,7 @@ function App() {
         <div className="brand">
           <div className="brand-logo">M</div>
           <div>
-            <h2>MidaHoshi</h2>
+            <h2>mido-anime-sync</h2>
             <span>ANIME SYNC</span>
           </div>
         </div>
@@ -1968,7 +1968,7 @@ function App() {
           <button className="nav-item" type="button" disabled aria-disabled="true" title="Раздел настроек пока не реализован">
             ⚙ <span>Настройки</span>
           </button>
-          <div className="version">MidaHoshi Anime Sync v0.4</div>
+          <div className="version">mido-anime-sync v0.5</div>
         </div>
       </aside>
 
@@ -2788,7 +2788,7 @@ function App() {
           </section>
 
           <footer>
-            <span>MidaHoshi Anime Sync</span>
+            <span>mido-anime-sync</span>
             <span>Твоя библиотека. Твои правила.</span>
           </footer>
             </>

@@ -220,7 +220,7 @@ async function exchangeShikimoriToken(fields) {
     method: "POST",
     headers: {
       Accept: "application/json",
-      "User-Agent": process.env.SHIKIMORI_USER_AGENT || "MidaHoshiAnimeSync/0.2.0",
+      "User-Agent": process.env.SHIKIMORI_USER_AGENT || "mido-anime-sync/0.5.0",
     },
     body: form,
   });
@@ -259,7 +259,7 @@ async function shikimoriRequest(pathname, tokens, options = {}) {
   return fetchJson(SHIKIMORI_API + pathname, {
     ...options,
     headers: {
-      "User-Agent": process.env.SHIKIMORI_USER_AGENT || "MidaHoshiAnimeSync/0.2.0",
+      "User-Agent": process.env.SHIKIMORI_USER_AGENT || "mido-anime-sync/0.5.0",
       Authorization: "Bearer " + accessToken,
       Accept: "application/json",
       ...(options.body ? { "Content-Type": "application/json" } : {}),
@@ -358,7 +358,7 @@ async function handleRequest(request, response) {
       tokens.mal.username = me.name || null;
       tokens.mal.userId = me.id || null;
       await writeTokens(tokens);
-      return sendHtml(response, 200, "<h2>MyAnimeList подключён ✓</h2><p>Токен сохранён в зашифрованном локальном хранилище.</p><a href='/'>Вернуться в MidaHoshi Anime Sync</a>");
+      return sendHtml(response, 200, "<h2>MyAnimeList подключён ✓</h2><p>Токен сохранён в зашифрованном локальном хранилище.</p><a href='/'>Вернуться в mido-anime-sync</a>");
     } catch (error) {
       return sendHtml(response, 502, "<h2>Не удалось подключить MyAnimeList</h2><p>" + escapeHtml(error.message) + "</p><a href='/'>Вернуться</a>");
     }
@@ -485,7 +485,7 @@ async function handleRequest(request, response) {
       tokens.shikimori.username = me.nickname || me.name || null;
       tokens.shikimori.userId = me.id || null;
       await writeTokens(tokens);
-      return sendHtml(response, 200, "<h2>Shikimori подключён ✓</h2><p>Токены сохранены в зашифрованном локальном хранилище.</p><a href='/'>Вернуться в MidaHoshi Anime Sync</a>");
+      return sendHtml(response, 200, "<h2>Shikimori подключён ✓</h2><p>Токены сохранены в зашифрованном локальном хранилище.</p><a href='/'>Вернуться в mido-anime-sync</a>");
     } catch (error) {
       return sendHtml(response, 502, "<h2>Не удалось подключить Shikimori</h2><p>" + escapeHtml(error.message) + "</p><a href='/'>Вернуться</a>");
     }
@@ -812,7 +812,7 @@ const server = createServer((request, response) => {
   });
 });
 server.listen(PORT, HOST, () => {
-  console.log("MidaHoshi API: http://" + HOST + ":" + PORT);
+  console.log("mido-anime-sync API: http://" + HOST + ":" + PORT);
   console.log("MyAnimeList: " + (process.env.MAL_CLIENT_ID ? "configured" : "not configured"));
   console.log("AniList: " + (process.env.ANILIST_CLIENT_ID ? "configured" : "not configured"));
 });

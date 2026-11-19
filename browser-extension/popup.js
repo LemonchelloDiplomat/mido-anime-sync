@@ -103,7 +103,7 @@ document.getElementById("send").addEventListener("click", async () => {
   }
   try {
     await chrome.tabs.create({ url: destination.toString() });
-    status("Событие открыто в MidaHoshi Anime Sync. Очередь очистится после подтверждения или отмены события в приложении.");
+    status("Событие открыто в mido-anime-sync. Очередь очистится после подтверждения или отмены события в приложении.");
   } catch {
     status("Не удалось открыть локальное приложение. Проверь, что оно запущено и адрес указан верно.");
   }
