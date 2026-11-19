@@ -1187,10 +1187,6 @@ export class BrowserAnimeRepository {
           anime: intent.animeId === sourceId ? mergedAnime : structuredClone(intent.anime),
           entry: { ...structuredClone(intent.entry), animeId: targetId },
         }));
-      const unaffectedDeletionIntents = allDeletionIntents.filter(
-        (intent) => intent.animeId !== sourceId && intent.animeId !== targetId,
-      );
-
       assertRelationsReferenceExistingAnime(
         remappedRelations,
         new Set([
