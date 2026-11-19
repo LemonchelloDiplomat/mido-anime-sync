@@ -1,3 +1,4 @@
+import { getProviderServiceId, providerSupportsFavorite, providerUsesTenPointScore } from "./provider-capabilities.js";
 import type {
   AnimeListEntry,
   AnimeSnapshot,
@@ -24,7 +25,7 @@ export async function reconcileUnfinishedSyncOperations(
   remoteSnapshot: AnimeSnapshot,
   dependencies: SyncRecoveryDependencies,
 ): Promise<{ recoveredOperations: number }> {
-  const providerSource = provider === "mal" ? "myanimelist" : provider === "anilist" ? "anilist" : "shikimori";
+  const providerSource = getProviderServiceId(provider);
   let recoveredOperations = 0;
 
   for (const operation of operations) {
@@ -41,7 +42,7 @@ export async function reconcileUnfinishedSyncOperations(
           (entry) => entry.source === operation.entry.source,
         );
 
-    const expectedScore = provider === "mal" || provider === "shikimori"
+    const expectedScore = providerUsesTenPointScore(provider)
       ? operation.entry.score === null || operation.entry.score === 0
         ? null
         : Math.max(10, Math.min(100, Math.round(operation.entry.score / 10) * 10))
@@ -54,7 +55,7 @@ export async function reconcileUnfinishedSyncOperations(
           actualEntry.status === operation.entry.status &&
           actualEntry.progress === operation.entry.progress &&
           actualEntry.score === expectedScore &&
-          (provider !== "anilist" || actualEntry.favorite === operation.entry.favorite),
+          (!providerSupportsFavorite(provider) || actualEntry.favorite === operation.entry.favorite),
         );
 
     if (matchesTarget) {
