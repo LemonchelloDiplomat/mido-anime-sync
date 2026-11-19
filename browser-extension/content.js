@@ -176,7 +176,20 @@
     document.querySelectorAll("iframe").forEach(sendParentMetadataToFrame);
   }
 
+  let parentMetadataRetryTimer = null;
+
   if (isAniBoomFrame) {
+    const requestParentMetadata = () => {
+      if (!parentMetadata) {
+        // The iframe can load before the parent content script. Retry until
+        // AnimeGO responds instead of losing the one-time startup handshake.
+        window.parent.postMessage({ type: "MIDAHOSHI_REQUEST_PARENT_METADATA" }, "*");
+      } else if (parentMetadataRetryTimer !== null) {
+        window.clearInterval(parentMetadataRetryTimer);
+        parentMetadataRetryTimer = null;
+      }
+    };
+
     window.addEventListener("message", (event) => {
       if (event.source !== window.parent || !isAllowedAnimeGoUrl(event.origin)) return;
       if (event.data?.type !== "MIDAHOSHI_PARENT_METADATA") return;
@@ -196,9 +209,12 @@
         episode: metadata.episode,
         sourceUrl: sourceUrl.origin + sourceUrl.pathname,
       };
+      requestParentMetadata();
       scanVideos();
     });
-    window.parent.postMessage({ type: "MIDAHOSHI_REQUEST_PARENT_METADATA" }, "*");
+
+    requestParentMetadata();
+    parentMetadataRetryTimer = window.setInterval(requestParentMetadata, 750);
   } else {
     window.addEventListener("message", (event) => {
       if (event.origin !== "https://aniboom.one" ||
