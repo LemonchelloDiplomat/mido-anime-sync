@@ -6,6 +6,7 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "check:server": "node --check server/index.mjs",
     "dev": "node scripts/dev.mjs",
     "dev:web": "vite",
     "dev:api": "node server/index.mjs",
