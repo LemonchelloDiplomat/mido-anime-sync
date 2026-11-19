@@ -27,7 +27,7 @@ function getExternalIdConflicts(
       if (!externalId) return false;
       const existingId =
         existing.externalIds[service as keyof AnimeIdentity["externalIds"]];
-      return Boolean(existingId && existingId !== externalId);
+      return Boolean(existingId?.trim() && existingId.trim() !== externalId.trim());
     })
     .map(([service]) => service);
 }
@@ -42,7 +42,7 @@ function getSharedExternalId(
     const existingId =
       existing.externalIds[service as keyof AnimeIdentity["externalIds"]];
 
-    if (existingId === externalId) return service;
+    if (existingId?.trim() && existingId.trim() === externalId.trim()) return service;
   }
 
   return null;
@@ -69,8 +69,9 @@ export function createImportPreview(
     importedIds.add(imported.id);
 
     for (const [service, externalId] of Object.entries(imported.externalIds)) {
-      if (!externalId) continue;
-      const key = `${service}:${externalId}`;
+      const normalizedExternalId = externalId?.trim();
+      if (!normalizedExternalId) continue;
+      const key = `${service}:${normalizedExternalId}`;
 
       if (externalIds.has(key)) {
         throw new Error(`В импортируемом файле повторяется внешний ID ${key}. Проверь исходный файл.`);
