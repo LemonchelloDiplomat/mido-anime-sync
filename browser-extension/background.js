@@ -27,6 +27,17 @@ async function updateBadge(queue) {
 }
 
 chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type === "MIDAHOSHI_APP_ACK" && typeof message.eventId === "string") {
+    void (async () => {
+      const stored = await chrome.storage.local.get({ [QUEUE_KEY]: [] });
+      const queue = Array.isArray(stored[QUEUE_KEY]) ? stored[QUEUE_KEY] : [];
+      const nextQueue = queue.filter((item) => item.eventId !== message.eventId);
+      await chrome.storage.local.set({ [QUEUE_KEY]: nextQueue });
+      await updateBadge(nextQueue);
+    })();
+    return;
+  }
+
   if (message?.type !== "MIDAHOSHI_AUTO_WATCH_EVENT" || !message.event) return;
 
   void (async () => {
