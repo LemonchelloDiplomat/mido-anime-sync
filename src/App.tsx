@@ -26,6 +26,7 @@ import { parseAniListAccountList, type AniListScoreFormat } from "./services/ani
 import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
 import { detectRemoteDeletions } from "./core/safe-deletions.js";
 import { executeRemoteDeletions, resolvePendingRemoteDeletionIntents } from "./core/remote-deletion.js";
+import { reconcileUnfinishedSyncOperations } from "./core/sync-recovery.js";
 
 import {
   createImportPreview,
@@ -758,51 +759,18 @@ function App() {
         throw new Error("Удалённый сервис вернул пустой список при наличии ожидающих удалений. Запросы на удаление сохранены, синхронизация остановлена.");
       }
 
-      // Reconcile unfinished journal records against the freshly fetched state.
-      // This handles the case where a write reached the provider just before the app closed.
+      // Reconcile unfinished journal records against the freshly fetched provider
+      // snapshot and local source entries before constructing a new sync plan.
       const unfinishedOperations = await activeRepository.getUnfinishedSyncOperations(provider);
-      let recoveredOperations = 0;
-      for (const operation of unfinishedOperations) {
-        const actualEntry = operation.direction === "remote"
-          ? (() => {
-              const remoteAnime = remoteSnapshot.anime.find(
-                (anime) => anime.externalIds[provider === "mal" ? "myanimelist" : "anilist"] === operation.externalId,
-              );
-              return remoteAnime
-                ? remoteSnapshot.entries.find((entry) => entry.animeId === remoteAnime.id)
-                : undefined;
-            })()
-          : (await activeRepository.getSourceEntries(operation.animeId)).find(
-              (entry) => entry.source === operation.entry.source,
-            );
-        // MAL stores integer scores from 1 to 10, so compare against its
-        // normalized 0-100 representation rather than the pre-rounded target.
-        const expectedScore = provider === "mal"
-          ? operation.entry.score === null || operation.entry.score === 0
-            ? null
-            : Math.max(10, Math.min(100, Math.round(operation.entry.score / 10) * 10))
-          : operation.entry.score;
-        const matchesTarget = operation.kind === "delete"
-          ? !actualEntry
-          : Boolean(
-              actualEntry &&
-              actualEntry.status === operation.entry.status &&
-              actualEntry.progress === operation.entry.progress &&
-              actualEntry.score === expectedScore &&
-              (provider === "mal" || actualEntry.favorite === operation.entry.favorite),
-            );
-        if (matchesTarget) {
-          await activeRepository.updateSyncOperation(operation.id, { status: "succeeded" });
-          recoveredOperations += 1;
-        } else {
-          // Do not leave stale pending/in-progress records looking active forever.
-          // The fresh sync plan below will reconcile the actual current state.
-          await activeRepository.updateSyncOperation(operation.id, {
-            status: "failed",
-            error: "Восстановление: текущее состояние не совпадает с целевым. Повторная синхронизация построит новый план.",
-          });
-        }
-      }
+      const { recoveredOperations } = await reconcileUnfinishedSyncOperations(
+        unfinishedOperations,
+        provider,
+        remoteSnapshot,
+        {
+          getSourceEntries: (animeId) => activeRepository.getSourceEntries(animeId),
+          updateSyncOperation: (id, update) => activeRepository.updateSyncOperation(id, update),
+        },
+      );
 
       const recoveredSessionIds = [...new Set(unfinishedOperations.map((operation) => operation.sessionId))];
       if (recoveredSessionIds.length > 0) {
