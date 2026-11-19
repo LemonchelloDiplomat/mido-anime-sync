@@ -16,7 +16,7 @@ import type {
 } from "./core/types.js";
 
 import { BrowserAnimeRepository } from "./storage/browser-repository.js";
-import { createLocalWatchProgressEntry, findExactAnimeTitleMatches, type IncomingWatchEvent } from "./core/watch-event.js";
+import { createWatchSourceEntry, findExactAnimeTitleMatches, validateWatchEvent, type WatchEvent } from "./core/watch-events.js";
 import { validateSnapshot } from "./storage/snapshot-validation.js";
 import { DEFAULT_LIBRARY_FILTERS, filterLibrary, type LibraryFilters } from "./core/library-filter.js";
 import { aniListMetadataProvider, fetchAniListAnimeDetails, getAniListMetadataCandidates, searchAniListAnime, type AniListAnimeDetails } from "./services/anilist.js";
@@ -43,6 +43,9 @@ type LibraryItem = {
   anime: AnimeIdentity;
   entry: AnimeListEntry | undefined;
 };
+
+type IncomingWatchEvent = WatchEvent & { eventId: string };
+
 
 
 
@@ -243,25 +246,21 @@ function App() {
       const data = message.data as {
         source?: string;
         type?: string;
-        event?: Partial<IncomingWatchEvent>;
+        event?: unknown;
       };
       if (data?.source !== "mido-anime-watch-extension" || data.type !== "WATCH_EVENT") return;
 
-      const event = data.event;
-      if (
-        !event ||
-        typeof event.eventId !== "string" ||
-        (event.provider !== "animego" && event.provider !== "yummyanime") ||
-        typeof event.title !== "string" ||
-        !Number.isSafeInteger(event.episode) ||
-        Number(event.episode) <= 0 ||
-        typeof event.sourceUrl !== "string" ||
-        typeof event.watchedAt !== "string"
-      ) return;
-
-      setPendingWatchEvents((current) => current.some((item) => item.eventId === event.eventId)
-        ? current
-        : [...current, event as IncomingWatchEvent].slice(-10));
+      const rawEvent = data.event as Record<string, unknown> | null;
+      if (!rawEvent || typeof rawEvent.eventId !== "string") return;
+      try {
+        const validated = validateWatchEvent(rawEvent);
+        const event: IncomingWatchEvent = { ...validated, eventId: rawEvent.eventId };
+        setPendingWatchEvents((current) => current.some((item) => item.eventId === event.eventId)
+          ? current
+          : [...current, event].slice(-10));
+      } catch {
+        return;
+      }
     }
 
     window.addEventListener("message", handleWatchBridgeMessage);
@@ -1816,8 +1815,8 @@ function App() {
     const anime = matches[0]!.anime;
     try {
       const sourceEntries = await repository.getSourceEntries(anime.id);
-      const localEntry = sourceEntries.find((entry) => entry.source === "local");
-      const nextEntry = createLocalWatchProgressEntry(anime, localEntry, event);
+      const watchSourceEntry = sourceEntries.find((entry) => entry.source === event.service);
+      const nextEntry = createWatchSourceEntry(anime, event, watchSourceEntry);
       await repository.saveSourceEntry(nextEntry);
       await refreshLibrary();
       acknowledgeWatchEvent(event.eventId);
@@ -1871,7 +1870,7 @@ function App() {
           <section className="watch-event-banner" role="status" aria-live="polite">
             <div>
               <strong>Обнаружен просмотр: {event.title}</strong>
-              <span>{event.episode} серия · {event.provider === "animego" ? "AnimeGO" : "YummyAnime"} · {matches.length === 1 ? "найдено точное совпадение" : matches.length === 0 ? "нет точного совпадения" : "несколько совпадений"}</span>
+              <span>{event.episode} серия · {event.service === "animego" ? "AnimeGO" : event.service === "anixart" ? "Anixart" : "YummyAnime"} · {matches.length === 1 ? "найдено точное совпадение" : matches.length === 0 ? "нет точного совпадения" : "несколько совпадений"}</span>
             </div>
             <div className="watch-event-actions">
               <button type="button" className="add-button" disabled={matches.length !== 1 || !repository} onClick={() => void applyWatchEvent(event)}>Применить прогресс</button>
