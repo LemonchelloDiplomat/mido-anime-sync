@@ -33,7 +33,7 @@ describe("Shikimori account list importer", () => {
       year: 2016,
       episodes: 1,
       averageScore: 8.9,
-      posterUrl: "https://shikimori.one/system/animes/original/41.jpg",
+      posterUrl: "https://shikimori.io/system/animes/original/41.jpg",
     });
     expect(snapshot.entries[0]).toMatchObject({
       animeId: "shikimori:41",
