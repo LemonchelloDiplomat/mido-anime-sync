@@ -260,18 +260,21 @@ describe("AnimeGO CVH iframe tracking", () => {
     expect(sentEvents).toHaveLength(1);
   });
 
-  it("samples only numeric playback state from the CVH public API", () => {
+  it("samples the native video from VK player's internal shadow root", () => {
     const messages: any[] = [];
     let intervalCallback: (() => void) | undefined;
-    const player = {
-      api: {
-        getCurrentTime: () => 123.5,
-        getDuration: () => 1000,
-      },
-      state: { currentEpisode: { name: 4 } },
-      getAttribute: () => "4",
+    const video = {
+      currentTime: 136.3,
+      duration: 1443.264,
+      paused: false,
+      readyState: 4,
     };
-    const fakeWindow = {
+    const player = {
+      _shadowRoot: {
+        querySelector: (selector: string) => selector === "video" ? video : null,
+      },
+    };
+    const fakeWindow: any = {
       setInterval(callback: () => void) {
         intervalCallback = callback;
         return 1;
@@ -280,14 +283,11 @@ describe("AnimeGO CVH iframe tracking", () => {
       clearInterval() {},
       postMessage(message: unknown) { messages.push(message); },
     };
+    fakeWindow.top = fakeWindow;
 
     vm.runInNewContext(cvhPageScript, {
-      location: {
-        hostname: "animego.me",
-        pathname: "/cdn-iframe/61443/Jam%20Club/1/4",
-        origin: "https://animego.me",
-      },
-      document: { querySelector: (selector: string) => selector === "#pcvh" ? player : null },
+      location: { hostname: "animego.me", origin: "https://animego.me" },
+      document: { querySelector: (selector: string) => selector === "vk-video-player" ? player : null },
       window: fakeWindow,
       Number,
     });
@@ -295,8 +295,13 @@ describe("AnimeGO CVH iframe tracking", () => {
     intervalCallback?.();
     expect(messages.length).toBeGreaterThanOrEqual(1);
     expect(messages[0]).toMatchObject({
-      type: "MIDAHOSHI_CVH_STATE",
-      state: { currentTime: 123.5, duration: 1000, episode: 4 },
+      type: "MIDAHOSHI_CVH_PAGE_STATE",
+      state: {
+        currentTime: 136.3,
+        duration: 1443.264,
+        paused: false,
+        readyState: 4,
+      },
     });
   });
 });
