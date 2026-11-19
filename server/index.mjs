@@ -14,8 +14,8 @@ const HOST = process.env.HOST || "127.0.0.1";
 const MAL_API = "https://api.myanimelist.net/v2";
 const MAL_OAUTH = "https://myanimelist.net/v1/oauth2";
 const ANILIST_GRAPHQL = "https://graphql.anilist.co";
-const SHIKIMORI_API = "https://shikimori.one/api";
-const SHIKIMORI_OAUTH = "https://shikimori.one/oauth";
+const SHIKIMORI_API = "https://shikimori.io/api";
+const SHIKIMORI_OAUTH = "https://shikimori.io/oauth";
 const sessions = new Map();
 
 async function loadLocalEnv() {
