@@ -1,4 +1,6 @@
-# MidaHoshi Anime Sync
+# mido-anime-sync
+
+**Версия: v0.5**
 
 Локальная аниме-библиотека с каталогом AniList, импортом и двусторонней синхронизацией MyAnimeList, AniList и Shikimori.
 
