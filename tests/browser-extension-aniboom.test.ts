@@ -13,6 +13,7 @@ describe("AnimeGO AniBoom iframe tracking", () => {
     const frameListeners: Record<string, (event: any) => void> = {};
     const sentEvents: any[] = [];
     let frameWindow: any;
+    let retryCallback: (() => void) | null = null;
     const parentWindow = {
       addEventListener(type: string, listener: (event: any) => void) {
         parentListeners[type] = listener;
@@ -27,6 +28,13 @@ describe("AnimeGO AniBoom iframe tracking", () => {
     };
     frameWindow = {
       parent: parentWindow,
+      setInterval(callback: () => void) {
+        retryCallback = callback;
+        return 1;
+      },
+      clearInterval() {
+        retryCallback = null;
+      },
       addEventListener(type: string, listener: (event: any) => void) {
         frameListeners[type] = listener;
       },
@@ -149,6 +157,7 @@ describe("AnimeGO AniBoom iframe tracking", () => {
     });
 
     videoListeners.timeupdate?.();
+    expect(retryCallback).toBeNull();
 
     expect(sentEvents).toHaveLength(1);
     expect(sentEvents[0]).toMatchObject({
