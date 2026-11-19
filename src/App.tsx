@@ -2073,7 +2073,17 @@ function App() {
                 const routeProvider: SyncProvider = provider === "myanimelist" ? "mal" : provider;
                 return (
                   <article className="integration-provider" key={provider}>
-                    <div className="integration-provider-mark">{provider === "myanimelist" ? "MAL" : provider === "anilist" ? "AL" : "SHI"}</div>
+                    <div className={"integration-provider-mark integration-provider-mark--" + provider}>
+                      <img
+                        src={"/integrations/" + provider + ".svg"}
+                        alt={label + " logo"}
+                        width="28"
+                        height="28"
+                        loading="lazy"
+                        decoding="async"
+                        draggable={false}
+                      />
+                    </div>
                     <div className="integration-provider-info">
                       <h3>{label}</h3>
                       <p>
