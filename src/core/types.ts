@@ -96,7 +96,7 @@ export interface SyncDeletionIntent {
 
 export interface SyncSession {
   sessionId: string;
-  provider: "mal" | "anilist";
+  provider: SyncProvider;
   status: SyncSessionStatus;
   startedAt: string;
   finishedAt?: string;
