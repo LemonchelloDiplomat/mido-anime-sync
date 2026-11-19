@@ -21,6 +21,9 @@
   function textFrom(selector) {
     const element = document.querySelector(selector);
     if (!element) return "";
+    if (element instanceof HTMLSelectElement) {
+      return (element.selectedOptions[0]?.textContent || element.value || "").trim();
+    }
     return (element.getAttribute("content") || element.getAttribute("value") || element.textContent || "").trim();
   }
 
