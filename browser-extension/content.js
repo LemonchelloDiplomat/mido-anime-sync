@@ -2,7 +2,9 @@
   const host = location.hostname.toLowerCase();
   const isAniBoomFrame = host === "aniboom.one";
   const isCvhFrame = host === "animego.me" && location.pathname.startsWith("/cdn-iframe/");
-  const isAnimeGoPlayerFrame = isAniBoomFrame || isCvhFrame;
+  const isCvhPlayerFrame = host === "player.cdnvideohub.com";
+  const isCvhTrackingFrame = isCvhFrame || isCvhPlayerFrame;
+  const isAnimeGoPlayerFrame = isAniBoomFrame || isCvhTrackingFrame;
   const service = isAnimeGoPlayerFrame ? "animego" : host.includes("yummy") ? "yummyanime"
     : host.includes("anixart") ? "anixart"
     : "animego";
@@ -89,7 +91,7 @@
   }
 
   function detect(videoOverride) {
-    if (isCvhFrame && parentMetadata) {
+    if (isCvhTrackingFrame && parentMetadata) {
       return {
         service: "animego",
         title: parentMetadata.title,
@@ -236,7 +238,8 @@
     // The CVH iframe URL itself is the stable provider signal.
     const isCvhTarget = frameUrl.hostname.toLowerCase() === "animego.me" &&
       frameUrl.pathname.startsWith("/cdn-iframe/");
-    if (!isAniBoomTarget && !isCvhTarget) return;
+    const isCvhPlayerTarget = frameUrl.hostname.toLowerCase() === "player.cdnvideohub.com";
+    if (!isAniBoomTarget && !isCvhTarget && !isCvhPlayerTarget) return;
 
     const detected = detect();
     if (!detected.title || !Number.isSafeInteger(detected.episode) || detected.episode < 1) return;
@@ -264,7 +267,7 @@
         // AnimeGO responds instead of losing the one-time startup handshake.
         window.parent.postMessage(
           { type: "MIDAHOSHI_REQUEST_PARENT_METADATA" },
-          isCvhFrame ? location.origin : "*",
+          isCvhPlayerFrame ? "https://animego.me" : isCvhFrame ? location.origin : "*",
         );
       } else if (parentMetadataRetryTimer !== null) {
         window.clearInterval(parentMetadataRetryTimer);
@@ -293,10 +296,11 @@
       };
       requestParentMetadata();
       scanVideos();
-      if (isCvhFrame) maybeSendCvhSample();
+      if (isCvhFrame) syncParentMetadataToFrames();
+      if (isCvhTrackingFrame) maybeSendCvhSample();
     });
 
-    if (isCvhFrame) {
+    if (isCvhPlayerFrame) {
       window.addEventListener("message", (event) => {
         if (event.source !== window || event.origin !== location.origin ||
             event.data?.type !== "MIDAHOSHI_CVH_STATE") return;
@@ -306,10 +310,21 @@
             !Number.isFinite(sample.duration) ||
             sample.currentTime < 0 ||
             sample.duration <= 0 ||
-            !Number.isSafeInteger(sample.episode) ||
-            sample.episode < 1) return;
+            typeof sample.paused !== "boolean" ||
+            !Number.isFinite(sample.readyState)) return;
         latestCvhSample = sample;
         maybeSendCvhSample();
+      });
+    }
+
+    if (isCvhFrame) {
+      window.addEventListener("message", (event) => {
+        if (event.source === window.parent ||
+            event.origin !== "https://player.cdnvideohub.com" ||
+            event.data?.type !== "MIDAHOSHI_REQUEST_PARENT_METADATA") return;
+        const frame = Array.from(document.querySelectorAll("iframe"))
+          .find((candidate) => candidate.contentWindow === event.source);
+        if (frame) sendParentMetadataToFrame(frame);
       });
     }
 
@@ -327,8 +342,12 @@
   }
 
   function maybeSendCvhSample() {
-    if (!isCvhFrame || !parentMetadata || !latestCvhSample) return;
-    const { currentTime, duration, episode } = latestCvhSample;
+    if (!isCvhPlayerFrame || !parentMetadata || !latestCvhSample) return;
+    const { currentTime, duration, paused, readyState } = latestCvhSample;
+    if (paused || readyState < 2) {
+      previousCvhTime = null;
+      return;
+    }
     const previousTime = previousCvhTime;
     previousCvhTime = currentTime;
 
@@ -336,7 +355,7 @@
     // treating a seek, paused position, or a page restored near the end as a watch.
     const delta = previousTime === null ? 0 : currentTime - previousTime;
     if (delta < 0 || delta > 5 || delta < 0.15) return;
-    if (episode !== parentMetadata.episode || currentTime / duration < 0.9) return;
+    if (currentTime / duration < 0.9) return;
 
     const detected = detect();
     if (!detected.title || !Number.isSafeInteger(detected.episode) || detected.episode < 1) return;
@@ -400,7 +419,7 @@
   }
 
   function scanVideos() {
-    if (isCvhFrame) {
+    if (isCvhTrackingFrame) {
       maybeSendCvhSample();
       return;
     }
