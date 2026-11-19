@@ -73,6 +73,7 @@ document.getElementById("send").addEventListener("click", async () => {
   }
 
   const event = {
+    ...(pendingEventId ? { eventId: pendingEventId } : {}),
     service: detected.service,
     title,
     episode,
@@ -93,15 +94,7 @@ document.getElementById("send").addEventListener("click", async () => {
   }
   try {
     await chrome.tabs.create({ url: destination.toString() });
-    if (pendingEventId) {
-      const { pendingWatchEvents = [] } = await chrome.storage.local.get({ pendingWatchEvents: [] });
-      const nextQueue = (Array.isArray(pendingWatchEvents) ? pendingWatchEvents : [])
-        .filter((item) => item.eventId !== pendingEventId);
-      await chrome.storage.local.set({ pendingWatchEvents: nextQueue });
-      await chrome.action.setBadgeText({ text: nextQueue.length ? String(Math.min(nextQueue.length, 99)) : "" });
-      pendingEventId = null;
-    }
-    status("Событие открыто в MidaHoshi Anime Sync. Выбери соответствующий тайтл и подтверди запись прогресса.");
+    status("Событие открыто в MidaHoshi Anime Sync. Очередь очистится после подтверждения или отмены события в приложении.");
   } catch {
     status("Не удалось открыть локальное приложение. Проверь, что оно запущено и адрес указан верно.");
   }
