@@ -169,7 +169,7 @@ describe("safe remote deletion workflow", () => {
     expect(pending.size).toBe(0);
   });
 
-  it("does not clear an intent merely because a remote snapshot has the anime without its list entry", async () => {
+  it("clears the intent when the remote anime remains in the catalog but its list entry is gone", async () => {
     const pending = new Map([[intent().id, intent()]]);
     const snapshot = remoteSnapshot(false);
     snapshot.anime = [anime("mal:100")];
