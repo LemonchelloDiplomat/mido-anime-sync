@@ -137,6 +137,10 @@ describe("AnimeGO CVH iframe tracking", () => {
 
     sendSample(95);
     expect(sentEvents).toHaveLength(0);
+    sendSample(95, 6);
+    expect(sentEvents).toHaveLength(0);
+    sendSample(95);
+    expect(sentEvents).toHaveLength(0);
     sendSample(96);
     expect(sentEvents).toHaveLength(1);
     expect(sentEvents[0]).toMatchObject({
