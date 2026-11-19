@@ -27,6 +27,7 @@ describe("watch source events", () => {
   it("rejects unsupported services, unsafe URLs and invalid episode numbers", () => {
     expect(() => validateWatchEvent({ ...event, service: "unknown" })).toThrow("некорректные данные");
     expect(() => validateWatchEvent({ ...event, sourceUrl: "javascript:alert(1)" })).toThrow("некорректные данные");
+    expect(() => validateWatchEvent({ ...event, sourceUrl: "https://evil.example/watch" })).toThrow("некорректные данные");
     expect(() => validateWatchEvent({ ...event, episode: 0 })).toThrow("некорректные данные");
   });
 
