@@ -9,6 +9,7 @@ import type {
   AnimeSnapshot,
   SyncOperation,
   SyncSession,
+  SyncDeletionIntent,
 } from "../src/core/types.js";
 
 const repositories: BrowserAnimeRepository[] = [];
@@ -1058,6 +1059,77 @@ describe("BrowserAnimeRepository relations", () => {
         }),
       ]),
     );
+  });
+
+  it("cancels a Shikimori deletion intent when restoring its anime identity", async () => {
+    const repo = await createRepository();
+    const anime = makeAnime("shikimori:41");
+    anime.externalIds = { shikimori: "41" };
+    const entry = {
+      ...makeEntry(anime.id, 5, "2026-11-18T10:00:00.000Z"),
+      source: "shikimori" as const,
+    };
+    await repo.saveAnimeWithEntry(anime, entry);
+    const intent: SyncDeletionIntent = {
+      id: "delete-shikimori-41",
+      provider: "shikimori",
+      animeId: anime.id,
+      externalId: "41",
+      anime,
+      entry,
+      createdAt: "2026-11-18T12:00:00.000Z",
+    };
+    await repo.deleteAnime(anime.id, [intent]);
+    expect(await repo.getDeletionIntents("shikimori")).toHaveLength(1);
+
+    await repo.restoreSnapshot({
+      schemaVersion: 4,
+      exportedAt: "2026-11-19T12:00:00.000Z",
+      anime: [anime],
+      entries: [entry],
+      sourceEntries: [entry],
+      conflictResolutions: [],
+      animeRelations: [],
+      deletionIntents: [],
+    });
+
+    expect(await repo.getDeletionIntents("shikimori")).toEqual([]);
+    expect(await repo.getAnime(anime.id)).toMatchObject({ externalIds: { shikimori: "41" } });
+  });
+
+  it("cancels a Shikimori deletion intent when merging an imported snapshot", async () => {
+    const repo = await createRepository();
+    const anime = makeAnime("shikimori:42");
+    anime.externalIds = { shikimori: "42" };
+    const entry = {
+      ...makeEntry(anime.id, 3, "2026-11-18T10:00:00.000Z"),
+      source: "shikimori" as const,
+    };
+    await repo.saveAnimeWithEntry(anime, entry);
+    const intent: SyncDeletionIntent = {
+      id: "delete-shikimori-42",
+      provider: "shikimori",
+      animeId: anime.id,
+      externalId: "42",
+      anime,
+      entry,
+      createdAt: "2026-11-18T12:00:00.000Z",
+    };
+    await repo.deleteAnime(anime.id, [intent]);
+
+    await repo.mergeSnapshotWithMappings({
+      schemaVersion: 4,
+      exportedAt: "2026-11-19T12:00:00.000Z",
+      anime: [anime],
+      entries: [entry],
+      sourceEntries: [entry],
+      conflictResolutions: [],
+      animeRelations: [],
+      deletionIntents: [],
+    }, {});
+
+    expect(await repo.getDeletionIntents("shikimori")).toEqual([]);
+    expect(await repo.getAnime(anime.id)).toMatchObject({ externalIds: { shikimori: "42" } });
   });
 
   it("removes anime relations when deleting an anime", async () => {
