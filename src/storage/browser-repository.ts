@@ -1090,7 +1090,6 @@ export class BrowserAnimeRepository {
     const sourceStore = transaction.objectStore("sourceEntries");
     const resolutionStore = transaction.objectStore("conflictResolutions");
     const relationStore = transaction.objectStore("animeRelations");
-    const deletionStore = transaction.objectStore("deletionIntents");
 
     try {
       const [
