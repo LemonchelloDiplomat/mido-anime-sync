@@ -1469,7 +1469,7 @@ export class BrowserAnimeRepository {
     const deletionStore = transaction.objectStore("deletionIntents");
     const pendingDeletions = await deletionStore.getAll();
     const intentsToCancel = pendingDeletions.filter((intent) => {
-      const service = intent.provider === "mal" ? "myanimelist" : "anilist";
+      const service = getProviderServiceId(intent.provider);
       return anime.some((item) => item.externalIds[service] === intent.externalId);
     });
 
@@ -1706,7 +1706,7 @@ export class BrowserAnimeRepository {
 
       const mergedAnime = [...animeMap.values()];
       const deletionIntentsToCancel = currentDeletionIntents.filter((intent) => {
-        const service = intent.provider === "mal" ? "myanimelist" : "anilist";
+        const service = getProviderServiceId(intent.provider);
         return mergedAnime.some((item) => item.externalIds[service] === intent.externalId);
       });
 
