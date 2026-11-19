@@ -33,11 +33,16 @@ document.getElementById("scan").addEventListener("click", async () => {
     pendingEventId = null;
     titleInput.value = detected.title || detected.pageTitle || "";
     episodeInput.value = detected.episode || "";
-    const note = detected.manualOnly
-      ? "Плеер или номер серии не обнаружен. Проверь название и введи номер вручную."
-      : detected.episode
-        ? "Найден видеоплеер и предполагаемый номер серии. Проверь данные перед отправкой."
-        : "Плеер найден, но номер серии нужно ввести вручную.";
+    const hasAnimeGoMetadata = detected.service === "animego" &&
+      typeof detected.title === "string" && detected.title.trim().length > 2 &&
+      Number.isSafeInteger(detected.episode) && detected.episode > 0;
+    const note = hasAnimeGoMetadata && detected.manualOnly
+      ? "Название и серия найдены на AnimeGO. Видео находится во встроенном плеере AniBoom. Продолжай просмотр: событие появится автоматически после 90%."
+      : detected.manualOnly
+        ? "Плеер или номер серии не обнаружен. Проверь название и введи номер вручную."
+        : detected.episode
+          ? "Найден видеоплеер и предполагаемый номер серии. Проверь данные перед отправкой."
+          : "Плеер найден, но номер серии нужно ввести вручную.";
     status(note);
   } catch {
     status("Эта страница не поддерживается. Открой AnimeGO, YummyAnime или веб-страницу Anixart.");
