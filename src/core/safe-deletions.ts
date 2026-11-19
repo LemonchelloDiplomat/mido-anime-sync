@@ -1,3 +1,4 @@
+import { getProviderServiceId, providerSupportsFavorite, providerUsesTenPointScore } from "./provider-capabilities.js";
 import type { AnimeIdentity, AnimeListEntry, AnimeSnapshotV4 } from "./types.js";
 import type { LocalSyncItem, SyncProvider } from "./bidirectional-sync.js";
 
@@ -33,7 +34,7 @@ function titleOf(anime: AnimeIdentity): string {
 }
 
 function comparableScore(provider: SyncProvider, value: number | null): number | null {
-  if (provider !== "mal" && provider !== "shikimori") return value;
+  if (!providerUsesTenPointScore(provider)) return value;
   if (value === null || value === 0) return null;
   return Math.max(10, Math.min(100, Math.round(value / 10) * 10));
 }
@@ -46,7 +47,7 @@ function sameProviderEntry(
   return baseline.status === current.status &&
     baseline.progress === current.progress &&
     comparableScore(provider, baseline.score) === comparableScore(provider, current.score) &&
-    (provider !== "anilist" || baseline.favorite === current.favorite);
+    (!providerSupportsFavorite(provider) || baseline.favorite === current.favorite);
 }
 
 /**
@@ -62,7 +63,7 @@ export function detectRemoteDeletions(
   remoteSnapshot: AnimeSnapshotV4,
   provider: SyncProvider,
 ): SafeDeletionDetection {
-  const service = provider === "mal" ? "myanimelist" : provider === "anilist" ? "anilist" : "shikimori";
+  const service = getProviderServiceId(provider);
   const remoteIds = new Set(
     remoteSnapshot.anime
       .map((anime) => anime.externalIds[service])
@@ -70,7 +71,7 @@ export function detectRemoteDeletions(
   );
 
   const baselineItems = localItems.filter((item) =>
-    Boolean(item.baseline?.source === (provider === "mal" ? "myanimelist" : provider === "anilist" ? "anilist" : "shikimori") &&
+    Boolean(item.baseline?.source === getProviderServiceId(provider) &&
       item.anime.externalIds[service]),
   );
   const baselineCount = baselineItems.length;
