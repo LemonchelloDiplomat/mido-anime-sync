@@ -54,11 +54,9 @@ export async function reconcileInterruptedSyncSessions(
     const hasNoJournal = sessionOperations.length === 0;
     const status = hasNoJournal || failedOperations.length > 0
       ? "failed"
-      : cancelledCount === sessionOperations.length
+      : cancelledCount > 0
         ? "cancelled"
-        : cancelledCount > 0
-          ? "cancelled"
-          : "succeeded";
+        : "succeeded";
 
     const error = hasNoJournal
       ? "Сессия прервана до сохранения журнала операций. Результат синхронизации не подтверждён."
