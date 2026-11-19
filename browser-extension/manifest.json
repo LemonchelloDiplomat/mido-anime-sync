@@ -34,7 +34,8 @@
         "*://*.yummy-ani.me/*",
         "*://*.anixart-app.com/*",
         "*://*.anixartapp.com/*",
-        "*://aniboom.one/*"
+        "*://aniboom.one/*",
+        "https://player.cdnvideohub.com/*"
       ],
       "js": [
         "content.js"
@@ -44,7 +45,7 @@
     },
     {
       "matches": [
-        "https://animego.me/*"
+        "https://player.cdnvideohub.com/*"
       ],
       "js": [
         "cvh-page.js"
