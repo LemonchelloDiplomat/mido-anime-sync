@@ -37,7 +37,7 @@ npm run dev
 
 ### Shikimori
 
-1. Создай OAuth-приложение: https://shikimori.one/oauth/applications
+1. Создай OAuth-приложение: https://shikimori.io/oauth/applications
 2. Redirect URL: `http://127.0.0.1:3001/api/auth/shikimori/callback`
 3. Разреши приложению изменять личный список аниме. Интеграция запрашивает scope `user_rates`.
 4. Заполни `SHIKIMORI_CLIENT_ID` и `SHIKIMORI_CLIENT_SECRET` в `.env.local`.
