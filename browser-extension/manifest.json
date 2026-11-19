@@ -35,7 +35,8 @@
         "*://*.anixart-app.com/*",
         "*://*.anixartapp.com/*",
         "*://aniboom.one/*",
-        "https://player.cdnvideohub.com/*"
+        "https://player.cdnvideohub.com/*",
+        "*://kodikplayer.com/*"
       ],
       "js": [
         "content.js"
