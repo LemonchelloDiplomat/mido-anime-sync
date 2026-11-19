@@ -269,6 +269,8 @@
     const isKodikTarget = targetHost === "kodikplayer.com";
     if (!isAniBoomTarget && !isCvhTarget && !isCvhPlayerTarget && !isKodikTarget) return;
     if ((isAniBoomTarget || isCvhTarget || isCvhPlayerTarget) && service !== "animego") return;
+
+    const detected = detect();
     if (!detected.title || !Number.isSafeInteger(detected.episode) || detected.episode < 1) return;
     frame.contentWindow.postMessage({
       type: "MIDAHOSHI_PARENT_METADATA",
