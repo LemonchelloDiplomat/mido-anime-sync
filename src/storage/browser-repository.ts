@@ -1,5 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { detectMaxProgressStatusConflicts } from "../core/conflicts.js";
+import { getProviderServiceId } from "../core/provider-capabilities.js";
 import { findExactIdentityDuplicatePairs } from "../core/identity-reconciliation.js";
 
 import type {
@@ -632,7 +633,7 @@ export class BrowserAnimeRepository {
       const pendingDeletions = await deletionStore.getAll();
       await Promise.all(pendingDeletions
         .filter((intent) => {
-          const service = intent.provider === "mal" ? "myanimelist" : "anilist";
+          const service = getProviderServiceId(intent.provider);
           return canonicalAnime.externalIds[service] === intent.externalId;
         })
         .map((intent) => deletionStore.delete(intent.id)));
@@ -1306,7 +1307,7 @@ export class BrowserAnimeRepository {
     await transaction.done;
   }
 
-  async getDeletionIntents(provider?: "mal" | "anilist"): Promise<SyncDeletionIntent[]> {
+  async getDeletionIntents(provider?: SyncDeletionIntent["provider"]): Promise<SyncDeletionIntent[]> {
     const intents = await this.db.getAll("deletionIntents");
     return intents
       .filter((intent) => provider === undefined || intent.provider === provider)
@@ -1322,7 +1323,7 @@ export class BrowserAnimeRepository {
    * Removes only one provider's source entry and rebuilds the aggregate entry.
    * The anime identity and entries from other providers remain untouched.
    */
-  async deleteSourceEntry(animeId: string, source: "myanimelist" | "anilist"): Promise<void> {
+  async deleteSourceEntry(animeId: string, source: "myanimelist" | "anilist" | "shikimori"): Promise<void> {
     const transaction = this.db.transaction(["entries", "sourceEntries", "conflictResolutions"], "readwrite");
     const transactionDone = transaction.done;
     void transactionDone.catch(() => undefined);
