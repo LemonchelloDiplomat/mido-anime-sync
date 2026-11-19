@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "MidaHoshi Anime Sync Bridge",
+  "version": "0.1.0",
+  "description": "Передаёт подтверждённый прогресс просмотра в локальную библиотеку MidaHoshi Anime Sync.",
+  "permissions": ["activeTab", "tabs", "storage"],
+  "host_permissions": [
+    "http://127.0.0.1:5173/*",
+    "http://localhost:5173/*"
+  ],
+  "action": {
+    "default_title": "MidaHoshi Anime Sync",
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.anime-go.org/*",
+        "*://*.animego.online/*",
+        "*://*.yummyani.me/*",
+        "*://*.yummy-ani.me/*",
+        "*://*.yummyanime.club/*",
+        "*://*.yummyanime.info/*",
+        "*://*.anixart-app.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
