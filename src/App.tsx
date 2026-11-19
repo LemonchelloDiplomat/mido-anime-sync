@@ -701,6 +701,7 @@ function App() {
 
   async function handleClearLocalLibrary() {
     if (!repository || deletingLibrary) return;
+    const activeRepository = repository;
     if (syncInProgressRef.current || accountSyncing || restoreInProgressRef.current || metadataEnriching || importing || restoring || saving || addingCatalogId) {
       setError("Сначала дождись завершения всех операций с библиотекой и синхронизации.");
       return;
@@ -722,14 +723,14 @@ function App() {
       if (syncInProgressRef.current || accountSyncing || restoreInProgressRef.current || metadataEnriching || importing || restoring || saving || addingCatalogId) {
         throw new Error("Появилась другая операция с библиотекой. Очистка отменена.");
       }
-      const backup = await repository.snapshot();
+      const backup = await activeRepository.snapshot();
       downloadSnapshot(backup);
-      await repository.clearLibrary();
+      await activeRepository.clearLibrary();
       await refreshLibrary();
 
       const [operations, sessions] = await Promise.all([
-        repository.getSyncOperations(),
-        repository.getSyncSessions(),
+        activeRepository.getSyncOperations(),
+        activeRepository.getSyncSessions(),
       ]);
       setHistoryOperations(operations);
       setHistorySessionRecords(sessions);
