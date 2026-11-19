@@ -144,7 +144,6 @@ describe("sync recovery with persisted IndexedDB state", () => {
 
     const reopenedRepository = await openRepository(name);
     const reconciled = await reconcileInterruptedSyncSessions(
-      "mal",
       "new-current-session",
       await reopenedRepository.getSyncSessions(),
       await reopenedRepository.getSyncOperations(),
