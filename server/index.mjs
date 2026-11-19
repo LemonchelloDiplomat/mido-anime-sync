@@ -14,6 +14,8 @@ const HOST = process.env.HOST || "127.0.0.1";
 const MAL_API = "https://api.myanimelist.net/v2";
 const MAL_OAUTH = "https://myanimelist.net/v1/oauth2";
 const ANILIST_GRAPHQL = "https://graphql.anilist.co";
+const SHIKIMORI_API = "https://shikimori.one/api";
+const SHIKIMORI_OAUTH = "https://shikimori.one/oauth";
 const sessions = new Map();
 
 async function loadLocalEnv() {
@@ -119,7 +121,9 @@ async function fetchJson(url, options = {}) {
 }
 
 function getRedirectUri(provider) {
-  const configured = provider === "mal" ? process.env.MAL_REDIRECT_URI : process.env.ANILIST_REDIRECT_URI;
+  const configured = provider === "mal" ? process.env.MAL_REDIRECT_URI
+    : provider === "anilist" ? process.env.ANILIST_REDIRECT_URI
+    : process.env.SHIKIMORI_REDIRECT_URI;
   return configured || ("http://127.0.0.1:" + PORT + "/api/auth/" + provider + "/callback");
 }
 
@@ -178,6 +182,57 @@ async function malRequest(url, tokens) {
       "X-MAL-CLIENT-ID": process.env.MAL_CLIENT_ID,
       Authorization: "Bearer " + accessToken,
       Accept: "application/json",
+    },
+  });
+}
+
+async function exchangeShikimoriToken(fields) {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(fields)) form.append(key, String(value));
+  return fetchJson(SHIKIMORI_OAUTH + "/token", {
+    method: "POST",
+    headers: { Accept: "application/json" },
+    body: form,
+  });
+}
+
+async function getShikimoriAccessToken(tokens) {
+  const shikimori = tokens.shikimori;
+  if (!shikimori?.accessToken) throw new Error("Shikimori ещё не подключён.");
+  if (Number(shikimori.expiresAt) > Date.now() + 60000) return shikimori.accessToken;
+  if (!shikimori.refreshToken) throw new Error("Сессия Shikimori истекла. Подключи аккаунт заново.");
+
+  const refreshed = await exchangeShikimoriToken({
+    grant_type: "refresh_token",
+    client_id: process.env.SHIKIMORI_CLIENT_ID,
+    client_secret: process.env.SHIKIMORI_CLIENT_SECRET,
+    refresh_token: shikimori.refreshToken,
+  });
+  const accessToken = String(refreshed.access_token || "");
+  const expiresIn = Number(refreshed.expires_in);
+  if (accessToken.length < 20 || !Number.isFinite(expiresIn) || expiresIn <= 0) {
+    throw new Error("Shikimori вернул некорректный ответ при обновлении токена.");
+  }
+  tokens.shikimori = {
+    ...shikimori,
+    accessToken,
+    refreshToken: refreshed.refresh_token || shikimori.refreshToken,
+    expiresAt: Date.now() + expiresIn * 1000,
+  };
+  await writeTokens(tokens);
+  return accessToken;
+}
+
+async function shikimoriRequest(pathname, tokens, options = {}) {
+  const accessToken = await getShikimoriAccessToken(tokens);
+  return fetchJson(SHIKIMORI_API + pathname, {
+    ...options,
+    headers: {
+      "User-Agent": process.env.SHIKIMORI_USER_AGENT || "MidaHoshiAnimeSync/0.2.0",
+      Authorization: "Bearer " + accessToken,
+      Accept: "application/json",
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...options.headers,
     },
   });
 }
