@@ -836,7 +836,6 @@ function App() {
           activeRepository.getSyncOperations(),
         ]);
         await reconcileInterruptedSyncSessions(
-          provider,
           sessionId,
           sessions,
           journalOperations,
