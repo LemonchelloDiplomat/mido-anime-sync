@@ -1606,6 +1606,35 @@ describe("BrowserAnimeRepository identity reconciliation", () => {
     expect(snapshot.entries[0]).toMatchObject({ animeId: "mal:100", progress: 10, favorite: true });
   });
 
+  it("removes only the Shikimori source entry and preserves other providers", async () => {
+    const repo = await createRepository();
+    const anime = makeAnime("shikimori:41");
+    anime.externalIds = { shikimori: "41" };
+    await repo.saveAnime(anime);
+    await repo.saveSourceEntry({
+      ...makeEntry(anime.id, 5, "2026-11-18T10:00:00.000Z"),
+      source: "shikimori",
+      sourceMetadata: { shikimoriRateId: 901 },
+    });
+    await repo.saveSourceEntry({
+      ...makeEntry(anime.id, 3, "2026-11-18T11:00:00.000Z"),
+      source: "anilist",
+      sourceMetadata: { anilistEntryId: 902 },
+    });
+
+    await repo.deleteSourceEntry(anime.id, "shikimori");
+
+    const snapshot = await repo.snapshot();
+    expect(snapshot.anime).toHaveLength(1);
+    expect(snapshot.sourceEntries).toHaveLength(1);
+    expect(snapshot.sourceEntries[0]).toMatchObject({
+      animeId: anime.id,
+      source: "anilist",
+      sourceMetadata: { anilistEntryId: 902 },
+    });
+    expect(snapshot.entries[0]).toMatchObject({ animeId: anime.id, progress: 3 });
+  });
+
   it("repairs an existing exact-ID duplicate pair without dropping provider baselines", async () => {
     const repo = await createRepository();
     const mal = makeAnime("mal:100");
