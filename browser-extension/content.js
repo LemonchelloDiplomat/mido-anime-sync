@@ -95,7 +95,7 @@
         title: parentMetadata.title,
         episode: parentMetadata.episode,
         sourceUrl: parentMetadata.sourceUrl,
-        currentTimeSeconds: latestCvhSample ? Math.floor(latestCvhSample.currentTime) : null,
+        currentTimeSeconds: latestCvhSample ? Math.ceil(latestCvhSample.currentTime) : null,
         durationSeconds: latestCvhSample ? Math.floor(latestCvhSample.duration) : null,
         hasVideoElement: false,
         manualOnly: !latestCvhSample,
