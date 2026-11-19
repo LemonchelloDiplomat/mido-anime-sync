@@ -601,6 +601,7 @@ export class BrowserAnimeRepository {
       const entriesStore = transaction.objectStore("entries");
       const sourceStore = transaction.objectStore("sourceEntries");
       const resolutionStore = transaction.objectStore("conflictResolutions");
+      const deletionStore = transaction.objectStore("deletionIntents");
   
       const currentAnime = await animeStore.getAll();
       const exactMatches = currentAnime.filter((candidate) =>
