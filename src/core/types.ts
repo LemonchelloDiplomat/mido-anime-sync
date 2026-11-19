@@ -165,6 +165,7 @@ export interface AnimeServiceAdapter {
   disconnect(): Promise<void>;
   fetchList(): Promise<AnimeListEntry[]>;
   upsertEntry(entry: AnimeListEntry): Promise<void>;
+  deleteEntry?(externalId: string, entryId?: number): Promise<void>;
 }
 
 export interface AnimeSnapshotV1 {
