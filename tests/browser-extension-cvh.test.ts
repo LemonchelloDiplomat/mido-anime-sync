@@ -39,6 +39,12 @@ describe("AnimeGO CVH iframe tracking", () => {
       src: "https://player.cdnvideohub.com/s2/v2.43.56/frame/",
       contentWindow: playerWindow,
     };
+    const videoPlayerShadowRoot = {
+      querySelectorAll(selector: string) {
+        return selector === "*" ? [videoPlayerHost] : [];
+      },
+    };
+    const videoPlayerHost = { shadowRoot: videoPlayerShadowRoot };
     const window = {
       parent: parentWindow,
       addEventListener(type: string, listener: (event: any) => void) {
@@ -96,6 +102,17 @@ describe("AnimeGO CVH iframe tracking", () => {
         },
       },
     });
+
+    // The nested iframe asks again until it receives metadata. It must still
+    // be found when it lives inside <video-player>'s open shadow root.
+    for (const listener of listeners.message || []) {
+      listener({
+        source: playerWindow,
+        origin: "https://player.cdnvideohub.com",
+        data: { type: "MIDAHOSHI_REQUEST_PARENT_METADATA" },
+      });
+    }
+    expect(forwardedMessages).toHaveLength(2);
   });
 
   it("records a CVH watch event from real playback samples in the nested player frame", () => {
