@@ -1640,6 +1640,35 @@ describe("BrowserAnimeRepository identity reconciliation", () => {
     ]));
   });
 
+  it("reconciles whitespace-normalized external IDs and stores canonical trimmed IDs", async () => {
+    const repo = await createRepository();
+    const mal = makeAnime("mal:100");
+    mal.externalIds = { myanimelist: " 100 " };
+    const anilist = makeAnime("anilist:200");
+    anilist.externalIds = { myanimelist: "100", anilist: "200" };
+    await repo.saveAnime(mal);
+    await repo.saveAnime(anilist);
+    await repo.saveSourceEntry({
+      ...makeEntry("mal:100", 4, "2026-11-18T10:00:00.000Z"),
+      source: "myanimelist",
+    });
+    await repo.saveSourceEntry({
+      ...makeEntry("anilist:200", 5, "2026-11-18T11:00:00.000Z"),
+      source: "anilist",
+    });
+
+    const result = await repo.reconcileExactIdentityDuplicates();
+    const snapshot = await repo.snapshot();
+
+    expect(result).toEqual({ mergedPairs: 1, skippedPairs: 0 });
+    expect(snapshot.anime).toHaveLength(1);
+    expect(snapshot.anime[0]?.externalIds).toEqual({
+      myanimelist: "100",
+      anilist: "200",
+    });
+    expect(snapshot.sourceEntries).toHaveLength(2);
+  });
+
   it("repairs an existing exact-ID duplicate pair without dropping provider baselines", async () => {
     const repo = await createRepository();
     const mal = makeAnime("mal:100");
