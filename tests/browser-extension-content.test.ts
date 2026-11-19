@@ -7,8 +7,14 @@ const contentScript = await readFile(
   "utf8",
 );
 
+type MessageListener = (
+  message: unknown,
+  sender: unknown,
+  sendResponse: (value: unknown) => void,
+) => unknown;
+
 function detectAnimeGoEpisode(activeEpisodeNumber: string | null, activeButtonLabel = "") {
-  let messageListener: ((message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown) | null = null;
+  const listenerHolder: { current: MessageListener | null } = { current: null };
 
   const activeItem = activeEpisodeNumber === null
     ? null
@@ -16,15 +22,14 @@ function detectAnimeGoEpisode(activeEpisodeNumber: string | null, activeButtonLa
         getAttribute(name: string) {
           return name === "data-episode-number" ? activeEpisodeNumber : null;
         },
-        querySelector() {
-          return activeButtonLabel
-            ? {
-                getAttribute(name: string) {
-                  return name === "aria-label" ? activeButtonLabel : null;
-                },
-                textContent: "",
-              }
-            : null;
+        querySelector(selector: string) {
+          if (selector !== "button.player-video-bar__number" || !activeButtonLabel) return null;
+          return {
+            getAttribute(name: string) {
+              return name === "aria-label" ? activeButtonLabel : null;
+            },
+            textContent: "",
+          };
         },
       };
 
@@ -39,7 +44,7 @@ function detectAnimeGoEpisode(activeEpisodeNumber: string | null, activeButtonLa
     title: "AnimeGO",
     documentElement: {},
     querySelector(selector: string) {
-      if (selector === ".player-video-bar__item.active[data-episode-number]") return activeItem;
+      if (selector === ".player-video-bar__item.active") return activeItem;
       if (selector === "h1") return titleElement;
       return null;
     },
@@ -67,8 +72,8 @@ function detectAnimeGoEpisode(activeEpisodeNumber: string | null, activeButtonLa
     chrome: {
       runtime: {
         onMessage: {
-          addListener(listener: typeof messageListener) {
-            messageListener = listener;
+          addListener(listener: MessageListener) {
+            listenerHolder.current = listener;
           },
         },
       },
@@ -84,10 +89,15 @@ function detectAnimeGoEpisode(activeEpisodeNumber: string | null, activeButtonLa
   vm.runInNewContext(contentScript, context);
 
   let detected: unknown;
-  messageListener?.(
+  const messageListener = listenerHolder.current;
+  if (!messageListener) {
+    throw new Error("Content script did not register its message listener");
+  }
+
+  messageListener(
     { type: "MIDAHOSHI_DETECT_WATCH_EVENT" },
     {},
-    (value) => {
+    (value: unknown) => {
       detected = value;
     },
   );
