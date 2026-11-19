@@ -1,10 +1,15 @@
 (() => {
   const host = location.hostname.toLowerCase();
   const isAniBoomFrame = host === "aniboom.one";
-  const service = isAniBoomFrame ? "animego" : host.includes("yummy") ? "yummyanime"
+  const isCvhFrame = host === "animego.me" && location.pathname.startsWith("/cdn-iframe/");
+  const isAnimeGoPlayerFrame = isAniBoomFrame || isCvhFrame;
+  const service = isAnimeGoPlayerFrame ? "animego" : host.includes("yummy") ? "yummyanime"
     : host.includes("anixart") ? "anixart"
     : "animego";
   let parentMetadata = null;
+  let latestCvhSample = null;
+  let previousCvhTime = null;
+  const sentCvhKeys = new Set();
 
   function isAllowedAnimeGoUrl(rawUrl) {
     try {
@@ -84,6 +89,20 @@
   }
 
   function detect(videoOverride) {
+    if (isCvhFrame && parentMetadata) {
+      return {
+        service: "animego",
+        title: parentMetadata.title,
+        episode: parentMetadata.episode,
+        sourceUrl: parentMetadata.sourceUrl,
+        currentTimeSeconds: latestCvhSample ? Math.floor(latestCvhSample.currentTime) : null,
+        durationSeconds: latestCvhSample ? Math.floor(latestCvhSample.duration) : null,
+        hasVideoElement: false,
+        manualOnly: !latestCvhSample,
+        pageTitle: document.title,
+      };
+    }
+
     if (isAniBoomFrame && parentMetadata) {
       const video = videoOverride || findMainVideo();
       const currentTimeSeconds = video && Number.isFinite(video.currentTime) ? Math.floor(video.currentTime) : null;
@@ -158,7 +177,11 @@
     } catch {
       return;
     }
-    if (frameUrl.hostname.toLowerCase() !== "aniboom.one") return;
+    const isAniBoomTarget = frameUrl.hostname.toLowerCase() === "aniboom.one";
+    const isCvhTarget = frame.dataset.providerSlug === "cvh" &&
+      frameUrl.hostname.toLowerCase() === "animego.me" &&
+      frameUrl.pathname.startsWith("/cdn-iframe/");
+    if (!isAniBoomTarget && !isCvhTarget) return;
 
     const detected = detect();
     if (!detected.title || !Number.isSafeInteger(detected.episode) || detected.episode < 1) return;
@@ -179,12 +202,15 @@
 
   let parentMetadataRetryTimer = null;
 
-  if (isAniBoomFrame) {
+  if (isAnimeGoPlayerFrame) {
     const requestParentMetadata = () => {
       if (!parentMetadata) {
-        // The iframe can load before the parent content script. Retry until
+        // Player frames can load before the parent content script. Retry until
         // AnimeGO responds instead of losing the one-time startup handshake.
-        window.parent.postMessage({ type: "MIDAHOSHI_REQUEST_PARENT_METADATA" }, "*");
+        window.parent.postMessage(
+          { type: "MIDAHOSHI_REQUEST_PARENT_METADATA" },
+          isCvhFrame ? location.origin : "*",
+        );
       } else if (parentMetadataRetryTimer !== null) {
         window.clearInterval(parentMetadataRetryTimer);
         parentMetadataRetryTimer = null;
@@ -212,17 +238,65 @@
       };
       requestParentMetadata();
       scanVideos();
+      if (isCvhFrame) maybeSendCvhSample();
     });
+
+    if (isCvhFrame) {
+      window.addEventListener("message", (event) => {
+        if (event.source !== window || event.origin !== location.origin ||
+            event.data?.type !== "MIDAHOSHI_CVH_STATE") return;
+        const sample = event.data.state;
+        if (!sample ||
+            !Number.isFinite(sample.currentTime) ||
+            !Number.isFinite(sample.duration) ||
+            sample.currentTime < 0 ||
+            sample.duration <= 0 ||
+            !Number.isSafeInteger(sample.episode) ||
+            sample.episode < 1) return;
+        latestCvhSample = sample;
+        maybeSendCvhSample();
+      });
+    }
 
     requestParentMetadata();
     parentMetadataRetryTimer = window.setInterval(requestParentMetadata, 750);
   } else {
     window.addEventListener("message", (event) => {
-      if (event.origin !== "https://aniboom.one" ||
-          event.data?.type !== "MIDAHOSHI_REQUEST_PARENT_METADATA") return;
+      if (event.origin !== "https://aniboom.one" &&
+          event.origin !== location.origin) return;
+      if (event.data?.type !== "MIDAHOSHI_REQUEST_PARENT_METADATA") return;
       const frame = Array.from(document.querySelectorAll("iframe"))
         .find((candidate) => candidate.contentWindow === event.source);
       if (frame) sendParentMetadataToFrame(frame);
+    });
+  }
+
+  function maybeSendCvhSample() {
+    if (!isCvhFrame || !parentMetadata || !latestCvhSample) return;
+    const { currentTime, duration, episode } = latestCvhSample;
+    const previousTime = previousCvhTime;
+    previousCvhTime = currentTime;
+
+    // Require real forward playback between consecutive samples. This avoids
+    // treating a seek, paused position, or a page restored near the end as a watch.
+    const delta = previousTime === null ? 0 : currentTime - previousTime;
+    if (delta < 0 || delta > 5 || delta < 0.15) return;
+    if (episode !== parentMetadata.episode || currentTime / duration < 0.9) return;
+
+    const detected = detect();
+    if (!detected.title || !Number.isSafeInteger(detected.episode) || detected.episode < 1) return;
+
+    const eventKey = [detected.sourceUrl, detected.episode].join("|");
+    if (sentCvhKeys.has(eventKey)) return;
+    sentCvhKeys.add(eventKey);
+
+    chrome.runtime.sendMessage({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: {
+        ...detected,
+        eventId: crypto.randomUUID(),
+        observedAt: new Date().toISOString(),
+      },
     });
   }
 
@@ -271,12 +345,16 @@
   }
 
   function scanVideos() {
+    if (isCvhFrame) {
+      maybeSendCvhSample();
+      return;
+    }
     const mainVideo = findMainVideo();
     if (mainVideo) attachVideo(mainVideo);
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === "MIDAHOSHI_DETECT_WATCH_EVENT" && !isAniBoomFrame) {
+    if (message?.type === "MIDAHOSHI_DETECT_WATCH_EVENT" && !isAnimeGoPlayerFrame) {
       sendResponse(detect());
     }
     return true;
@@ -291,7 +369,7 @@
   const observerOptions = {
     childList: true,
     subtree: true,
-    ...(!isAniBoomFrame ? {
+    ...(!isAnimeGoPlayerFrame ? {
       attributes: true,
       attributeFilter: ["class", "data-episode-number", "src"],
     } : {}),
