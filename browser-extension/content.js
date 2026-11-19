@@ -169,6 +169,60 @@
     };
   }
 
+  let previousCvhPageTime = null;
+  const sentCvhPageKeys = new Set();
+
+  function handleCvhPageSample(event) {
+    if (service !== "animego" || isAnimeGoPlayerFrame ||
+        event.source !== window || event.origin !== location.origin ||
+        event.data?.type !== "MIDAHOSHI_CVH_PAGE_STATE") return;
+
+    const sample = event.data.state;
+    if (!sample ||
+        !Number.isFinite(sample.currentTime) ||
+        !Number.isFinite(sample.duration) ||
+        sample.currentTime < 0 ||
+        sample.duration <= 0 ||
+        typeof sample.paused !== "boolean" ||
+        !Number.isFinite(sample.readyState)) return;
+
+    if (sample.paused || sample.readyState < 2) {
+      previousCvhPageTime = null;
+      return;
+    }
+
+    const previousTime = previousCvhPageTime;
+    previousCvhPageTime = sample.currentTime;
+    if (previousTime === null) return;
+
+    const delta = sample.currentTime - previousTime;
+    if (delta < 0.15 || delta > 5 || sample.currentTime / sample.duration < 0.9) return;
+
+    const detected = detect();
+    if (!detected.title || !Number.isSafeInteger(detected.episode) || detected.episode < 1) return;
+
+    const eventKey = [detected.sourceUrl, detected.episode].join("|");
+    if (sentCvhPageKeys.has(eventKey)) return;
+    sentCvhPageKeys.add(eventKey);
+
+    chrome.runtime.sendMessage({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: {
+        ...detected,
+        currentTimeSeconds: Math.floor(sample.currentTime),
+        durationSeconds: Math.floor(sample.duration),
+        hasVideoElement: true,
+        manualOnly: false,
+        eventId: crypto.randomUUID(),
+        observedAt: new Date().toISOString(),
+      },
+    });
+  }
+
+  if (service === "animego" && !isAnimeGoPlayerFrame) {
+    window.addEventListener("message", handleCvhPageSample);
+  }
+
   function sendParentMetadataToFrame(frame) {
     if (service !== "animego" || isAniBoomFrame || !frame?.contentWindow) return;
     let frameUrl;
