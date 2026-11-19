@@ -178,7 +178,7 @@
       return;
     }
     const isAniBoomTarget = frameUrl.hostname.toLowerCase() === "aniboom.one";
-    const isCvhTarget = frame.dataset.providerSlug === "cvh" &&
+    const isCvhTarget = frame.dataset?.providerSlug === "cvh" &&
       frameUrl.hostname.toLowerCase() === "animego.me" &&
       frameUrl.pathname.startsWith("/cdn-iframe/");
     if (!isAniBoomTarget && !isCvhTarget) return;
