@@ -57,11 +57,13 @@
     if (contextKey === lastPublishedContextKey) return;
     lastPublishedContextKey = contextKey;
 
-    chrome.runtime.sendMessage({
-      type: "MIDAHOSHI_CURRENT_WATCH",
-      title,
-      episode,
-    });
+    if (typeof chrome.runtime.sendMessage === "function") {
+      chrome.runtime.sendMessage({
+        type: "MIDAHOSHI_CURRENT_WATCH",
+        title,
+        episode,
+      });
+    }
   }
 
   function normalizeWatchTitle(value) {
