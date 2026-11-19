@@ -151,14 +151,22 @@ function mergeAnimeForReconciliation(
   target: AnimeIdentity,
   source: AnimeIdentity,
 ): AnimeIdentity {
-  for (const [service, sourceId] of Object.entries(source.externalIds)) {
+  for (const [service, rawSourceId] of Object.entries(source.externalIds)) {
+    const sourceId = rawSourceId?.trim();
     const targetId =
-      target.externalIds[service as keyof typeof target.externalIds];
+      target.externalIds[service as keyof typeof target.externalIds]?.trim();
 
     if (targetId && sourceId && targetId !== sourceId) {
       throw new Error(
         `External ID conflict for ${service}: ${targetId} vs ${sourceId}`,
       );
+    }
+  }
+
+  const externalIds = { ...source.externalIds, ...target.externalIds };
+  for (const [service, value] of Object.entries(externalIds)) {
+    if (typeof value === "string") {
+      externalIds[service as keyof typeof externalIds] = value.trim();
     }
   }
 
@@ -188,10 +196,7 @@ function mergeAnimeForReconciliation(
       ],
     },
 
-    externalIds: {
-      ...source.externalIds,
-      ...target.externalIds,
-    },
+    externalIds,
 
     ...(year !== undefined ? { year } : {}),
     ...(format !== undefined ? { format } : {}),
