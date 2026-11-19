@@ -1,7 +1,14 @@
 (() => {
   // AnimeGO's CVH player is a page custom element. Its internal _shadowRoot
   // contains the native video element, so sample only playback state here.
-  if (location.hostname !== "animego.me" || window.top !== window) return;
+  // CVH is embedded by AnimeGO at /cdn-iframe/<id>/...; the native player
+  // lives in that iframe, not in the AnimeGO catalogue document.
+  if (location.hostname !== "animego.me" || !location.pathname.startsWith("/cdn-iframe/")) return;
+
+  const numericPathParts = location.pathname.split("/").filter(Boolean).slice(2)
+    .filter((part) => /^\\d+$/.test(part));
+  const episode = Number(numericPathParts[numericPathParts.length - 1]);
+  if (!Number.isSafeInteger(episode) || episode < 1) return;
 
   let lastVideo = null;
 
@@ -22,8 +29,9 @@
         !Number.isFinite(duration) || duration <= 0) return;
 
     window.postMessage({
-      type: "MIDAHOSHI_CVH_PAGE_STATE",
+      type: "MIDAHOSHI_CVH_STATE",
       state: {
+        episode,
         currentTime,
         duration,
         paused: Boolean(video.paused),
