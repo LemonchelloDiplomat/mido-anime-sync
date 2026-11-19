@@ -14,6 +14,32 @@ export interface IntegrationStatus {
   shikimori: ProviderConnectionStatus;
 }
 
+const PROVIDER_ENDPOINTS: Record<SyncProvider, {
+  start: string;
+  list: string;
+  entry: string;
+  deleteEntry: string;
+}> = {
+  mal: {
+    start: "/api/auth/mal/start",
+    list: "/api/mal/list",
+    entry: "/api/mal/entry",
+    deleteEntry: "/api/mal/entry/delete",
+  },
+  anilist: {
+    start: "/api/auth/anilist/start",
+    list: "/api/anilist/list",
+    entry: "/api/anilist/entry",
+    deleteEntry: "/api/anilist/entry/delete",
+  },
+  shikimori: {
+    start: "/api/auth/shikimori/start",
+    list: "/api/shikimori/list",
+    entry: "/api/shikimori/entry",
+    deleteEntry: "/api/shikimori/entry/delete",
+  },
+};
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,
@@ -42,7 +68,7 @@ export async function disconnectIntegration(provider: SyncProvider | "shikimori"
 }
 
 export function connectIntegration(provider: SyncProvider): void {
-  window.location.assign("/api/auth/" + provider + "/start");
+  window.location.assign(PROVIDER_ENDPOINTS[provider].start);
 }
 
 export interface RemoteAccountListPayload {
@@ -52,8 +78,7 @@ export interface RemoteAccountListPayload {
 }
 
 export function fetchAccountList(provider: SyncProvider): Promise<RemoteAccountListPayload> {
-  const endpoint = provider === "mal" ? "/api/mal/list" : provider === "anilist" ? "/api/anilist/list" : "/api/shikimori/list";
-  return request<RemoteAccountListPayload>(endpoint);
+  return request<RemoteAccountListPayload>(PROVIDER_ENDPOINTS[provider].list);
 }
 
 export interface AccountEntryUpdate {
@@ -71,7 +96,7 @@ export async function deleteAccountEntry(
   entry: { externalId: string; entryId?: number },
 ): Promise<{ ok: boolean }> {
   const result = await request<{ ok: boolean }>(
-    provider === "mal" ? "/api/mal/entry/delete" : provider === "anilist" ? "/api/anilist/entry/delete" : "/api/shikimori/entry/delete",
+    PROVIDER_ENDPOINTS[provider].deleteEntry,
     {
       method: "POST",
       body: JSON.stringify(entry),
@@ -83,7 +108,7 @@ export async function deleteAccountEntry(
 
 export async function updateAccountEntry(provider: SyncProvider, entry: AccountEntryUpdate): Promise<{ ok: boolean }> {
   const result = await request<{ ok: boolean }>(
-    provider === "mal" ? "/api/mal/entry" : provider === "anilist" ? "/api/anilist/entry" : "/api/shikimori/entry",
+    PROVIDER_ENDPOINTS[provider].entry,
     {
       method: "POST",
       body: JSON.stringify(entry),
