@@ -1324,6 +1324,79 @@ describe("BrowserAnimeRepository sync operation journal", () => {
     ]);
   });
 
+  it("clears local library data while preserving and closing sync history", async () => {
+    const repo = await createRepository();
+    const now = "2026-11-18T12:00:00.000Z";
+    await repo.saveAnime(makeAnime("remove-one"));
+    await repo.saveAnime(makeAnime("remove-two"));
+    await repo.saveEntry(makeEntry("remove-one", 4, now));
+    await repo.saveSourceEntry({
+      ...makeEntry("remove-one", 4, now),
+      source: "anilist",
+    });
+    await repo.saveAnimeRelation({
+      id: "remove-relation",
+      sourceAnimeId: "remove-one",
+      targetAnimeId: "remove-two",
+      type: "SEQUEL",
+    });
+
+    const session: SyncSession = {
+      sessionId: "clear-session",
+      provider: "mal",
+      status: "running",
+      startedAt: now,
+      operationCount: 1,
+      succeededCount: 0,
+      failedCount: 0,
+      pendingCount: 1,
+      unchangedCount: 0,
+      conflictCount: 0,
+      recoveredCount: 0,
+    };
+    const operation: SyncOperation = {
+      id: "clear-pending",
+      sessionId: session.sessionId,
+      provider: "mal",
+      direction: "local",
+      kind: "update",
+      animeId: "remove-one",
+      entry: makeEntry("remove-one", 4, now),
+      status: "pending",
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await repo.saveSyncSession(session);
+    await repo.saveSyncOperations([operation]);
+
+    await repo.clearLibrary();
+
+    const snapshot = await repo.snapshot();
+    expect(snapshot.anime).toEqual([]);
+    expect(snapshot.entries).toEqual([]);
+    expect(snapshot.sourceEntries).toEqual([]);
+    expect(snapshot.conflictResolutions).toEqual([]);
+    expect(snapshot.animeRelations).toEqual([]);
+    expect(snapshot.deletionIntents).toEqual([]);
+    expect(await repo.getUnfinishedSyncOperations()).toEqual([]);
+    expect(await repo.getSyncOperations()).toMatchObject([
+      {
+        id: operation.id,
+        status: "cancelled",
+        error: expect.stringContaining("полной очисткой"),
+      },
+    ]);
+    expect(await repo.getSyncSessions()).toMatchObject([
+      {
+        sessionId: session.sessionId,
+        status: "cancelled",
+        pendingCount: 0,
+        error: expect.stringContaining("полной очисткой"),
+      },
+    ]);
+  });
+
   it("persists operations and tracks independent completion states", async () => {
     const repo = await createRepository();
     const now = "2026-11-17T12:00:00.000Z";
