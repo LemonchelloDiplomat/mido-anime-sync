@@ -1,32 +1,38 @@
 (() => {
-  // Runs only inside AnimeGO's CVH iframe. Read-only access to the player's
-  // public API is used; no storage, credentials, network, or player controls.
-  if (location.hostname !== "animego.me" || !location.pathname.startsWith("/cdn-iframe/")) return;
+  // AnimeGO's CVH player is a page custom element. Its internal _shadowRoot
+  // contains the native video element, so sample only playback state here.
+  if (location.hostname !== "animego.me" || window.top !== window) return;
+
+  let lastVideo = null;
 
   const samplePlayer = () => {
-    const player = document.querySelector("#pcvh");
-    if (!player?.api || !player.state) return;
-
-    try {
-      const currentTime = Number(player.api.getCurrentTime());
-      const duration = Number(player.api.getDuration());
-      const rawEpisode = player.state.currentEpisode?.name ?? player.getAttribute("episode");
-      const episode = Number(rawEpisode);
-
-      if (!Number.isFinite(currentTime) || currentTime < 0 ||
-          !Number.isFinite(duration) || duration <= 0 ||
-          !Number.isSafeInteger(episode) || episode < 1) return;
-
-      window.postMessage({
-        type: "MIDAHOSHI_CVH_STATE",
-        state: { currentTime, duration, episode },
-      }, location.origin);
-    } catch {
-      // The player may be initializing or replacing its internal state.
+    const player = document.querySelector("vk-video-player");
+    const video = player?._shadowRoot?.querySelector("video");
+    if (!video) {
+      lastVideo = null;
+      return;
     }
+
+    if (video !== lastVideo) lastVideo = video;
+
+    const currentTime = Number(video.currentTime);
+    const duration = Number(video.duration);
+    const readyState = Number(video.readyState);
+    if (!Number.isFinite(currentTime) || currentTime < 0 ||
+        !Number.isFinite(duration) || duration <= 0) return;
+
+    window.postMessage({
+      type: "MIDAHOSHI_CVH_PAGE_STATE",
+      state: {
+        currentTime,
+        duration,
+        paused: Boolean(video.paused),
+        readyState,
+      },
+    }, location.origin);
   };
 
   samplePlayer();
-  const timer = window.setInterval(samplePlayer, 2000);
+  const timer = window.setInterval(samplePlayer, 1000);
   window.addEventListener("pagehide", () => window.clearInterval(timer), { once: true });
 })();
