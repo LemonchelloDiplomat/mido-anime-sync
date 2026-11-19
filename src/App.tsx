@@ -1290,12 +1290,26 @@ function App() {
           attempts: operation.attempts + 1,
         });
         try {
+          const existingRemoteAnime = remoteSnapshot.anime.find(
+            (anime) => anime.externalIds[providerSource] === change.externalId,
+          );
+          const existingRemoteEntry = existingRemoteAnime
+            ? remoteSnapshot.entries.find((entry) => entry.animeId === existingRemoteAnime.id)
+            : undefined;
+          const shikimoriRateId = provider === "shikimori"
+            ? Number(existingRemoteEntry?.sourceMetadata?.shikimoriRateId)
+            : undefined;
+          if (provider === "shikimori" && existingRemoteAnime &&
+              (!Number.isSafeInteger(shikimoriRateId) || shikimoriRateId! <= 0)) {
+            throw new Error("Не удалось определить Shikimori rate ID для обновления записи. Синхронизация не создаст дубликат.");
+          }
           await updateAccountEntry(provider, {
             externalId: change.externalId,
             status: change.entry.status,
             progress: change.entry.progress,
             score: change.entry.score,
             ...(provider === "anilist" ? { favorite: change.entry.favorite } : {}),
+            ...(shikimoriRateId !== undefined ? { entryId: shikimoriRateId } : {}),
           });
         } catch (err) {
           const message = err instanceof Error ? err.message : "ошибка записи";
@@ -2091,7 +2105,7 @@ function App() {
                         <header className="history-session-header">
                           <div>
                             <span className="history-session-date">{formatHistoryDate(session.createdAt)}</span>
-                            <h2>{session.provider === "mal" ? "MyAnimeList" : "AniList"}</h2>
+                            <h2>{getProviderLabel(session.provider)}</h2>
                             <small>{session.sessionId}</small>
                             <span className={"history-session-status " + session.status}>
                               {session.status === "running" ? "Выполняется" : session.status === "succeeded" ? "Успешно" : session.status === "failed" ? "Ошибка" : "Отменено"}
