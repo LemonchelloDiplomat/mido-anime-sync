@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
+    "check:extension": "node scripts/check-extension.mjs",
     "typecheck": "tsc --noEmit",
     "dev": "node scripts/dev.mjs",
     "dev:web": "vite",
