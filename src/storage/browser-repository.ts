@@ -641,7 +641,7 @@ export class BrowserAnimeRepository {
       await sourceStore.put(canonicalEntry);
 
       const sourceEntries = await sourceStore.getAll(
-        IDBKeyRange.bound([canonicalId, ""], [canonicalId, "\\uffff"]),
+        IDBKeyRange.bound([canonicalId, ""], [canonicalId, "\uffff"]),
       );
       const resolution = await resolutionStore.get(canonicalId);
       const validResolutions = mergeConflictResolutions(
