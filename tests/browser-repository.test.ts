@@ -1739,6 +1739,80 @@ describe("BrowserAnimeRepository identity reconciliation", () => {
     ]));
   });
 
+  it("remaps sync journal and pending deletion references when anime identities are merged", async () => {
+    const repo = await createRepository();
+    const mal = makeAnime("mal:100");
+    mal.externalIds = { myanimelist: "100" };
+    const anilist = makeAnime("anilist:200");
+    anilist.externalIds = { myanimelist: "100", anilist: "200" };
+    const malEntry: AnimeListEntry = {
+      ...makeEntry("mal:100", 6, "2026-11-18T10:00:00.000Z"),
+      source: "myanimelist",
+    };
+    const aniEntry: AnimeListEntry = {
+      ...makeEntry("anilist:200", 8, "2026-11-18T11:00:00.000Z"),
+      source: "anilist",
+    };
+    const deletionIntent: SyncDeletionIntent = {
+      id: "delete-mal-100",
+      provider: "mal",
+      animeId: "mal:100",
+      externalId: "100",
+      anime: mal,
+      entry: malEntry,
+      createdAt: "2026-11-18T12:00:00.000Z",
+    };
+
+    await repo.saveAnime(mal);
+    await repo.saveAnime(anilist);
+    await repo.saveSourceEntry(malEntry);
+    await repo.saveSourceEntry(aniEntry);
+
+    // Seed a pending intent directly: saving a source entry intentionally
+    // cancels a matching pending remote deletion.
+    const internal = repo as unknown as {
+      db: { put: (store: string, value: SyncDeletionIntent) => Promise<unknown> };
+    };
+    await internal.db.put("deletionIntents", deletionIntent);
+
+    const operation: SyncOperation = {
+      id: "operation-1",
+      sessionId: "session-1",
+      provider: "mal",
+      direction: "remote",
+      kind: "update",
+      animeId: "mal:100",
+      externalId: "100",
+      entry: malEntry,
+      anime: mal,
+      status: "pending",
+      attempts: 0,
+      createdAt: "2026-11-18T12:00:00.000Z",
+      updatedAt: "2026-11-18T12:00:00.000Z",
+    };
+    await repo.saveSyncOperations([operation]);
+
+    await repo.mergeAnimeRecords("mal:100", "anilist:200");
+
+    const operations = await repo.getSyncOperations();
+    const deletionIntents = await repo.getDeletionIntents();
+    const snapshot = await repo.snapshot();
+
+    expect(operations[0]).toMatchObject({
+      animeId: "anilist:200",
+      entry: { animeId: "anilist:200" },
+      anime: { id: "anilist:200" },
+    });
+    expect(deletionIntents[0]).toMatchObject({
+      animeId: "anilist:200",
+      externalId: "100",
+      entry: { animeId: "anilist:200" },
+      anime: { id: "anilist:200" },
+    });
+    expect(snapshot.anime).toHaveLength(1);
+    expect(snapshot.sourceEntries).toHaveLength(2);
+  });
+
   it("skips duplicate groups that contain multiple records for the same provider", async () => {
     const repo = await createRepository();
     const first = makeAnime("first");
