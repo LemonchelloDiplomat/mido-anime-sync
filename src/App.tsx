@@ -913,7 +913,9 @@ function App() {
       const payload = await fetchAccountList(provider);
       const remoteSnapshot = provider === "mal"
         ? parseMyAnimeListApiList(payload.data)
-        : parseAniListAccountList(payload.data, payload.scoreFormat as AniListScoreFormat);
+        : provider === "anilist"
+          ? parseAniListAccountList(payload.data, payload.scoreFormat as AniListScoreFormat)
+          : parseShikimoriAccountList(payload.data);
       if (payload.count !== remoteSnapshot.entries.length) {
         throw new Error("Количество записей в ответе сервиса не совпадает с разобранным списком. Синхронизация и удаления заблокированы.");
       }
@@ -1387,7 +1389,9 @@ function App() {
           const refreshedPayload = await fetchAccountList(provider);
           const refreshedSnapshot = provider === "mal"
             ? parseMyAnimeListApiList(refreshedPayload.data)
-            : parseAniListAccountList(refreshedPayload.data, refreshedPayload.scoreFormat as AniListScoreFormat);
+            : provider === "anilist"
+              ? parseAniListAccountList(refreshedPayload.data, refreshedPayload.scoreFormat as AniListScoreFormat)
+              : parseShikimoriAccountList(refreshedPayload.data);
           if (refreshedPayload.count !== refreshedSnapshot.entries.length) {
             throw new Error("Количество записей в повторном ответе сервиса не совпадает с разобранным списком.");
           }
