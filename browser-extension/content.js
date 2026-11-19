@@ -253,7 +253,7 @@
   }
 
   function sendParentMetadataToFrame(frame) {
-    if ((service !== "animego" && service !== "yummyanime") || isAnimeGoPlayerFrame || !frame?.contentWindow) return;
+    if ((service !== "animego" && service !== "yummyanime") || (isAnimeGoPlayerFrame && !isCvhFrame) || !frame?.contentWindow) return;
     let frameUrl;
     try {
       frameUrl = new URL(frame.src, location.href);
@@ -284,7 +284,7 @@
   }
 
   function syncParentMetadataToFrames() {
-    if ((service !== "animego" && service !== "yummyanime") || isAnimeGoPlayerFrame) return;
+    if ((service !== "animego" && service !== "yummyanime") || (isAnimeGoPlayerFrame && !isCvhFrame)) return;
     queryAllDeep("iframe").forEach(sendParentMetadataToFrame);
   }
 
