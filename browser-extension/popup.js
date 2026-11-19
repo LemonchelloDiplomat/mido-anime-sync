@@ -62,7 +62,7 @@ document.getElementById("send").addEventListener("click", async () => {
       ? "yummyanime"
       : (host.includes("anixart-app.com") || host.includes("anixartapp.com"))
         ? "anixart"
-        : host.includes("anime-go.org") || host.includes("animego.online")
+        : host === "animego.me" || host.endsWith(".animego.me") || host.includes("anime-go.org") || host.includes("animego.online")
           ? "animego"
           : null;
     if (!service) {

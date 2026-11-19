@@ -11,7 +11,8 @@ function allowedSourceUrl(service, rawUrl) {
   const host = url.hostname.toLowerCase();
   if (service === "animego") {
     return host === "anime-go.org" || host.endsWith(".anime-go.org") ||
-      host === "animego.online" || host.endsWith(".animego.online");
+      host === "animego.online" || host.endsWith(".animego.online") ||
+      host === "animego.me" || host.endsWith(".animego.me");
   }
   if (service === "yummyanime") {
     return host === "yummyani.me" || host.endsWith(".yummyani.me") ||
