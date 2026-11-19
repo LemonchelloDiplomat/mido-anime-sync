@@ -91,7 +91,7 @@
       service,
       title,
       episode,
-      sourceUrl: location.href,
+      sourceUrl: location.origin + location.pathname,
       currentTimeSeconds,
       durationSeconds,
       hasVideoElement: Boolean(video),
@@ -115,7 +115,7 @@
       // Some SPA players reuse one <video> element for every episode.
       // Deduplicate by the actual episode/source, not by the element lifetime.
       const videoKey = [
-        location.href,
+        location.origin + location.pathname,
         video.currentSrc || video.src || "",
         detected.episode,
       ].join("|");
