@@ -11,7 +11,8 @@
     "dev:api": "node server/index.mjs",
     "build": "tsc --noEmit && vite build",
     "start": "node server/index.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check:extension": "node --check browser-extension/background.js && node --check browser-extension/bridge.js && node --check browser-extension/content.js && node --check browser-extension/adapters/animego.js && node --check browser-extension/adapters/yummyanime.js && node --check browser-extension/adapters/anixart.js"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
