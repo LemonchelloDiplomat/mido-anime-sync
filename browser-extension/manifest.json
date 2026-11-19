@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "MidaHoshi Anime Sync Bridge",
+  "name": "mido-anime-sync Bridge",
   "version": "0.1.0",
-  "description": "Передаёт подтверждённый прогресс просмотра в локальную библиотеку MidaHoshi Anime Sync.",
+  "description": "Передаёт подтверждённый прогресс просмотра в локальную библиотеку mido-anime-sync.",
   "permissions": ["activeTab", "tabs", "storage"],
   "background": {
     "service_worker": "background.js"
@@ -16,7 +16,7 @@
     "http://localhost:4173/*"
   ],
   "action": {
-    "default_title": "MidaHoshi Anime Sync",
+    "default_title": "mido-anime-sync",
     "default_popup": "popup.html"
   },
   "options_page": "options.html",
