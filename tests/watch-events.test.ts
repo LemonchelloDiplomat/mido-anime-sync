@@ -31,6 +31,14 @@ describe("watch source events", () => {
     expect(() => validateWatchEvent({ ...event, episode: 0 })).toThrow("некорректные данные");
   });
 
+  it("removes query strings and fragments from stored source URLs", () => {
+    const normalized = validateWatchEvent({
+      ...event,
+      sourceUrl: "https://anime-go.org/watch/episode-5?session=private#player",
+    });
+    expect(normalized.sourceUrl).toBe("https://anime-go.org/watch/episode-5");
+  });
+
   it("creates a source entry without overwriting a higher existing progress", () => {
     const existing: AnimeSourceEntry = {
       animeId: anime.id,
