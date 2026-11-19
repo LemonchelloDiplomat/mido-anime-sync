@@ -34,11 +34,11 @@ class FakeOffscreenCanvas {
 function createBackgroundHarness() {
   const storage: Record<string, any> = {};
   const messages: ((message: any) => void)[] = [];
-  const calls: Record<string, any[]> = {
-    setIcon: [],
-    setBadgeText: [],
-    setBadgeBackgroundColor: [],
-    setTitle: [],
+  const calls = {
+    setIcon: [] as any[],
+    setBadgeText: [] as any[],
+    setBadgeBackgroundColor: [] as any[],
+    setTitle: [] as any[],
   };
   const chrome = {
     storage: {
