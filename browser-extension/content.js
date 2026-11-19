@@ -67,11 +67,11 @@
       type: "MIDA_WATCH_EVENT",
       event: {
         eventId: crypto.randomUUID(),
-        provider: adapter.service,
+        service: adapter.service,
         title,
         episode,
         sourceUrl: location.href,
-        watchedAt: new Date().toISOString(),
+        observedAt: new Date().toISOString(),
       },
     });
   }
