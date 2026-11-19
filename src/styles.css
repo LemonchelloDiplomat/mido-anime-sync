@@ -1536,10 +1536,23 @@ button:disabled {
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 800;
-  background: linear-gradient(135deg, #8d6be8, #563bb2);
+  overflow: hidden;
+  background: #343b4b;
+}
+.integration-provider-mark--myanimelist {
+  background: #2e51a2;
+}
+.integration-provider-mark--anilist {
+  background: #152232;
+}
+.integration-provider-mark--shikimori {
+  background: #4f86c6;
+}
+.integration-provider-mark img {
+  display: block;
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
 }
 .integration-provider-info {
   flex: 1;
