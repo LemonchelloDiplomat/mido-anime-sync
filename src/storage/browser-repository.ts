@@ -1084,6 +1084,8 @@ export class BrowserAnimeRepository {
         "sourceEntries",
         "conflictResolutions",
         "animeRelations",
+        "syncOperations",
+        "deletionIntents",
       ],
       "readwrite",
     );
@@ -1096,20 +1098,28 @@ export class BrowserAnimeRepository {
     const sourceStore = transaction.objectStore("sourceEntries");
     const resolutionStore = transaction.objectStore("conflictResolutions");
     const relationStore = transaction.objectStore("animeRelations");
+    const operationsStore = transaction.objectStore("syncOperations");
+    const deletionStore = transaction.objectStore("deletionIntents");
 
     try {
       const [
         sourceAnime,
         targetAnime,
+        allEntries,
         allSourceEntries,
         resolutions,
         allRelations,
+        allOperations,
+        allDeletionIntents,
       ] = await Promise.all([
         animeStore.get(sourceId),
         animeStore.get(targetId),
+        entriesStore.getAll(),
         sourceStore.getAll(),
         resolutionStore.getAll(),
         relationStore.getAll(),
+        operationsStore.getAll(),
+        deletionStore.getAll(),
       ]);
 
       if (!sourceAnime) {
@@ -1122,9 +1132,23 @@ export class BrowserAnimeRepository {
 
       const mergedAnime = mergeAnimeForReconciliation(targetAnime, sourceAnime);
 
-      const affectedEntries = allSourceEntries.filter(
-        (entry) => entry.animeId === sourceId || entry.animeId === targetId,
-      );
+      // Older snapshots may contain aggregate entries without sourceEntries.
+      // Convert only those legacy records that have no provider baselines;
+      // otherwise the aggregate is derived data and must not overwrite them.
+      const sourceEntryAnimeIds = new Set(allSourceEntries.map((entry) => entry.animeId));
+      const legacyEntries = allEntries
+        .filter((entry) =>
+          (entry.animeId === sourceId || entry.animeId === targetId) &&
+          !sourceEntryAnimeIds.has(entry.animeId),
+        )
+        .map((entry) => structuredClone(entry));
+
+      const affectedEntries = [
+        ...allSourceEntries.filter(
+          (entry) => entry.animeId === sourceId || entry.animeId === targetId,
+        ),
+        ...legacyEntries,
+      ];
 
       const entriesByProvider = new Map<string, AnimeSourceEntry[]>();
       for (const entry of affectedEntries) {
@@ -1133,7 +1157,10 @@ export class BrowserAnimeRepository {
         entriesByProvider.set(entry.source, group);
       }
       for (const [provider, records] of entriesByProvider) {
-        if (records.length > 1 && records.some((entry) => JSON.stringify(entry) !== JSON.stringify(records[0]))) {
+        if (
+          records.length > 1 &&
+          records.some((entry) => JSON.stringify(entry) !== JSON.stringify(records[0]))
+        ) {
           throw new Error(
             `Cannot merge ${sourceId} into ${targetId}: both records contain different ${provider} source entries.`,
           );
@@ -1146,11 +1173,9 @@ export class BrowserAnimeRepository {
       }));
 
       const mergedSourceEntries = mergeSourceEntries([], remappedEntries);
-
       const unaffectedEntries = allSourceEntries.filter(
         (entry) => entry.animeId !== sourceId && entry.animeId !== targetId,
       );
-
       const allUpdatedSourceEntries = [
         ...unaffectedEntries,
         ...mergedSourceEntries,
@@ -1175,7 +1200,6 @@ export class BrowserAnimeRepository {
         mergedSourceEntries,
         affectedResolutions,
       );
-
       const updatedResolutions = [
         ...unaffectedResolutions,
         ...mergedResolutions,
@@ -1185,7 +1209,6 @@ export class BrowserAnimeRepository {
         allUpdatedSourceEntries,
         updatedResolutions,
       );
-
       const mergedListEntry = updatedEntries.find(
         (entry) => entry.animeId === targetId,
       );
@@ -1193,44 +1216,47 @@ export class BrowserAnimeRepository {
       const remappedRelations = remapAnimeRelations(allRelations, {
         [sourceId]: targetId,
       });
-
-      assertRelationsReferenceExistingAnime(
-        remappedRelations,
-        new Set([
-          ...allUpdatedSourceEntries.map((entry) => entry.animeId),
-          ...allUpdatedSourceEntries
-            .filter((entry) => entry.animeId !== sourceId)
-            .map((entry) => entry.animeId),
-          ...allRelations
-            .flatMap((relation) => [
-              relation.sourceAnimeId,
-              relation.targetAnimeId,
-            ])
-            .filter((id) => id !== sourceId),
-          targetId,
-          ...allRelations
-            .flatMap((relation) => [
-              relation.sourceAnimeId,
-              relation.targetAnimeId,
-            ])
-            .filter((id) => id !== sourceId && id !== targetId),
-        ]),
+      const remainingAnimeIds = new Set(
+        (await animeStore.getAll())
+          .filter((anime) => anime.id !== sourceId)
+          .map((anime) => anime.id),
       );
+      assertRelationsReferenceExistingAnime(remappedRelations, remainingAnimeIds);
+
+      // Keep the sync journal and pending remote-deletion intents addressable
+      // after the canonical anime ID changes. Historical payloads are retained.
+      const remappedOperations = allOperations
+        .filter((operation) => operation.animeId === sourceId)
+        .map((operation) => ({
+          ...structuredClone(operation),
+          animeId: targetId,
+          entry: { ...structuredClone(operation.entry), animeId: targetId },
+          ...(operation.anime
+            ? { anime: { ...structuredClone(operation.anime), id: targetId } }
+            : {}),
+        }));
+
+      const remappedDeletionIntents = allDeletionIntents
+        .filter((intent) => intent.animeId === sourceId)
+        .map((intent) => ({
+          ...structuredClone(intent),
+          animeId: targetId,
+          entry: { ...structuredClone(intent.entry), animeId: targetId },
+          anime: { ...structuredClone(intent.anime), id: targetId },
+        }));
 
       await Promise.all([
         animeStore.delete(sourceId),
         animeStore.put(mergedAnime),
-
         entriesStore.delete(sourceId),
         entriesStore.delete(targetId),
-
         resolutionStore.delete(sourceId),
         resolutionStore.delete(targetId),
-
         ...affectedEntries.map((entry) =>
           sourceStore.delete([entry.animeId, entry.source]),
         ),
-
+        ...remappedOperations.map((operation) => operationsStore.put(operation)),
+        ...remappedDeletionIntents.map((intent) => deletionStore.put(intent)),
         relationStore.clear(),
       ]);
 
@@ -1238,19 +1264,15 @@ export class BrowserAnimeRepository {
         ...mergedSourceEntries.map((entry) =>
           sourceStore.put(structuredClone(entry)),
         ),
-
         ...(mergedListEntry
           ? [entriesStore.put(structuredClone(mergedListEntry))]
           : []),
-
         ...mergedResolutions.map((resolution) =>
           resolutionStore.put(structuredClone(resolution)),
         ),
-
         ...remappedRelations.map((relation) =>
           relationStore.put(structuredClone(relation)),
         ),
-
       ]);
 
       await transactionDone;
