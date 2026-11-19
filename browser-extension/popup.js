@@ -58,7 +58,7 @@ document.getElementById("send").addEventListener("click", async () => {
       return;
     }
     const host = new URL(tab.url).hostname.toLowerCase();
-    const service = host.includes("yummyani.me") || host.includes("yummy-ani.me") || host.includes("yummyanime.club") || host.includes("yummyanime.info")
+    const service = host.includes("yummyani.me") || host.includes("yummy-ani.me")
       ? "yummyanime"
       : (host.includes("anixart-app.com") || host.includes("anixartapp.com"))
         ? "anixart"
