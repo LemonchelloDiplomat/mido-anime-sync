@@ -106,7 +106,6 @@ describe("unfinished sync operation recovery", () => {
       sessionId: "sync-2",
       direction: "local",
       animeId: "local:1",
-      externalId: undefined,
       entry: entry("local:1", "myanimelist"),
     });
     const update = vi.fn(async () => undefined);
