@@ -202,6 +202,41 @@ describe("AnimeGO CVH iframe tracking", () => {
 
     sendSample(1422);
     expect(sentEvents).toHaveLength(1);
+
+    // Switching to episode 8 must not reuse episode 7's near-end timestamp.
+    dispatch({
+      source: parentWindow,
+      origin: "https://animego.me",
+      data: {
+        type: "MIDAHOSHI_PARENT_METADATA",
+        metadata: {
+          title: "Агенты четырёх сезонов: Весенний танец",
+          episode: 8,
+          sourceUrl: "https://animego.me/anime/example",
+        },
+      },
+    });
+    sendSample(1423);
+    sendSample(1424);
+    expect(sentEvents).toHaveLength(1);
+
+    // Wait for the new episode's playback timeline to reset, then require
+    // actual playback through the 90% threshold before creating its event.
+    sendSample(0, { duration: 100 });
+    for (let currentTime = 1; currentTime < 90; currentTime += 1) {
+      sendSample(currentTime, { duration: 100 });
+    }
+    expect(sentEvents).toHaveLength(1);
+    sendSample(90, { duration: 100 });
+    expect(sentEvents).toHaveLength(2);
+    expect(sentEvents[1]).toMatchObject({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: {
+        episode: 8,
+        currentTimeSeconds: 90,
+        durationSeconds: 100,
+      },
+    });
   });
 
   it("samples the native video from the VK player's internal open shadow root", () => {
