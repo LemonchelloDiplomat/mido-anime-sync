@@ -5,8 +5,8 @@
   "description": "Передаёт подтверждённые просмотры из поддерживаемых аниме-сайтов в локальную библиотеку MidaHoshi Anime Sync.",
   "permissions": ["storage", "tabs"],
   "host_permissions": [
-    "https://animego.lt/*",
-    "https://animego.name/*",
+    "https://anime-go.org/*",
+    "https://animego.online/*",
     "https://yummyani.me/*",
     "https://www.yummyani.me/*",
     "https://yummy-ani.me/*",
@@ -22,8 +22,8 @@
   "content_scripts": [
     {
       "matches": [
-        "https://animego.lt/*",
-        "https://animego.name/*",
+        "https://anime-go.org/*",
+        "https://animego.online/*",
         "https://yummyani.me/*",
         "https://www.yummyani.me/*",
         "https://yummy-ani.me/*",
