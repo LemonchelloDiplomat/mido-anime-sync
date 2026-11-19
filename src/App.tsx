@@ -1933,13 +1933,13 @@ function App() {
                 </button>
               </div>
               {integrationStatusError && <div className="error-message">{integrationStatusError}</div>}
-              {(["myanimelist", "anilist"] as const).map((provider) => {
-                const label = provider === "myanimelist" ? "MyAnimeList" : "AniList";
+              {(["myanimelist", "anilist", "shikimori"] as const).map((provider) => {
+                const label = provider === "myanimelist" ? "MyAnimeList" : provider === "anilist" ? "AniList" : "Shikimori";
                 const status = integrationStatus?.[provider];
-                const routeProvider = provider === "myanimelist" ? "mal" : "anilist";
+                const routeProvider: SyncProvider = provider === "myanimelist" ? "mal" : provider;
                 return (
                   <article className="integration-provider" key={provider}>
-                    <div className="integration-provider-mark">{provider === "myanimelist" ? "MAL" : "AL"}</div>
+                    <div className="integration-provider-mark">{provider === "myanimelist" ? "MAL" : provider === "anilist" ? "AL" : "SHI"}</div>
                     <div className="integration-provider-info">
                       <h3>{label}</h3>
                       <p>
@@ -1948,7 +1948,7 @@ function App() {
                           : !integrationStatus
                             ? "Локальный API-сервер не отвечает."
                             : !status?.configured
-                              ? (routeProvider === "anilist" ? "Нужно добавить Client ID и Client Secret в .env.local." : "Нужно добавить Client ID в .env.local.")
+                              ? (routeProvider === "mal" ? "Нужно добавить MAL_CLIENT_ID в .env.local." : routeProvider === "anilist" ? "Нужно добавить ANILIST_CLIENT_ID и ANILIST_CLIENT_SECRET в .env.local." : "Нужно добавить SHIKIMORI_CLIENT_ID и SHIKIMORI_CLIENT_SECRET в .env.local.")
                               : status.connected
                                 ? "Подключён аккаунт: " + (status.username || "пользователь")
                                 : "Приложение настроено, аккаунт ещё не подключён."}
@@ -1986,7 +1986,7 @@ function App() {
               <div className="integration-danger-zone">
                 <div>
                   <h3>Исправление дублей библиотеки</h3>
-                  <p>Ищет записи с одинаковыми внешними ID MAL/AniList. Перед объединением скачивается резервная копия. Неоднозначные совпадения и пары с двумя записями одного сервиса пропускаются.</p>
+                  <p>Ищет записи с одинаковыми внешними ID разных сервисов. Перед объединением скачивается резервная копия. Неоднозначные совпадения и пары с двумя записями одного сервиса пропускаются.</p>
                 </div>
                 <button
                   type="button"
@@ -2054,6 +2054,7 @@ function App() {
                     <option value="all">Все сервисы</option>
                     <option value="mal">MyAnimeList</option>
                     <option value="anilist">AniList</option>
+                    <option value="shikimori">Shikimori</option>
                   </select>
                 </label>
                 <label>
