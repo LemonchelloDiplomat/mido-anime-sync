@@ -163,6 +163,103 @@ describe("AnimeGO CVH iframe tracking", () => {
     expect(sentEvents).toHaveLength(1);
   });
 
+
+  it("tracks CVH from the native video inside VK player's internal shadow root", () => {
+    const listeners: Record<string, (event: any) => void> = {};
+    const sentEvents: any[] = [];
+    const activeItem = {
+      getAttribute: (name: string) => name === "data-episode-number" ? "7" : null,
+      querySelector: () => null,
+    };
+    const h1 = {
+      textContent: "Агенты четырёх сезонов: Весенний танец",
+      getAttribute: () => null,
+    };
+    const document = {
+      title: "AnimeGO",
+      documentElement: {},
+      querySelector(selector: string) {
+        if (selector === "h1") return h1;
+        if (selector === ".player-video-bar__item.active") return activeItem;
+        return null;
+      },
+      querySelectorAll() { return []; },
+    };
+    const window = {
+      addEventListener(type: string, listener: (event: any) => void) {
+        listeners[type] = listener;
+      },
+    };
+    class FakeMutationObserver {
+      observe() {}
+      disconnect() {}
+    }
+    class FakeHTMLSelectElement {}
+
+    vm.runInNewContext(contentScript, {
+      location: {
+        hostname: "animego.me",
+        origin: "https://animego.me",
+        pathname: "/anime/example",
+        href: "https://animego.me/anime/example",
+      },
+      document,
+      window,
+      MutationObserver: FakeMutationObserver,
+      HTMLSelectElement: FakeHTMLSelectElement,
+      chrome: {
+        runtime: {
+          onMessage: { addListener() {} },
+          sendMessage(message: unknown) { sentEvents.push(message); },
+        },
+      },
+      crypto: { randomUUID: () => "cvh-page-test-id" },
+      Date,
+      URL,
+      getComputedStyle: () => ({ display: "block", visibility: "visible" }),
+    });
+
+    const sendSample = (currentTime: number, overrides = {}) => {
+      listeners.message?.({
+        source: window,
+        origin: "https://animego.me",
+        data: {
+          type: "MIDAHOSHI_CVH_PAGE_STATE",
+          state: {
+            currentTime,
+            duration: 100,
+            paused: false,
+            readyState: 4,
+            ...overrides,
+          },
+        },
+      });
+    };
+
+    sendSample(95);
+    expect(sentEvents).toHaveLength(0);
+    sendSample(96, { paused: true });
+    expect(sentEvents).toHaveLength(0);
+    sendSample(96);
+    sendSample(97);
+    expect(sentEvents).toHaveLength(1);
+    expect(sentEvents[0]).toMatchObject({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: {
+        service: "animego",
+        title: "Агенты четырёх сезонов: Весенний танец",
+        episode: 7,
+        sourceUrl: "https://animego.me/anime/example",
+        currentTimeSeconds: 97,
+        durationSeconds: 100,
+        hasVideoElement: true,
+        manualOnly: false,
+      },
+    });
+    sendSample(98);
+    expect(sentEvents).toHaveLength(1);
+  });
+
   it("samples only numeric playback state from the CVH public API", () => {
     const messages: any[] = [];
     let intervalCallback: (() => void) | undefined;
