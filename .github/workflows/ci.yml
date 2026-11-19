@@ -28,5 +28,7 @@ jobs:
         run: npm test
       - name: Validate browser extension
         run: npm run check:extension
+      - name: Check API server syntax
+        run: npm run check:server
       - name: Build
         run: npm run build
