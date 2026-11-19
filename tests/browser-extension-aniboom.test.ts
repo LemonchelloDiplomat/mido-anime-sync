@@ -154,8 +154,14 @@ describe("AnimeGO AniBoom iframe tracking", () => {
       window: parentWindow,
     });
 
-    expect(sentEvents).toHaveLength(1);
-    expect(sentEvents[0]).toMatchObject({
+    const watchEvents = sentEvents.filter((message) => message.type === "MIDAHOSHI_AUTO_WATCH_EVENT");
+    expect(watchEvents).toHaveLength(1);
+    expect(sentEvents).toContainEqual(expect.objectContaining({
+      type: "MIDAHOSHI_CURRENT_WATCH",
+      title: "Агенты четырёх сезонов: Весенний танец",
+      episode: 7,
+    }));
+    expect(watchEvents[0]).toMatchObject({
       type: "MIDAHOSHI_AUTO_WATCH_EVENT",
       event: {
         service: "animego",

@@ -21,6 +21,10 @@ async function loadQueuedEvent() {
 
 void loadQueuedEvent();
 
+// Opening the toolbar popup acknowledges the red notification without
+// removing the pending watch event from the delivery queue.
+void chrome.runtime.sendMessage({ type: "MIDAHOSHI_DISMISS_ALERT" }).catch(() => {});
+
 document.getElementById("scan").addEventListener("click", async () => {
   status("Считываем страницу…");
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -37,7 +41,7 @@ document.getElementById("scan").addEventListener("click", async () => {
       typeof detected.title === "string" && detected.title.trim().length > 2 &&
       Number.isSafeInteger(detected.episode) && detected.episode > 0;
     const note = hasAnimeGoMetadata && detected.manualOnly
-      ? "Название и серия найдены на AnimeGO. Видео находится во встроенном плеере AniBoom. Продолжай просмотр: событие появится автоматически после 90%."
+      ? "Название и серия найдены на AnimeGO. Видео находится во встроенном плеере. Продолжай просмотр: событие появится автоматически после 90%."
       : detected.manualOnly
         ? "Плеер или номер серии не обнаружен. Проверь название и введи номер вручную."
         : detected.episode
