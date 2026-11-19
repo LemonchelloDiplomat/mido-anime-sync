@@ -33,7 +33,7 @@ function titleOf(anime: AnimeIdentity): string {
 }
 
 function comparableScore(provider: SyncProvider, value: number | null): number | null {
-  if (provider !== "mal") return value;
+  if (provider !== "mal" && provider !== "shikimori") return value;
   if (value === null || value === 0) return null;
   return Math.max(10, Math.min(100, Math.round(value / 10) * 10));
 }
@@ -46,7 +46,7 @@ function sameProviderEntry(
   return baseline.status === current.status &&
     baseline.progress === current.progress &&
     comparableScore(provider, baseline.score) === comparableScore(provider, current.score) &&
-    (provider === "mal" || baseline.favorite === current.favorite);
+    (provider !== "anilist" || baseline.favorite === current.favorite);
 }
 
 /**
@@ -62,7 +62,7 @@ export function detectRemoteDeletions(
   remoteSnapshot: AnimeSnapshotV4,
   provider: SyncProvider,
 ): SafeDeletionDetection {
-  const service = provider === "mal" ? "myanimelist" : "anilist";
+  const service = provider === "mal" ? "myanimelist" : provider === "anilist" ? "anilist" : "shikimori";
   const remoteIds = new Set(
     remoteSnapshot.anime
       .map((anime) => anime.externalIds[service])
@@ -70,7 +70,7 @@ export function detectRemoteDeletions(
   );
 
   const baselineItems = localItems.filter((item) =>
-    Boolean(item.baseline?.source === (provider === "mal" ? "myanimelist" : "anilist") &&
+    Boolean(item.baseline?.source === (provider === "mal" ? "myanimelist" : provider === "anilist" ? "anilist" : "shikimori") &&
       item.anime.externalIds[service]),
   );
   const baselineCount = baselineItems.length;
