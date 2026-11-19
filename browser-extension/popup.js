@@ -21,6 +21,10 @@ async function loadQueuedEvent() {
 
 void loadQueuedEvent();
 
+// Opening the toolbar popup acknowledges the red notification without
+// removing the pending watch event from the delivery queue.
+void chrome.runtime.sendMessage({ type: "MIDAHOSHI_DISMISS_ALERT" }).catch(() => {});
+
 document.getElementById("scan").addEventListener("click", async () => {
   status("Считываем страницу…");
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
