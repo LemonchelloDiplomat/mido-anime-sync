@@ -1,3 +1,5 @@
+export type SyncProvider = "mal" | "anilist" | "shikimori";
+
 export type ServiceId =
   | "myanimelist"
   | "anilist"
@@ -66,7 +68,7 @@ export type SyncOperationKind = "create" | "update" | "delete";
 export interface SyncOperation {
   id: string;
   sessionId: string;
-  provider: "mal" | "anilist";
+  provider: SyncProvider;
   direction: SyncOperationDirection;
   kind: SyncOperationKind;
   animeId: string;
@@ -84,7 +86,7 @@ export type SyncSessionStatus = "running" | "succeeded" | "failed" | "cancelled"
 
 export interface SyncDeletionIntent {
   id: string;
-  provider: "mal" | "anilist";
+  provider: SyncProvider;
   animeId: string;
   externalId: string;
   anime: AnimeIdentity;
@@ -145,6 +147,7 @@ export interface ConflictResolution {
 
 export interface AdapterCapabilities {
   read: boolean;
+  delete: boolean;
   create: boolean;
   updateStatus: boolean;
   updateProgress: boolean;
