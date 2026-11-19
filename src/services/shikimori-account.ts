@@ -71,7 +71,7 @@ function normalizePoster(value?: string | null): string | null {
 function safeDate(value?: string | null): string | undefined {
   if (!value) return undefined;
   const date = value.slice(0, 10);
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) return undefined;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return undefined;
   const parsed = new Date(date + "T00:00:00.000Z");
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date
     ? date
