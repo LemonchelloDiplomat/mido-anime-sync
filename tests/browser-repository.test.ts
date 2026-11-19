@@ -1726,16 +1726,17 @@ describe("BrowserAnimeRepository identity reconciliation", () => {
       createdAt: "2026-11-18T12:00:00.000Z",
     };
 
-    await repo.importSnapshot({
-      schemaVersion: 4,
-      exportedAt: "2026-11-18T12:00:00.000Z",
-      anime: [mal, anilist],
-      entries: [malEntry, aniEntry],
-      sourceEntries: [malEntry, aniEntry],
-      conflictResolutions: [],
-      animeRelations: [],
-      deletionIntents: [deletionIntent],
-    });
+    await repo.saveAnime(mal);
+    await repo.saveAnime(anilist);
+    await repo.saveSourceEntry(malEntry);
+    await repo.saveSourceEntry(aniEntry);
+
+    // Seed a pending intent directly: saving a source entry intentionally
+    // cancels a matching pending remote deletion.
+    const internal = repo as unknown as {
+      db: { put: (store: string, value: SyncDeletionIntent) => Promise<unknown> };
+    };
+    await internal.db.put("deletionIntents", deletionIntent);
 
     const operation: SyncOperation = {
       id: "operation-1",
@@ -1774,6 +1775,7 @@ describe("BrowserAnimeRepository identity reconciliation", () => {
     expect(snapshot.anime).toHaveLength(1);
     expect(snapshot.sourceEntries).toHaveLength(2);
   });
+
 
   it("skips duplicate groups that contain multiple records for the same provider", async () => {
     const repo = await createRepository();
