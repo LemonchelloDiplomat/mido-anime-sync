@@ -134,6 +134,7 @@ function App() {
 
   const [library, setLibrary] = useState<LibraryItem[]>([]);
   const [pendingWatchEvent, setPendingWatchEvent] = useState<WatchEvent | null>(null);
+  const [pendingWatchEventId, setPendingWatchEventId] = useState("");
   const [watchEventTargetId, setWatchEventTargetId] = useState("");
   const [watchEventSaving, setWatchEventSaving] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -205,8 +206,10 @@ function App() {
     const rawEvent = params.get("watchEvent");
     if (!rawEvent) return;
     try {
-      const event = validateWatchEvent(JSON.parse(rawEvent));
+      const parsedEvent = JSON.parse(rawEvent) as Record<string, unknown>;
+      const event = validateWatchEvent(parsedEvent);
       setPendingWatchEvent(event);
+      setPendingWatchEventId(typeof parsedEvent.eventId === "string" ? parsedEvent.eventId : "");
       params.delete("watchEvent");
       const query = params.toString();
       window.history.replaceState(
@@ -474,6 +477,19 @@ function App() {
     }
   }
 
+  function acknowledgePendingWatchEvent() {
+    if (pendingWatchEventId) {
+      window.postMessage({
+        source: "mido-anime-app",
+        type: "ACK_WATCH_EVENT",
+        eventId: pendingWatchEventId,
+      }, window.location.origin);
+    }
+    setPendingWatchEvent(null);
+    setPendingWatchEventId("");
+    setWatchEventTargetId("");
+  }
+
   async function applyPendingWatchEvent() {
     if (!repository || !pendingWatchEvent || !watchEventTargetId || watchEventSaving) return;
     const target = library.find((item) => item.anime.id === watchEventTargetId);
@@ -489,8 +505,7 @@ function App() {
       const nextEntry = createWatchSourceEntry(target.anime, pendingWatchEvent, existing);
       await repository.saveSourceEntry(nextEntry);
       await refreshLibrary();
-      setPendingWatchEvent(null);
-      setWatchEventTargetId("");
+      acknowledgePendingWatchEvent();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось обновить прогресс просмотра.");
     } finally {
@@ -1999,10 +2014,7 @@ function App() {
                     {" · серия "}{pendingWatchEvent.episode}
                   </p>
                 </div>
-                <button className="secondary-button" type="button" onClick={() => {
-                  setPendingWatchEvent(null);
-                  setWatchEventTargetId("");
-                }}>Отменить</button>
+                <button className="secondary-button" type="button" onClick={acknowledgePendingWatchEvent}>Отменить</button>
               </div>
               <p className="watch-event-title">{pendingWatchEvent.title}</p>
               <label htmlFor="watch-event-anime">Выбери соответствующий тайтл в локальной библиотеке</label>
