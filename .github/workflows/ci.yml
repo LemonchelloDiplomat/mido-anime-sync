@@ -22,5 +22,7 @@ jobs:
         run: npm ci
       - name: Run tests
         run: npm test
+      - name: Check browser extension syntax
+        run: npm run check:extension
       - name: Build
         run: npm run build
