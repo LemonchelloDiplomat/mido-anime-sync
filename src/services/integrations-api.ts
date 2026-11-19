@@ -60,7 +60,7 @@ export function getIntegrationStatus(): Promise<IntegrationStatus> {
   return request<IntegrationStatus>("/api/integrations/status");
 }
 
-export async function disconnectIntegration(provider: SyncProvider | "shikimori"): Promise<void> {
+export async function disconnectIntegration(provider: SyncProvider): Promise<void> {
   await request("/api/integrations/disconnect", {
     method: "POST",
     body: JSON.stringify({ provider }),
