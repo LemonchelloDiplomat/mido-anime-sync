@@ -1964,21 +1964,8 @@ function App() {
           </button>
         </nav>
 
-        <div className="menu-label services-label">СЕРВИСЫ</div>
-
-        <nav className="navigation">
-          {["MyAnimeList", "AniList", "Shikimori", "Другие сервисы"].map(
-            (service) => (
-              <button className="nav-item" key={service} disabled>
-                ◉ <span>{service}</span>
-                <i />
-              </button>
-            ),
-          )}
-        </nav>
-
         <div className="sidebar-bottom">
-          <button className={"nav-item " + (settingsOpen ? "active" : "")} onClick={() => { setHistoryOpen(false); setSettingsOpen((value) => !value); }}>
+          <button className="nav-item" type="button" disabled aria-disabled="true" title="Раздел настроек пока не реализован">
             ⚙ <span>Настройки</span>
           </button>
           <div className="version">MidaHoshi Anime Sync v0.4</div>
