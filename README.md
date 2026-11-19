@@ -80,5 +80,6 @@ npm run dev
 ~~~powershell
 npm test
 npm run typecheck
+npm run check:extension
 npm run build
 ~~~
