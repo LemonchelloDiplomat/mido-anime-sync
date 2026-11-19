@@ -5,6 +5,9 @@ import {
   reconcileUnfinishedSyncOperations,
 } from "../src/core/sync-recovery.js";
 import {
+  reconcileInterruptedSyncSessions,
+} from "../src/core/sync-session-recovery.js";
+import {
   resolvePendingRemoteDeletionIntents,
 } from "../src/core/remote-deletion.js";
 import type {
@@ -117,6 +120,61 @@ afterEach(() => {
 });
 
 describe("sync recovery with persisted IndexedDB state", () => {
+  it("finalizes abandoned sessions with no pending journal after reopening IndexedDB", async () => {
+    const name = databaseName();
+    const firstRepository = await openRepository(name);
+    const abandoned = session();
+    const completed = {
+      ...session(),
+      sessionId: "session-2",
+      operationCount: 1,
+      pendingCount: 1,
+    };
+    const completedOperation = {
+      ...operation("local"),
+      id: "session-2-local-delete-0",
+      sessionId: completed.sessionId,
+      status: "succeeded" as const,
+    };
+
+    await firstRepository.saveSyncSession(abandoned);
+    await firstRepository.saveSyncSession(completed);
+    await firstRepository.saveSyncOperations([completedOperation]);
+    firstRepository.close();
+
+    const reopenedRepository = await openRepository(name);
+    const reconciled = await reconcileInterruptedSyncSessions(
+      "mal",
+      "new-current-session",
+      await reopenedRepository.getSyncSessions(),
+      await reopenedRepository.getSyncOperations(),
+      {
+        updateSyncSession: (id, update) => reopenedRepository.updateSyncSession(id, update),
+      },
+      "2026-11-19T12:00:00.000Z",
+    );
+
+    expect(reconciled).toBe(2);
+    const savedSessions = await reopenedRepository.getSyncSessions();
+    expect(savedSessions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sessionId: abandoned.sessionId,
+          status: "failed",
+          pendingCount: 0,
+          error: expect.stringContaining("до сохранения журнала"),
+        }),
+        expect.objectContaining({
+          sessionId: completed.sessionId,
+          status: "succeeded",
+          operationCount: 1,
+          succeededCount: 1,
+          pendingCount: 0,
+        }),
+      ]),
+    );
+  });
+
   it("recovers a local delete after closing and reopening the database", async () => {
     const name = databaseName();
     const firstRepository = await openRepository(name);
