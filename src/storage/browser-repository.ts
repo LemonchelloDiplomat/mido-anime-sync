@@ -1,5 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { detectMaxProgressStatusConflicts } from "../core/conflicts.js";
+import { findExactIdentityDuplicatePairs } from "../core/identity-reconciliation.js";
 
 import type {
   AnimeIdentity,
@@ -969,6 +970,70 @@ export class BrowserAnimeRepository {
         ? structuredClone(entriesByAnimeId.get(anime.id)!)
         : undefined,
     }));
+  }
+
+  /**
+   * Repairs only unambiguous pairs with an identical provider external ID.
+   * Pairs with multiple competing matches or duplicate source providers are
+   * skipped so no provider baseline can be silently overwritten.
+   */
+  async reconcileExactIdentityDuplicates(): Promise<{
+    mergedPairs: number;
+    skippedPairs: number;
+  }> {
+    const [anime, sourceEntries] = await Promise.all([
+      this.db.getAll("anime"),
+      this.db.getAll("sourceEntries"),
+    ]);
+    const pairs = findExactIdentityDuplicatePairs(anime);
+    const pairCounts = new Map<string, number>();
+
+    for (const pair of pairs) {
+      pairCounts.set(pair.first.id, (pairCounts.get(pair.first.id) ?? 0) + 1);
+      pairCounts.set(pair.second.id, (pairCounts.get(pair.second.id) ?? 0) + 1);
+    }
+
+    let mergedPairs = 0;
+    let skippedPairs = 0;
+
+    for (const pair of pairs) {
+      if (pairCounts.get(pair.first.id) !== 1 || pairCounts.get(pair.second.id) !== 1) {
+        skippedPairs += 1;
+        continue;
+      }
+
+      const firstEntries = sourceEntries.filter((entry) => entry.animeId === pair.first.id);
+      const secondEntries = sourceEntries.filter((entry) => entry.animeId === pair.second.id);
+      const firstSources = new Set(firstEntries.map((entry) => entry.source));
+      const hasProviderCollision = secondEntries.some((entry) => firstSources.has(entry.source));
+
+      if (hasProviderCollision) {
+        skippedPairs += 1;
+        continue;
+      }
+
+      const firstScore = Object.values(pair.first.externalIds).filter(Boolean).length;
+      const secondScore = Object.values(pair.second.externalIds).filter(Boolean).length;
+      const target = firstScore > secondScore
+        ? pair.first
+        : secondScore > firstScore
+          ? pair.second
+          : pair.first.id.localeCompare(pair.second.id) <= 0
+            ? pair.first
+            : pair.second;
+      const source = target.id === pair.first.id ? pair.second : pair.first;
+
+      try {
+        // Preflight metadata and ID compatibility before opening the write transaction.
+        mergeAnimeForReconciliation(target, source);
+        await this.mergeAnimeRecords(source.id, target.id);
+        mergedPairs += 1;
+      } catch {
+        skippedPairs += 1;
+      }
+    }
+
+    return { mergedPairs, skippedPairs };
   }
 
   /**
