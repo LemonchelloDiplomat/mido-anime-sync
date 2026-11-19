@@ -1,6 +1,14 @@
 const QUEUE_KEY = "pendingWatchEvents";
 const TOOLBAR_STATE_KEY = "toolbarWatchState";
 
+let toolbarMutationQueue = Promise.resolve();
+
+function enqueueToolbarMutation(operation) {
+  const next = toolbarMutationQueue.then(operation, operation);
+  toolbarMutationQueue = next.catch(() => {});
+  return next;
+}
+
 function allowedSourceUrl(service, rawUrl) {
   let url;
   try {
@@ -106,7 +114,8 @@ async function saveToolbarState(state) {
   await renderToolbarState(state);
 }
 
-async function updateCurrentWatchContext(message) {
+function updateCurrentWatchContext(message) {
+  return enqueueToolbarMutation(async () => {
   const title = typeof message.title === "string" ? message.title.trim() : "";
   if (title.length < 2) return;
   const episode = Number.isSafeInteger(message.episode) && message.episode > 0
@@ -124,10 +133,13 @@ async function updateCurrentWatchContext(message) {
     episode: null,
     alerted: false,
   });
+  });
 }
 
-async function clearToolbarState() {
-  await saveToolbarState({ title: "", episode: null, alerted: false });
+function clearToolbarState() {
+  return enqueueToolbarMutation(async () => {
+    await saveToolbarState({ title: "", episode: null, alerted: false });
+  });
 }
 
 // Restore the icon from persisted state whenever the MV3 service worker starts.
@@ -181,11 +193,11 @@ chrome.tabs?.onUpdated?.addListener((tabId, changeInfo, tab) => {
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === "MIDAHOSHI_DISMISS_ALERT") {
-    void (async () => {
+    void enqueueToolbarMutation(async () => {
       const state = await getToolbarState();
       if (!state.alerted) return;
       await saveToolbarState({ ...state, alerted: false });
-    })();
+    });
     return;
   }
 
@@ -206,7 +218,7 @@ chrome.runtime.onMessage.addListener((message) => {
 
   if (message?.type !== "MIDAHOSHI_AUTO_WATCH_EVENT" || !message.event) return;
 
-  void (async () => {
+  void enqueueToolbarMutation(async () => {
     const event = message.event;
     const duration = Number(event.durationSeconds);
     const currentTime = Number(event.currentTimeSeconds);
@@ -245,5 +257,5 @@ chrome.runtime.onMessage.addListener((message) => {
       episode: event.episode,
       alerted: true,
     });
-  })();
+  });
 });
