@@ -3,7 +3,7 @@ import { randomBytes, createCipheriv, createDecipheriv } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { toMyAnimeListScore } from "./mal-score.mjs";
-import { deleteMyAnimeListEntry } from "./mal-delete.mjs";
+import { handleMalDelete } from "./mal-delete-route.mjs";
 
 const ROOT = process.cwd();
 const DATA_DIR = path.join(ROOT, ".local-data");
@@ -413,23 +413,13 @@ async function handleRequest(request, response) {
 
   if (method === "POST" && url.pathname === "/api/mal/entry/delete") {
     const body = await readJson(request);
-    const id = Number(body.externalId);
-    if (!Number.isSafeInteger(id) || id <= 0) {
-      return sendJson(response, 400, { error: "Некорректный MyAnimeList ID для удаления." });
-    }
-    try {
-      const tokens = await readTokens();
-      const accessToken = await getMalAccessToken(tokens);
-      await deleteMyAnimeListEntry({
-        animeId: id,
-        accessToken,
-        clientId: process.env.MAL_CLIENT_ID,
-        requestJson: fetchJson,
-      });
-      return sendJson(response, 200, { ok: true });
-    } catch (error) {
-      return sendJson(response, error.status || 502, { error: error.message });
-    }
+    const result = await handleMalDelete(body, {
+      readTokens,
+      getAccessToken: getMalAccessToken,
+      clientId: process.env.MAL_CLIENT_ID,
+      requestJson: fetchJson,
+    });
+    return sendJson(response, result.status, result.body);
   }
 
   if (method === "GET" && url.pathname === "/api/anilist/list") {
