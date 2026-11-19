@@ -294,7 +294,7 @@
       if (event.origin !== "https://aniboom.one" &&
           event.origin !== location.origin) return;
       if (event.data?.type !== "MIDAHOSHI_REQUEST_PARENT_METADATA") return;
-      const frame = Array.from(document.querySelectorAll("iframe"))
+      const frame = queryAllDeep("iframe")
         .find((candidate) => candidate.contentWindow === event.source);
       if (frame) sendParentMetadataToFrame(frame);
     });
