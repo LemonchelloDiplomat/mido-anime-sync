@@ -8,6 +8,7 @@ import type {
   AnimeRelation,
   AnimeSnapshot,
   SyncOperation,
+  SyncDeletionIntent,
   SyncSession,
 } from "../src/core/types.js";
 
@@ -280,7 +281,7 @@ describe("BrowserAnimeRepository merge", () => {
     expect(snapshot.sourceEntries).toHaveLength(2);
   });
 
-  it("keeps the newer entry when both records use the same service", async () => {
+  it("rejects merging different entries from the same service instead of losing one", async () => {
     const repo = await createRepository();
 
     const target = makeAnime("target");
@@ -309,25 +310,14 @@ describe("BrowserAnimeRepository merge", () => {
       updatedAt: "2026-11-15T12:00:00.000Z",
     });
 
-    await repo.mergeAnimeRecords("source", "target");
+    await expect(repo.mergeAnimeRecords("source", "target")).rejects.toThrow(
+      "both records contain different myanimelist source entries",
+    );
 
-    const sources = await repo.getSourceEntries("target");
-
-    expect(sources).toHaveLength(1);
-    expect(sources[0]).toMatchObject({
-      animeId: "target",
-      source: "myanimelist",
-      progress: 9,
-      score: 95,
-      favorite: true,
-      updatedAt: "2026-11-15T12:00:00.000Z",
-    });
-
-    expect(await repo.getEntry("target")).toMatchObject({
-      progress: 9,
-      score: 95,
-      favorite: true,
-    });
+    expect(await repo.getAnime("source")).toBeDefined();
+    expect(await repo.getAnime("target")).toBeDefined();
+    expect(await repo.getSourceEntries("source")).toHaveLength(1);
+    expect(await repo.getSourceEntries("target")).toHaveLength(1);
   });
 
   it("does not merge records when external IDs conflict", async () => {
@@ -1576,3 +1566,232 @@ describe("BrowserAnimeRepository sync operation journal", () => {
     expect(await upgraded.getUnfinishedSyncOperations()).toEqual([]);
   });
 });
+
+
+describe("BrowserAnimeRepository identity reconciliation", () => {
+  it("stores a cross-provider import on the existing canonical anime and keeps both source entries", async () => {
+    const repo = await createRepository();
+    const existing = makeAnime("mal:100");
+    existing.titles.english = "Example Anime";
+    existing.externalIds = { myanimelist: "100" };
+    await repo.saveAnime(existing);
+    await repo.saveSourceEntry({
+      ...makeEntry("mal:100", 10, "2026-11-18T10:00:00.000Z"),
+      source: "myanimelist",
+      score: 80,
+      sourceMetadata: { comments: "MAL note" },
+    });
+
+    const imported = makeAnime("anilist:200");
+    imported.titles.english = "Example Anime";
+    imported.externalIds = { myanimelist: "100", anilist: "200" };
+    await repo.saveAnimeWithEntry(imported, {
+      ...makeEntry("anilist:200", 8, "2026-11-18T11:00:00.000Z"),
+      source: "anilist",
+      score: 90,
+      favorite: true,
+      sourceMetadata: { repeat: 1 },
+    });
+
+    const snapshot = await repo.snapshot();
+    expect(snapshot.anime).toHaveLength(1);
+    expect(snapshot.anime[0]).toMatchObject({
+      id: "mal:100",
+      externalIds: { myanimelist: "100", anilist: "200" },
+    });
+    expect(snapshot.sourceEntries).toHaveLength(2);
+    expect(snapshot.sourceEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ animeId: "mal:100", source: "myanimelist", progress: 10, score: 80, sourceMetadata: { comments: "MAL note" } }),
+      expect.objectContaining({ animeId: "mal:100", source: "anilist", progress: 8, score: 90, favorite: true, sourceMetadata: { repeat: 1 } }),
+    ]));
+    expect(snapshot.entries[0]).toMatchObject({ animeId: "mal:100", progress: 10, favorite: true });
+  });
+
+  it("keeps one canonical anime when MAL is imported after AniList", async () => {
+    const repo = await createRepository();
+    const anilist = makeAnime("anilist:200");
+    anilist.externalIds = { myanimelist: "100", anilist: "200" };
+    await repo.saveAnimeWithEntry(anilist, {
+      ...makeEntry("anilist:200", 8, "2026-11-18T11:00:00.000Z"),
+      source: "anilist",
+      score: 90,
+      favorite: true,
+      sourceMetadata: { repeat: 1 },
+    });
+
+    const mal = makeAnime("mal:100");
+    mal.externalIds = { myanimelist: "100" };
+    await repo.saveAnimeWithEntry(mal, {
+      ...makeEntry("mal:100", 10, "2026-11-18T10:00:00.000Z"),
+      source: "myanimelist",
+      score: 80,
+      sourceMetadata: { comments: "MAL note" },
+    });
+
+    const snapshot = await repo.snapshot();
+    expect(snapshot.anime).toHaveLength(1);
+    expect(snapshot.anime[0]).toMatchObject({
+      id: "anilist:200",
+      externalIds: { myanimelist: "100", anilist: "200" },
+    });
+    expect(snapshot.sourceEntries).toHaveLength(2);
+    expect(snapshot.sourceEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ animeId: "anilist:200", source: "anilist", score: 90, sourceMetadata: { repeat: 1 } }),
+      expect.objectContaining({ animeId: "anilist:200", source: "myanimelist", score: 80, sourceMetadata: { comments: "MAL note" } }),
+    ]));
+  });
+
+  it("reconciles whitespace-normalized external IDs and stores canonical trimmed IDs", async () => {
+    const repo = await createRepository();
+    const mal = makeAnime("mal:100");
+    mal.externalIds = { myanimelist: " 100 " };
+    const anilist = makeAnime("anilist:200");
+    anilist.externalIds = { myanimelist: "100", anilist: "200" };
+    await repo.saveAnime(mal);
+    await repo.saveAnime(anilist);
+    await repo.saveSourceEntry({
+      ...makeEntry("mal:100", 4, "2026-11-18T10:00:00.000Z"),
+      source: "myanimelist",
+    });
+    await repo.saveSourceEntry({
+      ...makeEntry("anilist:200", 5, "2026-11-18T11:00:00.000Z"),
+      source: "anilist",
+    });
+
+    const result = await repo.reconcileExactIdentityDuplicates();
+    const snapshot = await repo.snapshot();
+
+    expect(result).toEqual({ mergedPairs: 1, skippedPairs: 0 });
+    expect(snapshot.anime).toHaveLength(1);
+    expect(snapshot.anime[0]?.externalIds).toEqual({
+      myanimelist: "100",
+      anilist: "200",
+    });
+    expect(snapshot.sourceEntries).toHaveLength(2);
+  });
+
+  it("repairs an existing exact-ID duplicate pair without dropping provider baselines", async () => {
+    const repo = await createRepository();
+    const mal = makeAnime("mal:100");
+    mal.externalIds = { myanimelist: "100" };
+    const anilist = makeAnime("anilist:200");
+    anilist.externalIds = { myanimelist: "100", anilist: "200" };
+    await repo.saveAnime(mal);
+    await repo.saveAnime(anilist);
+    await repo.saveSourceEntry({
+      ...makeEntry("mal:100", 10, "2026-11-18T10:00:00.000Z"),
+      source: "myanimelist",
+      sourceMetadata: { comments: "preserve me" },
+    });
+    await repo.saveSourceEntry({
+      ...makeEntry("anilist:200", 8, "2026-11-18T11:00:00.000Z"),
+      source: "anilist",
+      sourceMetadata: { repeat: 2 },
+    });
+
+    const result = await repo.reconcileExactIdentityDuplicates();
+    const snapshot = await repo.snapshot();
+
+    expect(result).toEqual({ mergedPairs: 1, skippedPairs: 0 });
+    expect(snapshot.anime).toHaveLength(1);
+    expect(snapshot.anime[0]?.externalIds).toEqual({ myanimelist: "100", anilist: "200" });
+    expect(snapshot.sourceEntries).toHaveLength(2);
+    expect(snapshot.sourceEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "myanimelist", sourceMetadata: { comments: "preserve me" } }),
+      expect.objectContaining({ source: "anilist", sourceMetadata: { repeat: 2 } }),
+    ]));
+  });
+
+  it("remaps sync journal and pending deletion references when anime identities are merged", async () => {
+    const repo = await createRepository();
+    const mal = makeAnime("mal:100");
+    mal.externalIds = { myanimelist: "100" };
+    const anilist = makeAnime("anilist:200");
+    anilist.externalIds = { myanimelist: "100", anilist: "200" };
+    const malEntry: AnimeListEntry = {
+      ...makeEntry("mal:100", 6, "2026-11-18T10:00:00.000Z"),
+      source: "myanimelist",
+    };
+    const aniEntry: AnimeListEntry = {
+      ...makeEntry("anilist:200", 8, "2026-11-18T11:00:00.000Z"),
+      source: "anilist",
+    };
+    const deletionIntent: SyncDeletionIntent = {
+      id: "delete-mal-100",
+      provider: "mal",
+      animeId: "mal:100",
+      externalId: "100",
+      anime: mal,
+      entry: malEntry,
+      createdAt: "2026-11-18T12:00:00.000Z",
+    };
+
+    await repo.saveAnime(mal);
+    await repo.saveAnime(anilist);
+    await repo.saveSourceEntry(malEntry);
+    await repo.saveSourceEntry(aniEntry);
+
+    // Seed a pending intent directly: saving a source entry intentionally
+    // cancels a matching pending remote deletion.
+    const internal = repo as unknown as {
+      db: { put: (store: string, value: SyncDeletionIntent) => Promise<unknown> };
+    };
+    await internal.db.put("deletionIntents", deletionIntent);
+
+    const operation: SyncOperation = {
+      id: "operation-1",
+      sessionId: "session-1",
+      provider: "mal",
+      direction: "remote",
+      kind: "update",
+      animeId: "mal:100",
+      externalId: "100",
+      entry: malEntry,
+      anime: mal,
+      status: "pending",
+      attempts: 0,
+      createdAt: "2026-11-18T12:00:00.000Z",
+      updatedAt: "2026-11-18T12:00:00.000Z",
+    };
+    await repo.saveSyncOperations([operation]);
+
+    await repo.mergeAnimeRecords("mal:100", "anilist:200");
+
+    const operations = await repo.getSyncOperations();
+    const deletionIntents = await repo.getDeletionIntents();
+    const snapshot = await repo.snapshot();
+
+    expect(operations[0]).toMatchObject({
+      animeId: "anilist:200",
+      entry: { animeId: "anilist:200" },
+      anime: { id: "anilist:200" },
+    });
+    expect(deletionIntents[0]).toMatchObject({
+      animeId: "anilist:200",
+      externalId: "100",
+      entry: { animeId: "anilist:200" },
+      anime: { id: "anilist:200" },
+    });
+    expect(snapshot.anime).toHaveLength(1);
+    expect(snapshot.sourceEntries).toHaveLength(2);
+  });
+
+
+  it("skips duplicate groups that contain multiple records for the same provider", async () => {
+    const repo = await createRepository();
+    const first = makeAnime("first");
+    first.externalIds = { myanimelist: "100" };
+    const second = makeAnime("second");
+    second.externalIds = { myanimelist: "100", anilist: "200" };
+    await repo.saveAnime(first);
+    await repo.saveAnime(second);
+    await repo.saveSourceEntry(makeEntry("first", 5, "2026-11-18T10:00:00.000Z"));
+    await repo.saveSourceEntry(makeEntry("second", 7, "2026-11-18T11:00:00.000Z"));
+
+    const result = await repo.reconcileExactIdentityDuplicates();
+
+    expect(result).toEqual({ mergedPairs: 0, skippedPairs: 1 });
+    expect((await repo.snapshot()).anime).toHaveLength(2);
+  });
+});
+

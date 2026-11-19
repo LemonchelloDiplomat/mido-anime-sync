@@ -1,5 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { detectMaxProgressStatusConflicts } from "../core/conflicts.js";
+import { findExactIdentityDuplicatePairs } from "../core/identity-reconciliation.js";
 
 import type {
   AnimeIdentity,
@@ -150,14 +151,22 @@ function mergeAnimeForReconciliation(
   target: AnimeIdentity,
   source: AnimeIdentity,
 ): AnimeIdentity {
-  for (const [service, sourceId] of Object.entries(source.externalIds)) {
+  for (const [service, rawSourceId] of Object.entries(source.externalIds)) {
+    const sourceId = rawSourceId?.trim();
     const targetId =
-      target.externalIds[service as keyof typeof target.externalIds];
+      target.externalIds[service as keyof typeof target.externalIds]?.trim();
 
     if (targetId && sourceId && targetId !== sourceId) {
       throw new Error(
         `External ID conflict for ${service}: ${targetId} vs ${sourceId}`,
       );
+    }
+  }
+
+  const externalIds = { ...source.externalIds, ...target.externalIds };
+  for (const [service, value] of Object.entries(externalIds)) {
+    if (typeof value === "string") {
+      externalIds[service as keyof typeof externalIds] = value.trim();
     }
   }
 
@@ -187,10 +196,7 @@ function mergeAnimeForReconciliation(
       ],
     },
 
-    externalIds: {
-      ...source.externalIds,
-      ...target.externalIds,
-    },
+    externalIds,
 
     ...(year !== undefined ? { year } : {}),
     ...(format !== undefined ? { format } : {}),
@@ -601,22 +607,48 @@ export class BrowserAnimeRepository {
       const sourceStore = transaction.objectStore("sourceEntries");
       const resolutionStore = transaction.objectStore("conflictResolutions");
       const deletionStore = transaction.objectStore("deletionIntents");
+  
+      const currentAnime = await animeStore.getAll();
+      const exactMatches = currentAnime.filter((candidate) =>
+        candidate.id === anime.id ||
+        Object.entries(anime.externalIds).some(([service, externalId]) => {
+          if (!externalId?.trim()) return false;
+          const candidateId = candidate.externalIds[service as keyof AnimeIdentity["externalIds"]];
+          return Boolean(candidateId?.trim() && candidateId.trim() === externalId.trim());
+        }),
+      );
+
+      if (exactMatches.length > 1) {
+        throw new Error(
+          `Найдено несколько локальных записей с тем же внешним ID для ${anime.titles.english ?? anime.titles.romaji ?? anime.id}. Сначала объедини точные дубли в настройках библиотеки.`,
+        );
+      }
+
+      const matchedAnime = exactMatches[0];
+      const canonicalAnime = matchedAnime
+        ? mergeAnimeForReconciliation(matchedAnime, anime)
+        : structuredClone(anime);
+      const canonicalId = canonicalAnime.id;
+      const canonicalEntry = {
+        ...structuredClone(entry),
+        animeId: canonicalId,
+      };
 
       const pendingDeletions = await deletionStore.getAll();
       await Promise.all(pendingDeletions
         .filter((intent) => {
           const service = intent.provider === "mal" ? "myanimelist" : "anilist";
-          return anime.externalIds[service] === intent.externalId;
+          return canonicalAnime.externalIds[service] === intent.externalId;
         })
         .map((intent) => deletionStore.delete(intent.id)));
 
-      await animeStore.put(structuredClone(anime));
-      await sourceStore.put(structuredClone(entry));
+      await animeStore.put(canonicalAnime);
+      await sourceStore.put(canonicalEntry);
 
       const sourceEntries = await sourceStore.getAll(
-        IDBKeyRange.bound([anime.id, ""], [anime.id, "\uffff"]),
+        IDBKeyRange.bound([canonicalId, ""], [canonicalId, "\uffff"]),
       );
-      const resolution = await resolutionStore.get(anime.id);
+      const resolution = await resolutionStore.get(canonicalId);
       const validResolutions = mergeConflictResolutions(
         sourceEntries,
         resolution ? [resolution] : [],
@@ -625,7 +657,7 @@ export class BrowserAnimeRepository {
 
       if (mergedEntry) await entriesStore.put(mergedEntry);
       if (resolution && validResolutions.length === 0) {
-        await resolutionStore.delete(anime.id);
+        await resolutionStore.delete(canonicalId);
       }
 
       await transactionDone;
@@ -972,6 +1004,70 @@ export class BrowserAnimeRepository {
   }
 
   /**
+   * Repairs only unambiguous pairs with an identical provider external ID.
+   * Pairs with multiple competing matches or duplicate source providers are
+   * skipped so no provider baseline can be silently overwritten.
+   */
+  async reconcileExactIdentityDuplicates(): Promise<{
+    mergedPairs: number;
+    skippedPairs: number;
+  }> {
+    const [anime, sourceEntries] = await Promise.all([
+      this.db.getAll("anime"),
+      this.db.getAll("sourceEntries"),
+    ]);
+    const pairs = findExactIdentityDuplicatePairs(anime);
+    const pairCounts = new Map<string, number>();
+
+    for (const pair of pairs) {
+      pairCounts.set(pair.first.id, (pairCounts.get(pair.first.id) ?? 0) + 1);
+      pairCounts.set(pair.second.id, (pairCounts.get(pair.second.id) ?? 0) + 1);
+    }
+
+    let mergedPairs = 0;
+    let skippedPairs = 0;
+
+    for (const pair of pairs) {
+      if (pairCounts.get(pair.first.id) !== 1 || pairCounts.get(pair.second.id) !== 1) {
+        skippedPairs += 1;
+        continue;
+      }
+
+      const firstEntries = sourceEntries.filter((entry) => entry.animeId === pair.first.id);
+      const secondEntries = sourceEntries.filter((entry) => entry.animeId === pair.second.id);
+      const firstSources = new Set(firstEntries.map((entry) => entry.source));
+      const hasProviderCollision = secondEntries.some((entry) => firstSources.has(entry.source));
+
+      if (hasProviderCollision) {
+        skippedPairs += 1;
+        continue;
+      }
+
+      const firstScore = Object.values(pair.first.externalIds).filter(Boolean).length;
+      const secondScore = Object.values(pair.second.externalIds).filter(Boolean).length;
+      const target = firstScore > secondScore
+        ? pair.first
+        : secondScore > firstScore
+          ? pair.second
+          : pair.first.id.localeCompare(pair.second.id) <= 0
+            ? pair.first
+            : pair.second;
+      const source = target.id === pair.first.id ? pair.second : pair.first;
+
+      try {
+        // Preflight metadata and ID compatibility before opening the write transaction.
+        mergeAnimeForReconciliation(target, source);
+        await this.mergeAnimeRecords(source.id, target.id);
+        mergedPairs += 1;
+      } catch {
+        skippedPairs += 1;
+      }
+    }
+
+    return { mergedPairs, skippedPairs };
+  }
+
+  /**
    * Объединяет две записи аниме под ID целевой записи.
    * Исходная запись удаляется, а её источники и связи переносятся
    * в целевую запись.
@@ -988,6 +1084,8 @@ export class BrowserAnimeRepository {
         "sourceEntries",
         "conflictResolutions",
         "animeRelations",
+        "syncOperations",
+        "deletionIntents",
       ],
       "readwrite",
     );
@@ -1000,20 +1098,28 @@ export class BrowserAnimeRepository {
     const sourceStore = transaction.objectStore("sourceEntries");
     const resolutionStore = transaction.objectStore("conflictResolutions");
     const relationStore = transaction.objectStore("animeRelations");
+    const operationsStore = transaction.objectStore("syncOperations");
+    const deletionStore = transaction.objectStore("deletionIntents");
 
     try {
       const [
         sourceAnime,
         targetAnime,
+        allEntries,
         allSourceEntries,
         resolutions,
         allRelations,
+        allOperations,
+        allDeletionIntents,
       ] = await Promise.all([
         animeStore.get(sourceId),
         animeStore.get(targetId),
+        entriesStore.getAll(),
         sourceStore.getAll(),
         resolutionStore.getAll(),
         relationStore.getAll(),
+        operationsStore.getAll(),
+        deletionStore.getAll(),
       ]);
 
       if (!sourceAnime) {
@@ -1026,9 +1132,40 @@ export class BrowserAnimeRepository {
 
       const mergedAnime = mergeAnimeForReconciliation(targetAnime, sourceAnime);
 
-      const affectedEntries = allSourceEntries.filter(
-        (entry) => entry.animeId === sourceId || entry.animeId === targetId,
-      );
+      // Older snapshots may contain aggregate entries without sourceEntries.
+      // Convert only those legacy records that have no provider baselines;
+      // otherwise the aggregate is derived data and must not overwrite them.
+      const sourceEntryAnimeIds = new Set(allSourceEntries.map((entry) => entry.animeId));
+      const legacyEntries = allEntries
+        .filter((entry) =>
+          (entry.animeId === sourceId || entry.animeId === targetId) &&
+          !sourceEntryAnimeIds.has(entry.animeId),
+        )
+        .map((entry) => structuredClone(entry));
+
+      const affectedEntries = [
+        ...allSourceEntries.filter(
+          (entry) => entry.animeId === sourceId || entry.animeId === targetId,
+        ),
+        ...legacyEntries,
+      ];
+
+      const entriesByProvider = new Map<string, AnimeSourceEntry[]>();
+      for (const entry of affectedEntries) {
+        const group = entriesByProvider.get(entry.source) ?? [];
+        group.push(entry);
+        entriesByProvider.set(entry.source, group);
+      }
+      for (const [provider, records] of entriesByProvider) {
+        if (
+          records.length > 1 &&
+          records.some((entry) => JSON.stringify(entry) !== JSON.stringify(records[0]))
+        ) {
+          throw new Error(
+            `Cannot merge ${sourceId} into ${targetId}: both records contain different ${provider} source entries.`,
+          );
+        }
+      }
 
       const remappedEntries = affectedEntries.map((entry) => ({
         ...structuredClone(entry),
@@ -1036,11 +1173,9 @@ export class BrowserAnimeRepository {
       }));
 
       const mergedSourceEntries = mergeSourceEntries([], remappedEntries);
-
       const unaffectedEntries = allSourceEntries.filter(
         (entry) => entry.animeId !== sourceId && entry.animeId !== targetId,
       );
-
       const allUpdatedSourceEntries = [
         ...unaffectedEntries,
         ...mergedSourceEntries,
@@ -1065,7 +1200,6 @@ export class BrowserAnimeRepository {
         mergedSourceEntries,
         affectedResolutions,
       );
-
       const updatedResolutions = [
         ...unaffectedResolutions,
         ...mergedResolutions,
@@ -1075,7 +1209,6 @@ export class BrowserAnimeRepository {
         allUpdatedSourceEntries,
         updatedResolutions,
       );
-
       const mergedListEntry = updatedEntries.find(
         (entry) => entry.animeId === targetId,
       );
@@ -1083,44 +1216,47 @@ export class BrowserAnimeRepository {
       const remappedRelations = remapAnimeRelations(allRelations, {
         [sourceId]: targetId,
       });
-
-      assertRelationsReferenceExistingAnime(
-        remappedRelations,
-        new Set([
-          ...allUpdatedSourceEntries.map((entry) => entry.animeId),
-          ...allUpdatedSourceEntries
-            .filter((entry) => entry.animeId !== sourceId)
-            .map((entry) => entry.animeId),
-          ...allRelations
-            .flatMap((relation) => [
-              relation.sourceAnimeId,
-              relation.targetAnimeId,
-            ])
-            .filter((id) => id !== sourceId),
-          targetId,
-          ...allRelations
-            .flatMap((relation) => [
-              relation.sourceAnimeId,
-              relation.targetAnimeId,
-            ])
-            .filter((id) => id !== sourceId && id !== targetId),
-        ]),
+      const remainingAnimeIds = new Set(
+        (await animeStore.getAll())
+          .filter((anime) => anime.id !== sourceId)
+          .map((anime) => anime.id),
       );
+      assertRelationsReferenceExistingAnime(remappedRelations, remainingAnimeIds);
+
+      // Keep the sync journal and pending remote-deletion intents addressable
+      // after the canonical anime ID changes. Historical payloads are retained.
+      const remappedOperations = allOperations
+        .filter((operation) => operation.animeId === sourceId)
+        .map((operation) => ({
+          ...structuredClone(operation),
+          animeId: targetId,
+          entry: { ...structuredClone(operation.entry), animeId: targetId },
+          ...(operation.anime
+            ? { anime: { ...structuredClone(operation.anime), id: targetId } }
+            : {}),
+        }));
+
+      const remappedDeletionIntents = allDeletionIntents
+        .filter((intent) => intent.animeId === sourceId)
+        .map((intent) => ({
+          ...structuredClone(intent),
+          animeId: targetId,
+          entry: { ...structuredClone(intent.entry), animeId: targetId },
+          anime: { ...structuredClone(intent.anime), id: targetId },
+        }));
 
       await Promise.all([
         animeStore.delete(sourceId),
         animeStore.put(mergedAnime),
-
         entriesStore.delete(sourceId),
         entriesStore.delete(targetId),
-
         resolutionStore.delete(sourceId),
         resolutionStore.delete(targetId),
-
         ...affectedEntries.map((entry) =>
           sourceStore.delete([entry.animeId, entry.source]),
         ),
-
+        ...remappedOperations.map((operation) => operationsStore.put(operation)),
+        ...remappedDeletionIntents.map((intent) => deletionStore.put(intent)),
         relationStore.clear(),
       ]);
 
@@ -1128,15 +1264,12 @@ export class BrowserAnimeRepository {
         ...mergedSourceEntries.map((entry) =>
           sourceStore.put(structuredClone(entry)),
         ),
-
         ...(mergedListEntry
           ? [entriesStore.put(structuredClone(mergedListEntry))]
           : []),
-
         ...mergedResolutions.map((resolution) =>
           resolutionStore.put(structuredClone(resolution)),
         ),
-
         ...remappedRelations.map((relation) =>
           relationStore.put(structuredClone(relation)),
         ),
