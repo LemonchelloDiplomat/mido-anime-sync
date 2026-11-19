@@ -143,10 +143,10 @@ function clearToolbarState() {
 }
 
 // Restore the icon from persisted state whenever the MV3 service worker starts.
-void (async () => {
+void enqueueToolbarMutation(async () => {
   const state = await getToolbarState();
   await renderToolbarState(state);
-})();
+});
 
 function isSupportedWatchUrl(rawUrl) {
   try {
