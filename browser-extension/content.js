@@ -37,6 +37,22 @@
     return null;
   }
 
+  function findMainVideo() {
+    const candidates = Array.from(document.querySelectorAll("video")).filter((video) => {
+      const rect = video.getBoundingClientRect();
+      const style = getComputedStyle(video);
+      return rect.width >= 200 && rect.height >= 100 &&
+        style.display !== "none" && style.visibility !== "hidden" &&
+        Number.isFinite(video.duration) && video.duration > 0;
+    });
+    candidates.sort((first, second) => {
+      const a = first.getBoundingClientRect();
+      const b = second.getBoundingClientRect();
+      return b.width * b.height - a.width * a.height;
+    });
+    return candidates[0] || null;
+  }
+
   function detect(videoOverride) {
     const titleMeta = document.querySelector("meta[property='og:title']");
     const titleCandidates = [
@@ -63,7 +79,7 @@
       if (episode) break;
     }
 
-    const video = videoOverride || document.querySelector("video");
+    const video = videoOverride || findMainVideo();
     const currentTimeSeconds = video && Number.isFinite(video.currentTime) ? Math.floor(video.currentTime) : null;
     const durationSeconds = video && Number.isFinite(video.duration) && video.duration > 0
       ? Math.floor(video.duration)
@@ -111,7 +127,8 @@
   }
 
   function scanVideos() {
-    document.querySelectorAll("video").forEach(attachVideo);
+    const mainVideo = findMainVideo();
+    if (mainVideo) attachVideo(mainVideo);
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
