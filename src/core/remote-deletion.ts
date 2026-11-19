@@ -60,7 +60,7 @@ export async function executeRemoteDeletions(
     deleteAccountEntry: (
       provider: "mal" | "anilist",
       input: { externalId: string; entryId?: number },
-    ) => Promise<void>;
+    ) => Promise<{ ok: boolean }>;
     deleteDeletionIntent: (id: string) => Promise<void>;
     updateSyncOperation: (
       id: string,
