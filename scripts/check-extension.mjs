@@ -24,6 +24,12 @@ for (const file of ["popup.html", "options.html"]) {
   await read("browser-extension/" + file);
 }
 
+const bridgeScript = manifest.content_scripts.find((script) => script.js.includes("bridge.js"));
+assert.ok(bridgeScript, "Local app acknowledgement bridge must be injected");
+for (const port of [":5173", ":3001", ":4173"]) {
+  assert.ok(bridgeScript.matches.some((pattern) => pattern.includes(port)), `Missing local app bridge port: ${port}`);
+}
+
 const matches = manifest.content_scripts.flatMap((script) => script.matches);
 for (const host of ["anime-go.org", "animego.online", "yummyani.me", "yummy-ani.me", "anixart-app.com", "anixartapp.com"]) {
   assert.ok(matches.some((pattern) => pattern.includes(host)), `Missing host match: ${host}`);
