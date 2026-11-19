@@ -41,6 +41,33 @@
   const sentVideoKeys = new WeakMap();
   const videoWatchHandlers = new WeakMap();
 
+  let lastPublishedContextKey = "";
+
+  function publishCurrentWatchContext() {
+    if (isAnimeGoPlayerFrame) return;
+    if (service !== "animego" && service !== "yummyanime") return;
+
+    const current = detect();
+    const title = typeof current.title === "string" ? current.title.trim() : "";
+    if (title.length < 2) return;
+    const episode = Number.isSafeInteger(current.episode) && current.episode > 0
+      ? current.episode
+      : null;
+    const contextKey = [normalizeWatchTitle(title), episode ?? ""].join("|");
+    if (contextKey === lastPublishedContextKey) return;
+    lastPublishedContextKey = contextKey;
+
+    chrome.runtime.sendMessage({
+      type: "MIDAHOSHI_CURRENT_WATCH",
+      title,
+      episode,
+    });
+  }
+
+  function normalizeWatchTitle(value) {
+    return String(value || "").trim().toLocaleLowerCase().replace(/\\s+/g, " ");
+  }
+
   function textFrom(selector) {
     const element = document.querySelector(selector);
     if (!element) return "";
@@ -378,6 +405,7 @@
   }
 
   function scanVideos() {
+    publishCurrentWatchContext();
     if (isCvhTrackingFrame) {
       maybeSendCvhSample();
       return;
