@@ -156,7 +156,7 @@
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === "MIDAHOSHI_DETECT_WATCH_EVENT") {
+    if (message?.type === "MIDAHOSHI_DETECT_WATCH_EVENT" && !isAniBoomFrame) {
       sendResponse(detect());
     }
     return true;
