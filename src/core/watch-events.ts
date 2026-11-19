@@ -73,31 +73,69 @@ export function validateWatchEvent(value: unknown): WatchEvent {
   };
 }
 
+function normalizeTitle(value: string): string {
+  return value
+    .toLocaleLowerCase("ru-RU")
+    .replace(/[ё]/g, "е")
+    .replace(/[^\\p{L}\\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\\s+/g, " ");
+}
+
+/** Exact normalized aliases only; ambiguous matches are left to the user. */
+export function findExactAnimeTitleMatches(
+  anime: AnimeIdentity[],
+  rawTitle: string,
+): AnimeIdentity[] {
+  const query = normalizeTitle(rawTitle);
+  if (!query) return [];
+
+  return anime.filter((identity) => [
+    identity.titles.english,
+    identity.titles.romaji,
+    identity.titles.native,
+    ...identity.titles.synonyms,
+  ].some((title) => typeof title === "string" && normalizeTitle(title) === query));
+}
+
 export function createWatchSourceEntry(
   anime: AnimeIdentity,
   event: WatchEvent,
   existing?: AnimeSourceEntry,
 ): AnimeSourceEntry {
   const source: ServiceId = event.service;
-  const progress = Math.max(existing?.progress ?? 0, event.episode);
-  const completed = typeof anime.episodes === "number" && anime.episodes > 0 &&
-    progress >= anime.episodes;
+  const previousProgress = existing?.progress ?? 0;
+  const progress = Math.max(previousProgress, event.episode);
+  const completed = existing?.status === "COMPLETED" ||
+    (typeof anime.episodes === "number" && anime.episodes > 0 && progress >= anime.episodes);
+  const previousUpdatedAt = existing?.updatedAt ? Date.parse(existing.updatedAt) : Number.NaN;
+  const eventUpdatedAt = Date.parse(event.observedAt);
+  const updatedAt = Number.isFinite(previousUpdatedAt) && previousUpdatedAt > eventUpdatedAt
+    ? existing!.updatedAt
+    : event.observedAt;
+  const previousWatchedAt = Date.parse(String(existing?.sourceMetadata?.lastWatchedAt ?? ""));
+  const isNewestEvent = !Number.isFinite(previousWatchedAt) || eventUpdatedAt >= previousWatchedAt;
+  const previousEpisode = Number(existing?.sourceMetadata?.lastEpisode);
 
   return {
     animeId: anime.id,
     source,
-    status: completed ? "COMPLETED" : "WATCHING",
+    status: completed ? "COMPLETED" : progress > previousProgress ? "WATCHING" : existing?.status ?? "WATCHING",
     progress,
     score: existing?.score ?? null,
     favorite: existing?.favorite ?? false,
-    updatedAt: event.observedAt,
+    updatedAt,
     sourceMetadata: {
       ...(existing?.sourceMetadata ?? {}),
-      lastWatchedUrl: event.sourceUrl,
-      lastWatchedAt: event.observedAt,
-      lastEpisode: event.episode,
-      ...(event.currentTimeSeconds !== undefined ? { lastPositionSeconds: event.currentTimeSeconds } : {}),
-      ...(event.durationSeconds !== undefined ? { lastDurationSeconds: event.durationSeconds } : {}),
+      lastEpisode: Number.isSafeInteger(previousEpisode)
+        ? Math.max(previousEpisode, event.episode)
+        : event.episode,
+      ...(isNewestEvent ? {
+        lastWatchedUrl: event.sourceUrl,
+        lastWatchedAt: event.observedAt,
+        ...(event.currentTimeSeconds !== undefined ? { lastPositionSeconds: event.currentTimeSeconds } : {}),
+        ...(event.durationSeconds !== undefined ? { lastDurationSeconds: event.durationSeconds } : {}),
+      } : {}),
     },
   };
 }
