@@ -724,7 +724,7 @@ function App() {
   }
 
   async function handleSyncToAccount(provider: "mal" | "anilist") {
-    if (!repository || accountSyncing || restoreInProgressRef.current) return;
+    if (!repository || accountSyncing || syncInProgressRef.current || restoreInProgressRef.current) return;
 
     // Web Locks prevents another tab from running an account sync while this
     // tab reconciles old sessions. Without it, sync remains available but stale
@@ -757,7 +757,7 @@ function App() {
     provider: "mal" | "anilist",
     recoverInterruptedSessions: boolean,
   ) {
-    if (!repository || accountSyncing || restoreInProgressRef.current) return;
+    if (!repository || accountSyncing || syncInProgressRef.current || restoreInProgressRef.current) return;
     const activeRepository = repository;
     syncInProgressRef.current = true;
     const sessionId = `sync-${Date.now()}-${Math.random().toString(36).slice(2)}`;
