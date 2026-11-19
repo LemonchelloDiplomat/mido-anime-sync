@@ -25,6 +25,7 @@ import { parseMyAnimeListApiList } from "./services/myanimelist-account.js";
 import { parseAniListAccountList, type AniListScoreFormat } from "./services/anilist-account.js";
 import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
 import { detectRemoteDeletions } from "./core/safe-deletions.js";
+import { executeRemoteDeletions, resolvePendingRemoteDeletionIntents } from "./core/remote-deletion.js";
 
 import {
   createImportPreview,
@@ -840,34 +841,12 @@ function App() {
       const deletionDetection = detectRemoteDeletions(localItems, remoteSnapshot, provider);
       if (deletionDetection.blockedReason) throw new Error(deletionDetection.blockedReason);
 
-      const remoteDeletionCandidates: Array<{
-        intent: SyncDeletionIntent;
-        entry: AnimeListEntry;
-        entryId?: number;
-      }> = [];
-      for (const intent of pendingDeletionIntents) {
-        const remoteAnime = remoteSnapshot.anime.find(
-          (anime) => anime.externalIds[providerSource] === intent.externalId,
-        );
-        const remoteEntry = remoteAnime
-          ? remoteSnapshot.entries.find((entry) => entry.animeId === remoteAnime.id)
-          : undefined;
-        if (!remoteAnime || !remoteEntry) {
-          await activeRepository.deleteDeletionIntent(intent.id);
-          continue;
-        }
-        const entryId = provider === "anilist"
-          ? Number(remoteEntry.sourceMetadata?.anilistEntryId)
-          : undefined;
-        if (provider === "anilist" && (!Number.isSafeInteger(entryId) || entryId! <= 0)) {
-          throw new Error("Не удалось определить AniList entry ID для безопасного удаления. Запрос сохранён, ничего не удалено.");
-        }
-        remoteDeletionCandidates.push({
-          intent,
-          entry: { ...remoteEntry, animeId: intent.animeId, source: providerSource },
-          ...(entryId !== undefined ? { entryId } : {}),
-        });
-      }
+      const remoteDeletionCandidates = await resolvePendingRemoteDeletionIntents(
+        pendingDeletionIntents,
+        remoteSnapshot,
+        provider,
+        (id) => activeRepository.deleteDeletionIntent(id),
+      );
 
       async function saveProviderBaseline(
         snapshot: AnimeSnapshot,
@@ -1188,34 +1167,19 @@ function App() {
         remoteSucceeded += 1;
       }
 
-      for (let index = 0; index < remoteDeletionCandidates.length; index += 1) {
-        const candidate = remoteDeletionCandidates[index]!;
-        const operation = remoteDeletionJournalOperations[index]!;
-        await activeRepository.updateSyncOperation(operation.id, {
-          status: "in_progress",
-          attempts: operation.attempts + 1,
-        });
-        try {
-          await deleteAccountEntry(provider, {
-            externalId: candidate.intent.externalId,
-            ...(candidate.entryId !== undefined ? { entryId: candidate.entryId } : {}),
-          });
-          await activeRepository.deleteDeletionIntent(candidate.intent.id);
-          await activeRepository.updateSyncOperation(operation.id, { status: "succeeded" });
-          remoteSucceeded += 1;
-          remoteDeleted += 1;
-        } catch (err) {
-          const message = err instanceof Error ? err.message : "ошибка удаления";
-          await activeRepository.updateSyncOperation(operation.id, {
-            status: "failed",
-            error: message,
-          });
-          failures.push(
-            (candidate.intent.anime.titles.english || candidate.intent.anime.titles.romaji || candidate.intent.animeId) +
-            " (удаление на сервисе: " + message + ")",
-          );
-        }
-      }
+      const deletionResult = await executeRemoteDeletions(
+        provider,
+        remoteDeletionCandidates,
+        remoteDeletionJournalOperations,
+        {
+          deleteAccountEntry,
+          deleteDeletionIntent: (id) => activeRepository.deleteDeletionIntent(id),
+          updateSyncOperation: (id, update) => activeRepository.updateSyncOperation(id, update),
+        },
+      );
+      remoteSucceeded += deletionResult.succeeded;
+      remoteDeleted += deletionResult.deleted;
+      failures.push(...deletionResult.failures);
 
       for (let index = 0; index < localChangesToApply.length; index += 1) {
         const change = localChangesToApply[index]!;
