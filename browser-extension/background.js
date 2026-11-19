@@ -226,21 +226,20 @@ chrome.runtime.onMessage.addListener((message) => {
     const stored = await chrome.storage.local.get({ [QUEUE_KEY]: [] });
     const queue = Array.isArray(stored[QUEUE_KEY]) ? stored[QUEUE_KEY] : [];
     const eventId = String(event.eventId || crypto.randomUUID());
-    if (!queue.some((item) => item.eventId === eventId)) {
-      queue.push({
-        eventId,
-        service: event.service,
-        title: event.title.trim(),
-        episode: event.episode,
-        sourceUrl: event.sourceUrl,
-        observedAt: new Date().toISOString(),
-        currentTimeSeconds: currentTime,
-        durationSeconds: duration,
-      });
-      await chrome.storage.local.set({ [QUEUE_KEY]: queue.slice(-20) });
-    }
+    if (queue.some((item) => item.eventId === eventId)) return;
 
-    const current = await getToolbarState();
+    queue.push({
+      eventId,
+      service: event.service,
+      title: event.title.trim(),
+      episode: event.episode,
+      sourceUrl: event.sourceUrl,
+      observedAt: new Date().toISOString(),
+      currentTimeSeconds: currentTime,
+      durationSeconds: duration,
+    });
+    await chrome.storage.local.set({ [QUEUE_KEY]: queue.slice(-20) });
+
     await saveToolbarState({
       title: event.title.trim(),
       episode: event.episode,
