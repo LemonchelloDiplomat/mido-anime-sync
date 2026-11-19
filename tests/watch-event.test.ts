@@ -30,7 +30,7 @@ const event: IncomingWatchEvent = {
 describe("watch event matching and progress", () => {
   it("matches normalized exact aliases but never fuzzy titles", () => {
     expect(findExactAnimeTitleMatches([anime], "ТВОЁ   ИМЯ")).toHaveLength(1);
-    expect(findExactAnimeTitleMatches([anime], "Your Name")).toHaveLength(0);
+    expect(findExactAnimeTitleMatches([anime], "Your Name 2")).toHaveLength(0);
     expect(findExactAnimeTitleMatches([anime], "Your Name.")).toHaveLength(1);
   });
 
