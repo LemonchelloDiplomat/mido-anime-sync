@@ -1878,3 +1878,31 @@ button:disabled {
   .history-status-label { font-size: 8px; }
   .history-operation-details { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0 13px 13px; }
 }
+
+
+.watch-event-panel {
+  margin: 0 0 24px;
+  padding: 20px;
+  border: 1px solid var(--border, #dfe3e8);
+  border-radius: 14px;
+  background: var(--surface, #fff);
+  display: grid;
+  gap: 12px;
+}
+.watch-event-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.watch-event-heading h2 { margin: 3px 0 4px; }
+.watch-event-heading p { margin: 0; color: var(--muted, #6b7280); }
+.watch-event-title { margin: 0; font-size: 17px; font-weight: 650; }
+.watch-event-select { width: 100%; max-width: 640px; }
+.watch-event-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  color: var(--muted, #6b7280);
+  font-size: 12px;
+}

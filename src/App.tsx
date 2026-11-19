@@ -32,6 +32,7 @@ import { reconcileUnfinishedSyncOperations } from "./core/sync-recovery.js";
 import { reconcileInterruptedSyncSessions } from "./core/sync-session-recovery.js";
 import { findExactIdentityDuplicatePairs } from "./core/identity-reconciliation.js";
 import { getProviderLabel, getProviderServiceId } from "./core/provider-capabilities.js";
+import { createWatchSourceEntry, findExactAnimeTitleMatches, validateWatchEvent, type WatchEvent } from "./core/watch-events.js";
 
 import {
   createImportPreview,
@@ -132,6 +133,10 @@ function App() {
   );
 
   const [library, setLibrary] = useState<LibraryItem[]>([]);
+  const [pendingWatchEvent, setPendingWatchEvent] = useState<WatchEvent | null>(null);
+  const [pendingWatchEventId, setPendingWatchEventId] = useState("");
+  const [watchEventTargetId, setWatchEventTargetId] = useState("");
+  const [watchEventSaving, setWatchEventSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -195,6 +200,36 @@ function App() {
   const [historyError, setHistoryError] = useState("");
   const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | SyncProvider>("all");
   const [historyStatusFilter, setHistoryStatusFilter] = useState<"all" | SyncOperation["status"]>("all");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const rawEvent = params.get("watchEvent");
+    if (!rawEvent) return;
+    try {
+      const parsedEvent = JSON.parse(rawEvent) as Record<string, unknown>;
+      const event = validateWatchEvent(parsedEvent);
+      setPendingWatchEvent(event);
+      setPendingWatchEventId(typeof parsedEvent.eventId === "string" ? parsedEvent.eventId : "");
+      params.delete("watchEvent");
+      const query = params.toString();
+      window.history.replaceState(
+        {},
+        "",
+        window.location.pathname + (query ? "?" + query : "") + window.location.hash,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось прочитать событие просмотра.");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!pendingWatchEvent || watchEventTargetId || library.length === 0) return;
+    const matches = findExactAnimeTitleMatches(
+      library.map((item) => item.anime),
+      pendingWatchEvent.title,
+    );
+    if (matches.length === 1) setWatchEventTargetId(matches[0]!.id);
+  }, [pendingWatchEvent, watchEventTargetId, library]);
 
   useEffect(() => {
     let cancelled = false;
@@ -439,6 +474,42 @@ function App() {
       setCatalogError(err instanceof Error ? err.message : "Не удалось добавить аниме.");
     } finally {
       setAddingCatalogId(null);
+    }
+  }
+
+  function acknowledgePendingWatchEvent() {
+    if (pendingWatchEventId) {
+      window.postMessage({
+        source: "mido-anime-app",
+        type: "ACK_WATCH_EVENT",
+        eventId: pendingWatchEventId,
+      }, window.location.origin);
+    }
+    setPendingWatchEvent(null);
+    setPendingWatchEventId("");
+    setWatchEventTargetId("");
+  }
+
+  async function applyPendingWatchEvent() {
+    if (!repository || !pendingWatchEvent || !watchEventTargetId || watchEventSaving) return;
+    const target = library.find((item) => item.anime.id === watchEventTargetId);
+    if (!target) {
+      setError("Выбранный тайтл больше не найден в библиотеке.");
+      return;
+    }
+    setWatchEventSaving(true);
+    setError("");
+    try {
+      const sourceEntries = await repository.getSourceEntries(target.anime.id);
+      const existing = sourceEntries.find((entry) => entry.source === pendingWatchEvent.service);
+      const nextEntry = createWatchSourceEntry(target.anime, pendingWatchEvent, existing);
+      await repository.saveSourceEntry(nextEntry);
+      await refreshLibrary();
+      acknowledgePendingWatchEvent();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось обновить прогресс просмотра.");
+    } finally {
+      setWatchEventSaving(false);
     }
   }
 
@@ -1932,6 +2003,51 @@ function App() {
         </header>
 
         <div className="content">
+          {pendingWatchEvent && (
+            <section className="watch-event-panel">
+              <div className="watch-event-heading">
+                <div>
+                  <div className="eyebrow">WATCH EVENT RECEIVED</div>
+                  <h2>Новое событие просмотра</h2>
+                  <p>
+                    {pendingWatchEvent.service === "animego" ? "AnimeGO" : pendingWatchEvent.service === "yummyanime" ? "YummyAnime" : "Anixart"}
+                    {" · серия "}{pendingWatchEvent.episode}
+                  </p>
+                </div>
+                <button className="secondary-button" type="button" onClick={acknowledgePendingWatchEvent}>Отменить</button>
+              </div>
+              <p className="watch-event-title">{pendingWatchEvent.title}</p>
+              <label htmlFor="watch-event-anime">Выбери соответствующий тайтл в локальной библиотеке</label>
+              <select
+                id="watch-event-anime"
+                className="filter-select watch-event-select"
+                value={watchEventTargetId}
+                onChange={(event) => setWatchEventTargetId(event.target.value)}
+              >
+                <option value="">Выбрать аниме…</option>
+                {library
+                  .slice()
+                  .sort((a, b) => (a.anime.titles.english || a.anime.titles.romaji || "").localeCompare(b.anime.titles.english || b.anime.titles.romaji || ""))
+                  .map((item) => (
+                    <option key={item.anime.id} value={item.anime.id}>
+                      {item.anime.titles.english || item.anime.titles.romaji || item.anime.id}
+                    </option>
+                  ))}
+              </select>
+              <div className="watch-event-meta">
+                <span>Позиция: {pendingWatchEvent.currentTimeSeconds == null ? "не определена" : Math.floor(pendingWatchEvent.currentTimeSeconds / 60) + " мин."}</span>
+                <span>Источник: {new URL(pendingWatchEvent.sourceUrl).hostname}</span>
+              </div>
+              <button
+                className="add-button"
+                type="button"
+                disabled={!watchEventTargetId || watchEventSaving}
+                onClick={() => void applyPendingWatchEvent()}
+              >
+                {watchEventSaving ? "Сохраняем прогресс…" : "Подтвердить и обновить прогресс"}
+              </button>
+            </section>
+          )}
           {settingsOpen && (
             <section className="integration-settings">
               <div className="section-heading">
