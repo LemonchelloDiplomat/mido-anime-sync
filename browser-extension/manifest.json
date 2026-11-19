@@ -22,7 +22,8 @@
         "*://*.yummy-ani.me/*",
         "*://*.yummyanime.club/*",
         "*://*.yummyanime.info/*",
-        "*://*.anixart-app.com/*"
+        "*://*.anixart-app.com/*",
+        "*://*.anixartapp.com/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle"
