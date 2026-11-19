@@ -1576,3 +1576,93 @@ describe("BrowserAnimeRepository sync operation journal", () => {
     expect(await upgraded.getUnfinishedSyncOperations()).toEqual([]);
   });
 });
+
+
+describe("BrowserAnimeRepository identity reconciliation", () => {
+  it("stores a cross-provider import on the existing canonical anime and keeps both source entries", async () => {
+    const repo = await createRepository();
+    const existing = makeAnime("mal:100");
+    existing.titles.english = "Example Anime";
+    existing.externalIds = { myanimelist: "100" };
+    await repo.saveAnime(existing);
+    await repo.saveSourceEntry({
+      ...makeEntry("mal:100", 10, "2026-11-18T10:00:00.000Z"),
+      source: "myanimelist",
+      score: 80,
+      sourceMetadata: { comments: "MAL note" },
+    });
+
+    const imported = makeAnime("anilist:200");
+    imported.titles.english = "Example Anime";
+    imported.externalIds = { myanimelist: "100", anilist: "200" };
+    await repo.saveAnimeWithEntry(imported, {
+      ...makeEntry("anilist:200", 8, "2026-11-18T11:00:00.000Z"),
+      source: "anilist",
+      score: 90,
+      favorite: true,
+      sourceMetadata: { repeat: 1 },
+    });
+
+    const snapshot = await repo.snapshot();
+    expect(snapshot.anime).toHaveLength(1);
+    expect(snapshot.anime[0]).toMatchObject({
+      id: "mal:100",
+      externalIds: { myanimelist: "100", anilist: "200" },
+    });
+    expect(snapshot.sourceEntries).toHaveLength(2);
+    expect(snapshot.sourceEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ animeId: "mal:100", source: "myanimelist", progress: 10, score: 80, sourceMetadata: { comments: "MAL note" } }),
+      expect.objectContaining({ animeId: "mal:100", source: "anilist", progress: 8, score: 90, favorite: true, sourceMetadata: { repeat: 1 } }),
+    ]));
+    expect(snapshot.entries[0]).toMatchObject({ animeId: "mal:100", progress: 10, favorite: true });
+  });
+
+  it("repairs an existing exact-ID duplicate pair without dropping provider baselines", async () => {
+    const repo = await createRepository();
+    const mal = makeAnime("mal:100");
+    mal.externalIds = { myanimelist: "100" };
+    const anilist = makeAnime("anilist:200");
+    anilist.externalIds = { myanimelist: "100", anilist: "200" };
+    await repo.saveAnime(mal);
+    await repo.saveAnime(anilist);
+    await repo.saveSourceEntry({
+      ...makeEntry("mal:100", 10, "2026-11-18T10:00:00.000Z"),
+      source: "myanimelist",
+      sourceMetadata: { comments: "preserve me" },
+    });
+    await repo.saveSourceEntry({
+      ...makeEntry("anilist:200", 8, "2026-11-18T11:00:00.000Z"),
+      source: "anilist",
+      sourceMetadata: { repeat: 2 },
+    });
+
+    const result = await repo.reconcileExactIdentityDuplicates();
+    const snapshot = await repo.snapshot();
+
+    expect(result).toEqual({ mergedPairs: 1, skippedPairs: 0 });
+    expect(snapshot.anime).toHaveLength(1);
+    expect(snapshot.anime[0]?.externalIds).toEqual({ myanimelist: "100", anilist: "200" });
+    expect(snapshot.sourceEntries).toHaveLength(2);
+    expect(snapshot.sourceEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "myanimelist", sourceMetadata: { comments: "preserve me" } }),
+      expect.objectContaining({ source: "anilist", sourceMetadata: { repeat: 2 } }),
+    ]));
+  });
+
+  it("skips duplicate groups that contain multiple records for the same provider", async () => {
+    const repo = await createRepository();
+    const first = makeAnime("first");
+    first.externalIds = { myanimelist: "100" };
+    const second = makeAnime("second");
+    second.externalIds = { myanimelist: "100", anilist: "200" };
+    await repo.saveAnime(first);
+    await repo.saveAnime(second);
+    await repo.saveSourceEntry(makeEntry("first", 5, "2026-11-18T10:00:00.000Z"));
+    await repo.saveSourceEntry(makeEntry("second", 7, "2026-11-18T11:00:00.000Z"));
+
+    const result = await repo.reconcileExactIdentityDuplicates();
+
+    expect(result).toEqual({ mergedPairs: 0, skippedPairs: 1 });
+    expect((await repo.snapshot()).anime).toHaveLength(2);
+  });
+});
