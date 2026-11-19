@@ -166,3 +166,43 @@ describe("safe remote deletion detection", () => {
     expect(result.blockedReason).toBeNull();
   });
 });
+
+
+describe("Shikimori safe deletion detection", () => {
+  it("uses the Shikimori identity and ten-point score precision", () => {
+    const localAnime: AnimeIdentity = {
+      id: "local:41",
+      titles: { english: "Example anime", synonyms: [] },
+      externalIds: { shikimori: "41" },
+    };
+    const baseline: AnimeListEntry = {
+      animeId: localAnime.id,
+      source: "shikimori",
+      status: "WATCHING",
+      progress: 4,
+      score: 80,
+      favorite: false,
+      updatedAt: "2026-11-15T10:00:00.000Z",
+    };
+    const current = { ...baseline, score: 84 };
+    const remoteAnime: AnimeIdentity = {
+      id: "shikimori:999",
+      titles: { english: "Other anime", synonyms: [] },
+      externalIds: { shikimori: "999" },
+    };
+    const remoteEntry: AnimeListEntry = {
+      ...baseline,
+      animeId: remoteAnime.id,
+      updatedAt: "2026-11-17T10:00:00.000Z",
+    };
+    const result = detectRemoteDeletions(
+      [{ anime: localAnime, entry: current, baseline }],
+      snapshot([remoteAnime], [remoteEntry]),
+      "shikimori",
+    );
+
+    expect(result.localRemovals).toHaveLength(1);
+    expect(result.localRemovals[0]?.externalId).toBe("41");
+    expect(result.conflicts).toHaveLength(0);
+  });
+});
