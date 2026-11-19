@@ -36,13 +36,13 @@ const cvhPageWorldScript = manifest.content_scripts.find((script) =>
 assert.ok(cvhPageWorldScript, "CVH page-world playback sampler must be registered");
 assert.equal(cvhPageWorldScript.world, "MAIN", "CVH sampler must access the page player API");
 assert.ok(
-  cvhPageWorldScript.matches.includes("https://animego.me/*"),
-  "CVH page-world sampler must run on AnimeGO pages containing the VK player component",
+  cvhPageWorldScript.matches.includes("https://player.cdnvideohub.com/*"),
+  "CVH page-world sampler must run on the actual CVH player origin",
 );
 assert.equal(cvhPageWorldScript.all_frames, true, "CVH sampler must run inside the embedded CVH player iframe");
 
 const matches = manifest.content_scripts.flatMap((script) => script.matches);
-for (const host of ["anime-go.org", "animego.online", "animego.me", "yummyani.me", "yummy-ani.me", "anixart-app.com", "anixartapp.com"]) {
+for (const host of ["anime-go.org", "animego.online", "animego.me", "player.cdnvideohub.com", "yummyani.me", "yummy-ani.me", "anixart-app.com", "anixartapp.com"]) {
   assert.ok(matches.some((pattern) => pattern.includes(host)), `Missing host match: ${host}`);
 }
 
