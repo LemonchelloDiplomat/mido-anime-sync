@@ -2,9 +2,10 @@ import type {
   AnimeIdentity,
   AnimeListEntry,
   AnimeSnapshotV4,
+  SyncProvider,
 } from "./types.js";
 
-export type SyncProvider = "mal" | "anilist";
+export type { SyncProvider } from "./types.js";
 
 export interface LocalSyncItem {
   anime: AnimeIdentity;
@@ -65,7 +66,7 @@ function comparableFieldValue(
   field: SyncField | "favorite",
   value: unknown,
 ): unknown {
-  if (provider !== "mal" || field !== "score") return value;
+  if ((provider !== "mal" && provider !== "shikimori") || field !== "score") return value;
   if (value == null || value === 0) return null;
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return value;
@@ -94,7 +95,7 @@ export function createBidirectionalSyncPlan(
   remoteSnapshot: AnimeSnapshotV4,
   provider: SyncProvider,
 ): SyncPlan {
-  const service = provider === "mal" ? "myanimelist" : "anilist";
+  const service = provider === "mal" ? "myanimelist" : provider === "anilist" ? "anilist" : "shikimori";
   const localByExternalId = new Map<string, LocalSyncItem>();
   const remoteByExternalId = new Map<string, { anime: AnimeIdentity; entry: AnimeListEntry }>();
   const remoteEntryByAnimeId = new Map(remoteSnapshot.entries.map((entry) => [entry.animeId, entry]));
