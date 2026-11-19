@@ -61,7 +61,7 @@ function mapFormat(value?: string | null): AnimeFormat | undefined {
 function normalizePoster(value?: string | null): string | null {
   if (!value) return null;
   if (value.startsWith("//")) return "https:" + value;
-  if (value.startsWith("/")) return "https://shikimori.one" + value;
+  if (value.startsWith("/")) return "https://shikimori.io" + value;
   try {
     const url = new URL(value);
     return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : null;
