@@ -24,7 +24,7 @@ for (const file of ["popup.html", "options.html"]) {
 }
 
 const matches = manifest.content_scripts.flatMap((script) => script.matches);
-for (const host of ["anime-go.org", "animego.online", "yummyani.me", "yummy-ani.me", "anixart-app.com"]) {
+for (const host of ["anime-go.org", "animego.online", "yummyani.me", "yummy-ani.me", "anixart-app.com", "anixartapp.com"]) {
   assert.ok(matches.some((pattern) => pattern.includes(host)), `Missing host match: ${host}`);
 }
 
