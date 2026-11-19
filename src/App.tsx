@@ -28,6 +28,7 @@ import { detectRemoteDeletions } from "./core/safe-deletions.js";
 import { executeRemoteDeletions, resolvePendingRemoteDeletionIntents } from "./core/remote-deletion.js";
 import { reconcileUnfinishedSyncOperations } from "./core/sync-recovery.js";
 import { reconcileInterruptedSyncSessions } from "./core/sync-session-recovery.js";
+import { findExactIdentityDuplicatePairs } from "./core/identity-reconciliation.js";
 
 import {
   createImportPreview,
@@ -167,6 +168,7 @@ function App() {
   const [restoreFormat, setRestoreFormat] = useState("");
   const [restoring, setRestoring] = useState(false);
   const [deletingLibrary, setDeletingLibrary] = useState(false);
+  const [reconcilingDuplicates, setReconcilingDuplicates] = useState(false);
   const restoreInProgressRef = useRef(false);
   const restoreFileInputRef = useRef<HTMLInputElement | null>(null);
   const syncInProgressRef = useRef(false);
@@ -696,6 +698,64 @@ function App() {
     } finally {
       restoreInProgressRef.current = false;
       setRestoring(false);
+    }
+  }
+
+  async function handleReconcileIdentityDuplicates() {
+    if (!repository || reconcilingDuplicates) return;
+    const activeRepository = repository;
+
+    if (syncInProgressRef.current || accountSyncing || restoreInProgressRef.current || metadataEnriching || importing || restoring || saving || addingCatalogId || deletingLibrary) {
+      setError("Сначала дождись завершения всех операций с библиотекой и синхронизации.");
+      return;
+    }
+
+    const pairs = findExactIdentityDuplicatePairs(library.map((item) => item.anime));
+    if (pairs.length === 0) {
+      window.alert("Точных дублей по внешним ID не найдено.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Найдено ${pairs.length} пар с совпадающими внешними ID. Приложение объединит только однозначные пары, для которых нет двух записей одного сервиса. Исходные записи MAL/AniList и их метаданные будут сохранены отдельно. Перед изменениями скачается резервная копия. Продолжить?`,
+    );
+    if (!confirmed) return;
+
+    setReconcilingDuplicates(true);
+    setError("");
+
+    const reconcile = async () => {
+      if (syncInProgressRef.current || accountSyncing || restoreInProgressRef.current || metadataEnriching || importing || restoring || saving || addingCatalogId || deletingLibrary) {
+        throw new Error("Появилась другая операция с библиотекой. Объединение отменено.");
+      }
+      const backup = await activeRepository.snapshot();
+      downloadSnapshot(backup);
+      const result = await activeRepository.reconcileExactIdentityDuplicates();
+      await refreshLibrary();
+      window.alert(
+        `Объединение завершено. Объединено пар: ${result.mergedPairs}. Пропущено для ручной проверки: ${result.skippedPairs}. Резервная копия скачана.`,
+      );
+    };
+
+    try {
+      if (typeof navigator !== "undefined" && "locks" in navigator) {
+        await navigator.locks.request(
+          "midahoshi-anime-sync:account-sync",
+          { mode: "exclusive", ifAvailable: true },
+          async (lock) => {
+            if (!lock) {
+              throw new Error("Синхронизация выполняется в другой вкладке. Дождись её завершения и повтори объединение.");
+            }
+            await reconcile();
+          },
+        );
+      } else {
+        await reconcile();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось объединить дубли библиотеки.");
+    } finally {
+      setReconcilingDuplicates(false);
     }
   }
 
@@ -1921,6 +1981,20 @@ function App() {
               })}
               <div className="integration-security-note">
                 <strong>Безопасность:</strong> токены сохраняются локально в зашифрованном виде. Не публикуй .env.local и папку .local-data.
+              </div>
+              <div className="integration-danger-zone">
+                <div>
+                  <h3>Исправление дублей библиотеки</h3>
+                  <p>Ищет записи с одинаковыми внешними ID MAL/AniList. Перед объединением скачивается резервная копия. Неоднозначные совпадения и пары с двумя записями одного сервиса пропускаются.</p>
+                </div>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void handleReconcileIdentityDuplicates()}
+                  disabled={reconcilingDuplicates || deletingLibrary || loading || library.length < 2 || syncInProgressRef.current || accountSyncing !== null || restoring || importing || metadataEnriching || saving || addingCatalogId !== null}
+                >
+                  {reconcilingDuplicates ? "Проверяем и объединяем..." : "Найти и объединить точные дубли"}
+                </button>
               </div>
               <div className="integration-danger-zone">
                 <div>
