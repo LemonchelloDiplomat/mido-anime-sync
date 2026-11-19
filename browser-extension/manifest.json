@@ -44,13 +44,12 @@
     },
     {
       "matches": [
-        "https://animego.me/cdn-iframe/*"
+        "https://animego.me/*"
       ],
       "js": [
         "cvh-page.js"
       ],
       "run_at": "document_idle",
-      "all_frames": true,
       "world": "MAIN"
     },
     {
