@@ -43,6 +43,25 @@ type LibraryItem = {
   entry: AnimeListEntry | undefined;
 };
 
+
+type IncomingWatchEvent = {
+  eventId: string;
+  provider: "animego" | "yummyanime";
+  title: string;
+  episode: number;
+  sourceUrl: string;
+  watchedAt: string;
+};
+
+function normalizeWatchTitle(value: string): string {
+  return value
+    .toLocaleLowerCase()
+    .replace(/[ё]/g, "е")
+    .replace(/[^\\p{L}\\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\\s+/g, " ");
+}
+
 type MetadataEnrichmentProgress = {
   provider: string;
   completed: number;
@@ -128,6 +147,7 @@ function App() {
   );
 
   const [library, setLibrary] = useState<LibraryItem[]>([]);
+  const [pendingWatchEvents, setPendingWatchEvents] = useState<IncomingWatchEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -231,6 +251,37 @@ function App() {
       cancelled = true;
       openedRepository?.close();
     };
+  }, []);
+
+  useEffect(() => {
+    function handleWatchBridgeMessage(message: MessageEvent) {
+      if (message.source !== window || message.origin !== window.location.origin) return;
+      const data = message.data as {
+        source?: string;
+        type?: string;
+        event?: Partial<IncomingWatchEvent>;
+      };
+      if (data?.source !== "mido-anime-watch-extension" || data.type !== "WATCH_EVENT") return;
+
+      const event = data.event;
+      if (
+        !event ||
+        typeof event.eventId !== "string" ||
+        (event.provider !== "animego" && event.provider !== "yummyanime") ||
+        typeof event.title !== "string" ||
+        !Number.isSafeInteger(event.episode) ||
+        Number(event.episode) <= 0 ||
+        typeof event.sourceUrl !== "string" ||
+        typeof event.watchedAt !== "string"
+      ) return;
+
+      setPendingWatchEvents((current) => current.some((item) => item.eventId === event.eventId)
+        ? current
+        : [...current, event as IncomingWatchEvent].slice(-10));
+    }
+
+    window.addEventListener("message", handleWatchBridgeMessage);
+    return () => window.removeEventListener("message", handleWatchBridgeMessage);
   }, []);
 
   useEffect(() => {
@@ -1750,6 +1801,77 @@ function App() {
       : date.toLocaleString("ru-RU", { dateStyle: "medium", timeStyle: "short" });
   }
 
+  function acknowledgeWatchEvent(eventId: string) {
+    window.postMessage({
+      source: "mido-anime-app",
+      type: "ACK_WATCH_EVENT",
+      eventId,
+    }, window.location.origin);
+    setPendingWatchEvents((current) => current.filter((event) => event.eventId !== eventId));
+  }
+
+  function findWatchEventMatches(event: IncomingWatchEvent): LibraryItem[] {
+    const query = normalizeWatchTitle(event.title);
+    if (!query) return [];
+    return library.filter(({ anime }) => {
+      const titles = [
+        anime.titles.english,
+        anime.titles.romaji,
+        anime.titles.native,
+        ...anime.titles.synonyms,
+      ].filter((title): title is string => Boolean(title));
+      return titles.some((title) => normalizeWatchTitle(title) === query);
+    });
+  }
+
+  async function applyWatchEvent(event: IncomingWatchEvent) {
+    if (!repository) return;
+    const matches = findWatchEventMatches(event);
+    if (matches.length !== 1) {
+      setError(matches.length === 0
+        ? "Не найдено точного совпадения с библиотекой. Найди тайтл вручную, прогресс не изменён."
+        : "Найдено несколько тайтлов с таким названием. Выбери нужный вручную, прогресс не изменён.");
+      return;
+    }
+
+    const anime = matches[0]!.anime;
+    try {
+      const sourceEntries = await repository.getSourceEntries(anime.id);
+      const localEntry = sourceEntries.find((entry) => entry.source === "local");
+      const progress = Math.max(localEntry?.progress ?? 0, event.episode);
+      const status: AnimeStatus = anime.episodes != null && anime.episodes > 0 && progress >= anime.episodes
+        ? "COMPLETED"
+        : "WATCHING";
+      await repository.saveSourceEntry({
+        animeId: anime.id,
+        source: "local",
+        status: localEntry?.status === "COMPLETED" ? "COMPLETED" : status,
+        progress,
+        score: localEntry?.score ?? null,
+        favorite: localEntry?.favorite ?? false,
+        updatedAt: new Date().toISOString(),
+        sourceMetadata: {
+          ...(localEntry?.sourceMetadata ?? {}),
+          lastWatchSource: event.provider,
+          lastWatchSourceUrl: event.sourceUrl,
+          lastWatchDetectedAt: event.watchedAt,
+        },
+      });
+      await refreshLibrary();
+      acknowledgeWatchEvent(event.eventId);
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось применить прогресс просмотра.");
+    }
+  }
+
+  function openWatchEventSearch(event: IncomingWatchEvent) {
+    setSearchQuery(event.title);
+    setSearchPageOpen(true);
+    setHistoryOpen(false);
+    setSettingsOpen(false);
+  }
+
   function historyStatusLabel(status: SyncOperation["status"]) {
     return ({
       pending: "Ожидает",
@@ -1780,6 +1902,23 @@ function App() {
 
   return (
     <div className="app">
+      {pendingWatchEvents.length > 0 && (() => {
+        const event = pendingWatchEvents[0]!;
+        const matches = findWatchEventMatches(event);
+        return (
+          <section className="watch-event-banner" role="status" aria-live="polite">
+            <div>
+              <strong>Обнаружен просмотр: {event.title}</strong>
+              <span>{event.episode} серия · {event.provider === "animego" ? "AnimeGO" : "YummyAnime"} · {matches.length === 1 ? "найдено точное совпадение" : matches.length === 0 ? "нет точного совпадения" : "несколько совпадений"}</span>
+            </div>
+            <div className="watch-event-actions">
+              <button type="button" className="add-button" disabled={matches.length !== 1 || !repository} onClick={() => void applyWatchEvent(event)}>Применить прогресс</button>
+              <button type="button" className="secondary-button" onClick={() => openWatchEventSearch(event)}>Найти в каталоге</button>
+              <button type="button" className="cancel-button" onClick={() => acknowledgeWatchEvent(event.eventId)}>Игнорировать</button>
+            </div>
+          </section>
+        );
+      })()}
       {restoring && (
         <div className="restore-busy-overlay" role="status" aria-live="polite">
           <div>
