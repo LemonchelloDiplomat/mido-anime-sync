@@ -74,8 +74,8 @@ describe("Shikimori account list importer", () => {
         episodes: 6,
         anime: { id: 41 + statuses.findIndex(([value]) => value === status), name: "Example" },
       }]);
-      expect(snapshot.entries[0].status).toBe(expected);
-      expect(snapshot.entries[0].score).toBe(80);
+      expect(snapshot.entries[0]?.status).toBe(expected);
+      expect(snapshot.entries[0]?.score).toBe(80);
     }
   });
 
