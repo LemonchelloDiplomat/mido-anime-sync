@@ -232,8 +232,9 @@
       return;
     }
     const isAniBoomTarget = frameUrl.hostname.toLowerCase() === "aniboom.one";
-    const isCvhTarget = frame.dataset?.providerSlug === "cvh" &&
-      frameUrl.hostname.toLowerCase() === "animego.me" &&
+    // AnimeGO does not consistently expose providerSlug on its iframe.
+    // The CVH iframe URL itself is the stable provider signal.
+    const isCvhTarget = frameUrl.hostname.toLowerCase() === "animego.me" &&
       frameUrl.pathname.startsWith("/cdn-iframe/");
     if (!isAniBoomTarget && !isCvhTarget) return;
 
