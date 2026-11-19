@@ -3,6 +3,7 @@ import type {
   AnimeSnapshot,
   SyncDeletionIntent,
   SyncOperation,
+  SyncProvider,
 } from "./types.js";
 
 export interface RemoteDeletionCandidate {
@@ -14,10 +15,10 @@ export interface RemoteDeletionCandidate {
 export async function resolvePendingRemoteDeletionIntents(
   intents: SyncDeletionIntent[],
   remoteSnapshot: AnimeSnapshot,
-  provider: "mal" | "anilist",
+  provider: SyncProvider,
   deleteDeletionIntent: (id: string) => Promise<void>,
 ): Promise<RemoteDeletionCandidate[]> {
-  const providerSource = provider === "mal" ? "myanimelist" : "anilist";
+  const providerSource = provider === "mal" ? "myanimelist" : provider === "anilist" ? "anilist" : "shikimori";
   const candidates: RemoteDeletionCandidate[] = [];
 
   for (const intent of intents) {
@@ -37,9 +38,11 @@ export async function resolvePendingRemoteDeletionIntents(
 
     const entryId = provider === "anilist"
       ? Number(remoteEntry.sourceMetadata?.anilistEntryId)
-      : undefined;
-    if (provider === "anilist" && (!Number.isSafeInteger(entryId) || entryId! <= 0)) {
-      throw new Error("Не удалось определить AniList entry ID для безопасного удаления. Запрос сохранён, ничего не удалено.");
+      : provider === "shikimori"
+        ? Number(remoteEntry.sourceMetadata?.shikimoriRateId)
+        : undefined;
+    if (provider !== "mal" && (!Number.isSafeInteger(entryId) || entryId! <= 0)) {
+      throw new Error("Не удалось определить ID записи удалённого сервиса для безопасного удаления. Запрос сохранён, ничего не удалено.");
     }
 
     candidates.push({
@@ -58,7 +61,7 @@ export async function executeRemoteDeletions(
   operations: SyncOperation[],
   dependencies: {
     deleteAccountEntry: (
-      provider: "mal" | "anilist",
+      provider: SyncProvider,
       input: { externalId: string; entryId?: number },
     ) => Promise<{ ok: boolean }>;
     deleteDeletionIntent: (id: string) => Promise<void>;
