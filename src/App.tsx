@@ -27,6 +27,7 @@ import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidi
 import { detectRemoteDeletions } from "./core/safe-deletions.js";
 import { executeRemoteDeletions, resolvePendingRemoteDeletionIntents } from "./core/remote-deletion.js";
 import { reconcileUnfinishedSyncOperations } from "./core/sync-recovery.js";
+import { reconcileInterruptedSyncSessions } from "./core/sync-session-recovery.js";
 
 import {
   createImportPreview,
@@ -724,6 +725,39 @@ function App() {
 
   async function handleSyncToAccount(provider: "mal" | "anilist") {
     if (!repository || accountSyncing || restoreInProgressRef.current) return;
+
+    // Web Locks prevents another tab from running an account sync while this
+    // tab reconciles old sessions. Without it, sync remains available but stale
+    // sessions are deliberately not auto-finalized.
+    if (typeof navigator === "undefined" || !("locks" in navigator)) {
+      await runSyncToAccount(provider, false);
+      return;
+    }
+
+    try {
+      await navigator.locks.request(
+        "midahoshi-anime-sync:account-sync",
+        { mode: "exclusive", ifAvailable: true },
+        async (lock) => {
+          if (!lock) {
+            setIntegrationStatusError("Синхронизация уже выполняется в другой вкладке. Дождись её завершения.");
+            return;
+          }
+          await runSyncToAccount(provider, true);
+        },
+      );
+    } catch (err) {
+      setIntegrationStatusError(
+        err instanceof Error ? err.message : "Не удалось получить блокировку синхронизации.",
+      );
+    }
+  }
+
+  async function runSyncToAccount(
+    provider: "mal" | "anilist",
+    recoverInterruptedSessions: boolean,
+  ) {
+    if (!repository || accountSyncing || restoreInProgressRef.current) return;
     const activeRepository = repository;
     syncInProgressRef.current = true;
     const sessionId = `sync-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -794,6 +828,22 @@ function App() {
             pendingCount: sessionPending,
           });
         }
+      }
+
+      if (recoverInterruptedSessions) {
+        const [sessions, journalOperations] = await Promise.all([
+          activeRepository.getSyncSessions(),
+          activeRepository.getSyncOperations(),
+        ]);
+        await reconcileInterruptedSyncSessions(
+          provider,
+          sessionId,
+          sessions,
+          journalOperations,
+          {
+            updateSyncSession: (id, update) => activeRepository.updateSyncSession(id, update),
+          },
+        );
       }
 
       const baseItems = await activeRepository.getAll();
