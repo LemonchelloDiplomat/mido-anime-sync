@@ -6,7 +6,7 @@
   if (location.hostname !== "animego.me" || !location.pathname.startsWith("/cdn-iframe/")) return;
 
   const numericPathParts = location.pathname.split("/").filter(Boolean).slice(2)
-    .filter((part) => /^\\d+$/.test(part));
+    .filter((part) => /^\d+$/.test(part));
   const episode = Number(numericPathParts[numericPathParts.length - 1]);
   if (!Number.isSafeInteger(episode) || episode < 1) return;
 
