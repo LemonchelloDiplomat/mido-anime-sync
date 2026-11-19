@@ -32,7 +32,7 @@ import { reconcileUnfinishedSyncOperations } from "./core/sync-recovery.js";
 import { reconcileInterruptedSyncSessions } from "./core/sync-session-recovery.js";
 import { findExactIdentityDuplicatePairs } from "./core/identity-reconciliation.js";
 import { getProviderLabel, getProviderServiceId } from "./core/provider-capabilities.js";
-import { createWatchSourceEntry, validateWatchEvent, type WatchEvent } from "./core/watch-events.js";
+import { createWatchSourceEntry, findExactAnimeTitleMatches, validateWatchEvent, type WatchEvent } from "./core/watch-events.js";
 
 import {
   createImportPreview,
@@ -221,15 +221,11 @@ function App() {
 
   useEffect(() => {
     if (!pendingWatchEvent || watchEventTargetId || library.length === 0) return;
-    const normalize = (value: string) => value.toLocaleLowerCase("ru-RU").replace(/[ё]/g, "е").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
-    const title = normalize(pendingWatchEvent.title);
-    const matches = library.filter(({ anime }) => [
-      anime.titles.english,
-      anime.titles.romaji,
-      anime.titles.native,
-      ...anime.titles.synonyms,
-    ].filter((value): value is string => Boolean(value)).some((value) => normalize(value) === title));
-    if (matches.length === 1) setWatchEventTargetId(matches[0]!.anime.id);
+    const matches = findExactAnimeTitleMatches(
+      library.map((item) => item.anime),
+      pendingWatchEvent.title,
+    );
+    if (matches.length === 1) setWatchEventTargetId(matches[0]!.id);
   }, [pendingWatchEvent, watchEventTargetId, library]);
 
   useEffect(() => {
