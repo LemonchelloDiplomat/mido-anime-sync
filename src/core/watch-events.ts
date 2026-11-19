@@ -66,7 +66,7 @@ export function validateWatchEvent(value: unknown): WatchEvent {
     service: event.service,
     title: event.title.trim(),
     episode: Number(event.episode),
-    sourceUrl: event.sourceUrl,
+    sourceUrl: sourceUrl.toString(),
     observedAt: new Date(event.observedAt).toISOString(),
     ...(currentTimeSeconds !== undefined ? { currentTimeSeconds } : {}),
     ...(durationSeconds !== undefined ? { durationSeconds } : {}),
