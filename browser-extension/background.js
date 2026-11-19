@@ -121,7 +121,7 @@ async function updateCurrentWatchContext(message) {
   // episode number and its unread glow must not leak into the next watch.
   await saveToolbarState({
     title,
-    episode: sameTitle ? null : null,
+    episode: null,
     alerted: false,
   });
 }
