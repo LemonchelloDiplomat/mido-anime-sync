@@ -45,8 +45,7 @@
       const rect = video.getBoundingClientRect();
       const style = getComputedStyle(video);
       return rect.width >= 200 && rect.height >= 100 &&
-        style.display !== "none" && style.visibility !== "hidden" &&
-        Number.isFinite(video.duration) && video.duration > 0;
+        style.display !== "none" && style.visibility !== "hidden";
     });
     candidates.sort((first, second) => {
       const a = first.getBoundingClientRect();
