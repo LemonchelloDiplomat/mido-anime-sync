@@ -128,18 +128,8 @@ describe("AnimeGO AniBoom iframe tracking", () => {
       URL,
     };
 
-    vm.runInNewContext(contentScript, {
-      ...common,
-      location: {
-        hostname: "animego.me",
-        origin: "https://animego.me",
-        pathname: "/anime/example",
-        href: "https://animego.me/anime/example",
-      },
-      document: parentDocument,
-      window: parentWindow,
-    });
-
+    // The iframe initializes first and attaches to the video before AnimeGO's
+    // parent metadata is available. The video is already past 90% when metadata arrives.
     vm.runInNewContext(contentScript, {
       ...common,
       location: {
@@ -152,7 +142,17 @@ describe("AnimeGO AniBoom iframe tracking", () => {
       window: frameWindow,
     });
 
-    videoListeners.timeupdate?.();
+    vm.runInNewContext(contentScript, {
+      ...common,
+      location: {
+        hostname: "animego.me",
+        origin: "https://animego.me",
+        pathname: "/anime/example",
+        href: "https://animego.me/anime/example",
+      },
+      document: parentDocument,
+      window: parentWindow,
+    });
 
     expect(sentEvents).toHaveLength(1);
     expect(sentEvents[0]).toMatchObject({
