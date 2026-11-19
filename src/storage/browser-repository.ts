@@ -1227,7 +1227,8 @@ export class BrowserAnimeRepository {
         relationStore.clear(),
         ...allDeletionIntents
           .filter((intent) => intent.animeId === sourceId || intent.animeId === targetId)
-          .map((intent) => deletionStore.delete(intent.id)),\n      ]);
+          .map((intent) => deletionStore.delete(intent.id)),
+      ]);
 
       await Promise.all([
         ...mergedSourceEntries.map((entry) =>
