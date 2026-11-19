@@ -31,7 +31,7 @@ for (const port of [":5173", ":3001", ":4173"]) {
 }
 
 const matches = manifest.content_scripts.flatMap((script) => script.matches);
-for (const host of ["anime-go.org", "animego.online", "yummyani.me", "yummy-ani.me", "anixart-app.com", "anixartapp.com"]) {
+for (const host of ["anime-go.org", "animego.online", "animego.me", "yummyani.me", "yummy-ani.me", "anixart-app.com", "anixartapp.com"]) {
   assert.ok(matches.some((pattern) => pattern.includes(host)), `Missing host match: ${host}`);
 }
 
