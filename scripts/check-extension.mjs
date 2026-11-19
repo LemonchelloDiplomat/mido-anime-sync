@@ -30,6 +30,16 @@ for (const port of [":5173", ":3001", ":4173"]) {
   assert.ok(bridgeScript.matches.some((pattern) => pattern.includes(port)), `Missing local app bridge port: ${port}`);
 }
 
+const cvhContentScript = manifest.content_scripts.find((script) =>
+  script.js.includes("content.js"),
+);
+assert.ok(cvhContentScript, "Content script must be registered");
+assert.ok(
+  cvhContentScript.matches.includes("https://player.cdnvideohub.com/*"),
+  "CVH content script must run inside the actual player iframe",
+);
+assert.equal(cvhContentScript.all_frames, true, "Content script must run in embedded player frames");
+
 const cvhPageWorldScript = manifest.content_scripts.find((script) =>
   script.js.includes("cvh-page.js"),
 );
