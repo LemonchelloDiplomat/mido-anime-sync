@@ -274,6 +274,12 @@ async function handleRequest(request, response) {
         username: tokens.anilist?.username || null,
         expiresAt: tokens.anilist?.expiresAt || null,
       },
+      shikimori: {
+        configured: Boolean(process.env.SHIKIMORI_CLIENT_ID && process.env.SHIKIMORI_CLIENT_SECRET),
+        connected: Boolean(tokens.shikimori?.refreshToken || tokens.shikimori?.accessToken),
+        username: tokens.shikimori?.username || null,
+        expiresAt: tokens.shikimori?.expiresAt || null,
+      },
     });
   }
 
@@ -393,10 +399,71 @@ async function handleRequest(request, response) {
     }
   }
 
+  if (method === "GET" && url.pathname === "/api/auth/shikimori/start") {
+    if (!process.env.SHIKIMORI_CLIENT_ID || !process.env.SHIKIMORI_CLIENT_SECRET) {
+      return sendJson(response, 400, { error: "Сначала добавь SHIKIMORI_CLIENT_ID и SHIKIMORI_CLIENT_SECRET в .env.local." });
+    }
+    const state = randomBytes(24).toString("hex");
+    const redirectUri = getRedirectUri("shikimori");
+    sessions.set("shikimori:" + state, { redirectUri, expiresAt: Date.now() + 600000 });
+    const authorize = new URL(SHIKIMORI_OAUTH + "/authorize");
+    authorize.searchParams.set("client_id", process.env.SHIKIMORI_CLIENT_ID);
+    authorize.searchParams.set("redirect_uri", redirectUri);
+    authorize.searchParams.set("response_type", "code");
+    authorize.searchParams.set("scope", "user_rates");
+    authorize.searchParams.set("state", state);
+    response.writeHead(302, { Location: authorize.toString(), "Cache-Control": "no-store" });
+    return response.end();
+  }
+
+  if (method === "GET" && url.pathname === "/api/auth/shikimori/callback") {
+    const state = url.searchParams.get("state") || "";
+    const pending = sessions.get("shikimori:" + state);
+    sessions.delete("shikimori:" + state);
+    if (!pending || pending.expiresAt < Date.now()) {
+      return sendHtml(response, 400, "<h2>Авторизация Shikimori не завершена</h2><p>Состояние авторизации устарело. Повтори подключение из приложения.</p><a href='/'>Вернуться</a>");
+    }
+    if (url.searchParams.has("error")) {
+      return sendHtml(response, 400, "<h2>Shikimori отклонил подключение</h2><p>" + escapeHtml(url.searchParams.get("error_description") || url.searchParams.get("error")) + "</p><a href='/'>Вернуться</a>");
+    }
+    const code = url.searchParams.get("code");
+    if (!code) return sendHtml(response, 400, "<h2>Shikimori не вернул код авторизации.</h2><a href='/'>Вернуться</a>");
+    try {
+      const token = await exchangeShikimoriToken({
+        grant_type: "authorization_code",
+        client_id: process.env.SHIKIMORI_CLIENT_ID,
+        client_secret: process.env.SHIKIMORI_CLIENT_SECRET,
+        code,
+        redirect_uri: pending.redirectUri,
+      });
+      const accessToken = String(token.access_token || "");
+      const expiresIn = Number(token.expires_in);
+      const refreshToken = String(token.refresh_token || "");
+      if (accessToken.length < 20 || refreshToken.length < 10 || !Number.isFinite(expiresIn) || expiresIn <= 0) {
+        throw new Error("Shikimori вернул некорректный ответ при авторизации.");
+      }
+      const tokens = await readTokens();
+      tokens.shikimori = {
+        accessToken,
+        refreshToken,
+        expiresAt: Date.now() + expiresIn * 1000,
+        username: null,
+        userId: null,
+      };
+      const me = await shikimoriRequest("/users/whoami", tokens);
+      tokens.shikimori.username = me.nickname || me.name || null;
+      tokens.shikimori.userId = me.id || null;
+      await writeTokens(tokens);
+      return sendHtml(response, 200, "<h2>Shikimori подключён ✓</h2><p>Токены сохранены в зашифрованном локальном хранилище.</p><a href='/'>Вернуться в MidaHoshi Anime Sync</a>");
+    } catch (error) {
+      return sendHtml(response, 502, "<h2>Не удалось подключить Shikimori</h2><p>" + escapeHtml(error.message) + "</p><a href='/'>Вернуться</a>");
+    }
+  }
+
   if (method === "POST" && url.pathname === "/api/integrations/disconnect") {
     const body = await readJson(request);
     const provider = body.provider;
-    if (provider !== "mal" && provider !== "anilist") return sendJson(response, 400, { error: "Неизвестный сервис." });
+    if (provider !== "mal" && provider !== "anilist" && provider !== "shikimori") return sendJson(response, 400, { error: "Неизвестный сервис." });
     const tokens = await readTokens();
     delete tokens[provider];
     await writeTokens(tokens);
