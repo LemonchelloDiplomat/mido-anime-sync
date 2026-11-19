@@ -133,7 +133,7 @@ describe("safe remote deletion detection", () => {
     const current = entry(localAnime.id, "myanimelist", { score: 84 });
     const result = detectRemoteDeletions(
       [{ anime: localAnime, entry: current, baseline }],
-      snapshot([], []),
+      nonEmptyRemoteSnapshot("mal"),
       "mal",
     );
 
