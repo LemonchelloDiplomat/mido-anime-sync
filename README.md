@@ -79,5 +79,6 @@ npm run dev
 ~~~powershell
 npm test
 npm run typecheck
+npm run check:server
 npm run build
 ~~~
