@@ -1125,6 +1125,20 @@ export class BrowserAnimeRepository {
         (entry) => entry.animeId === sourceId || entry.animeId === targetId,
       );
 
+      const entriesByProvider = new Map<string, AnimeSourceEntry[]>();
+      for (const entry of affectedEntries) {
+        const group = entriesByProvider.get(entry.source) ?? [];
+        group.push(entry);
+        entriesByProvider.set(entry.source, group);
+      }
+      for (const [provider, records] of entriesByProvider) {
+        if (records.length > 1 && records.some((entry) => JSON.stringify(entry) !== JSON.stringify(records[0]))) {
+          throw new Error(
+            `Cannot merge ${sourceId} into ${targetId}: both records contain different ${provider} source entries.`,
+          );
+        }
+      }
+
       const remappedEntries = affectedEntries.map((entry) => ({
         ...structuredClone(entry),
         animeId: targetId,
@@ -1184,7 +1198,7 @@ export class BrowserAnimeRepository {
         .map((intent) => ({
           ...structuredClone(intent),
           animeId: targetId,
-          anime: intent.animeId === sourceId ? mergedAnime : structuredClone(intent.anime),
+          anime: structuredClone(mergedAnime),
           entry: { ...structuredClone(intent.entry), animeId: targetId },
         }));
       assertRelationsReferenceExistingAnime(
