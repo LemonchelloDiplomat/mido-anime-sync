@@ -57,7 +57,7 @@ export async function resolvePendingRemoteDeletionIntents(
 }
 
 export async function executeRemoteDeletions(
-  provider: "mal" | "anilist",
+  provider: SyncProvider,
   candidates: RemoteDeletionCandidate[],
   operations: SyncOperation[],
   dependencies: {
