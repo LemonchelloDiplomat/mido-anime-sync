@@ -1,8 +1,23 @@
 (() => {
   const host = location.hostname.toLowerCase();
-  const service = host.includes("yummy") ? "yummyanime"
+  const isAniBoomFrame = host === "aniboom.one";
+  const service = isAniBoomFrame ? "animego" : host.includes("yummy") ? "yummyanime"
     : host.includes("anixart") ? "anixart"
     : "animego";
+  let parentMetadata = null;
+
+  function isAllowedAnimeGoUrl(rawUrl) {
+    try {
+      const url = new URL(rawUrl);
+      const hostname = url.hostname.toLowerCase();
+      return (url.protocol === "https:" || url.protocol === "http:") &&
+        (hostname === "anime-go.org" || hostname.endsWith(".anime-go.org") ||
+          hostname === "animego.online" || hostname.endsWith(".animego.online") ||
+          hostname === "animego.me" || hostname.endsWith(".animego.me"));
+    } catch {
+      return false;
+    }
+  }
 
   const titleSelectors = service === "animego"
     ? ["h1", ".anime-title", ".watch-title", ".video-title", "[itemprop='name']"]
@@ -115,6 +130,66 @@
     };
   }
 
+  function sendParentMetadataToFrame(frame) {
+    if (service !== "animego" || isAniBoomFrame || !frame?.contentWindow) return;
+    let frameUrl;
+    try {
+      frameUrl = new URL(frame.src, location.href);
+    } catch {
+      return;
+    }
+    if (frameUrl.hostname.toLowerCase() !== "aniboom.one") return;
+
+    const detected = detect();
+    if (!detected.title || !Number.isSafeInteger(detected.episode) || detected.episode < 1) return;
+    frame.contentWindow.postMessage({
+      type: "MIDAHOSHI_PARENT_METADATA",
+      metadata: {
+        title: detected.title,
+        episode: detected.episode,
+        sourceUrl: detected.sourceUrl,
+      },
+    }, frameUrl.origin);
+  }
+
+  function syncParentMetadataToFrames() {
+    if (service !== "animego" || isAniBoomFrame) return;
+    document.querySelectorAll("iframe").forEach(sendParentMetadataToFrame);
+  }
+
+  if (isAniBoomFrame) {
+    window.addEventListener("message", (event) => {
+      if (event.source !== window.parent || !isAllowedAnimeGoUrl(event.origin)) return;
+      if (event.data?.type !== "MIDAHOSHI_PARENT_METADATA") return;
+      const metadata = event.data.metadata;
+      if (
+        !metadata ||
+        typeof metadata.title !== "string" ||
+        metadata.title.trim().length < 2 ||
+        !Number.isSafeInteger(metadata.episode) ||
+        metadata.episode < 1 ||
+        !isAllowedAnimeGoUrl(metadata.sourceUrl) ||
+        new URL(metadata.sourceUrl).origin !== event.origin
+      ) return;
+      const sourceUrl = new URL(metadata.sourceUrl);
+      parentMetadata = {
+        title: metadata.title.trim(),
+        episode: metadata.episode,
+        sourceUrl: sourceUrl.origin + sourceUrl.pathname,
+      };
+      scanVideos();
+    });
+    window.parent.postMessage({ type: "MIDAHOSHI_REQUEST_PARENT_METADATA" }, "*");
+  } else {
+    window.addEventListener("message", (event) => {
+      if (event.origin !== "https://aniboom.one" ||
+          event.data?.type !== "MIDAHOSHI_REQUEST_PARENT_METADATA") return;
+      const frame = Array.from(document.querySelectorAll("iframe"))
+        .find((candidate) => candidate.contentWindow === event.source);
+      if (frame) sendParentMetadataToFrame(frame);
+    });
+  }
+
   function attachVideo(video) {
     if (video.dataset.midahoshiWatchAttached === "true") return;
     video.dataset.midahoshiWatchAttached = "true";
@@ -163,7 +238,19 @@
   });
 
   scanVideos();
-  const observer = new MutationObserver(scanVideos);
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  syncParentMetadataToFrames();
+  const observer = new MutationObserver(() => {
+    scanVideos();
+    syncParentMetadataToFrames();
+  });
+  const observerOptions = {
+    childList: true,
+    subtree: true,
+    ...(!isAniBoomFrame ? {
+      attributes: true,
+      attributeFilter: ["class", "data-episode-number", "src"],
+    } : {}),
+  };
+  observer.observe(document.documentElement, observerOptions);
   window.addEventListener("pagehide", () => observer.disconnect(), { once: true });
 })();
