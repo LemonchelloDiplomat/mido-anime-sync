@@ -121,6 +121,7 @@ describe("AnimeGO AniBoom iframe tracking", () => {
         randomUUID: () => "test-event-id",
       },
       Date,
+      URL,
     };
 
     vm.runInNewContext(contentScript, {
