@@ -2788,7 +2788,7 @@ function App() {
           </section>
 
           <footer>
-            <span>mido-anime-sync Anime Sync</span>
+            <span>mido-anime-sync</span>
             <span>Твоя библиотека. Твои правила.</span>
           </footer>
             </>
