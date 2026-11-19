@@ -15,7 +15,7 @@ assert.ok(manifest.permissions.includes("tabs"));
 assert.ok(!manifest.permissions.includes("cookies"), "Extension must not request cookies access");
 assert.ok(!manifest.host_permissions.some((host) => host.includes("<all_urls>")), "Extension must not request broad host access");
 
-for (const file of ["content.js", "popup.js", "options.js", "background.js", "bridge.js"]) {
+for (const file of ["content.js", "cvh-page.js", "popup.js", "options.js", "background.js", "bridge.js"]) {
   const source = await read("browser-extension/" + file);
   new vm.Script(source, { filename: file });
 }
@@ -29,6 +29,16 @@ assert.ok(bridgeScript, "Local app acknowledgement bridge must be injected");
 for (const port of [":5173", ":3001", ":4173"]) {
   assert.ok(bridgeScript.matches.some((pattern) => pattern.includes(port)), `Missing local app bridge port: ${port}`);
 }
+
+const cvhPageWorldScript = manifest.content_scripts.find((script) =>
+  script.js.includes("cvh-page.js"),
+);
+assert.ok(cvhPageWorldScript, "CVH page-world playback sampler must be registered");
+assert.equal(cvhPageWorldScript.world, "MAIN", "CVH sampler must access the page player API");
+assert.ok(
+  cvhPageWorldScript.matches.includes("https://animego.me/cdn-iframe/*"),
+  "CVH page-world sampler must be scoped to the confirmed AnimeGO iframe path",
+);
 
 const matches = manifest.content_scripts.flatMap((script) => script.matches);
 for (const host of ["anime-go.org", "animego.online", "animego.me", "yummyani.me", "yummy-ani.me", "anixart-app.com", "anixartapp.com"]) {
