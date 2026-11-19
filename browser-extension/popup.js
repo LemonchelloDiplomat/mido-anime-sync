@@ -43,7 +43,17 @@ document.getElementById("send").addEventListener("click", async () => {
       return;
     }
     const host = new URL(tab.url).hostname.toLowerCase();
-    const service = host.includes("yummy") ? "yummyanime" : host.includes("anixart") ? "anixart" : "animego";
+    const service = host.includes("yummyani.me") || host.includes("yummy-ani.me") || host.includes("yummyanime.club") || host.includes("yummyanime.info")
+      ? "yummyanime"
+      : host.includes("anixart-app.com")
+        ? "anixart"
+        : host.includes("anime-go.org") || host.includes("animego.online")
+          ? "animego"
+          : null;
+    if (!service) {
+      status("Эта страница не относится к поддерживаемым источникам.");
+      return;
+    }
     detected = { service, sourceUrl: tab.url, currentTimeSeconds: null, durationSeconds: null };
   }
 
