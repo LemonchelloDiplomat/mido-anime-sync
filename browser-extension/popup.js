@@ -2,10 +2,24 @@ const titleInput = document.getElementById("title");
 const episodeInput = document.getElementById("episode");
 const statusElement = document.getElementById("status");
 let detected = null;
+let pendingEventId = null;
 
 function status(message) {
   statusElement.textContent = message;
 }
+
+async function loadQueuedEvent() {
+  const { pendingWatchEvents = [] } = await chrome.storage.local.get({ pendingWatchEvents: [] });
+  const latest = Array.isArray(pendingWatchEvents) ? pendingWatchEvents[pendingWatchEvents.length - 1] : null;
+  if (!latest) return;
+  detected = latest;
+  pendingEventId = latest.eventId || null;
+  titleInput.value = latest.title || "";
+  episodeInput.value = latest.episode || "";
+  status("Сайт автоматически обнаружил почти завершённую серию. Проверь данные и нажми «Передать в локальную библиотеку».");
+}
+
+void loadQueuedEvent();
 
 document.getElementById("scan").addEventListener("click", async () => {
   status("Считываем страницу…");
@@ -16,6 +30,7 @@ document.getElementById("scan").addEventListener("click", async () => {
   }
   try {
     detected = await chrome.tabs.sendMessage(tab.id, { type: "MIDAHOSHI_DETECT_WATCH_EVENT" });
+    pendingEventId = null;
     titleInput.value = detected.title || detected.pageTitle || "";
     episodeInput.value = detected.episode || "";
     const note = detected.manualOnly
@@ -62,7 +77,7 @@ document.getElementById("send").addEventListener("click", async () => {
     title,
     episode,
     sourceUrl: detected.sourceUrl,
-    observedAt: new Date().toISOString(),
+    observedAt: detected.observedAt || new Date().toISOString(),
     currentTimeSeconds: detected.currentTimeSeconds ?? null,
     durationSeconds: detected.durationSeconds ?? null,
   };
@@ -76,8 +91,20 @@ document.getElementById("send").addEventListener("click", async () => {
     status("Некорректный адрес локального приложения. Проверь настройки расширения.");
     return;
   }
-  await chrome.tabs.create({ url: destination.toString() });
-  status("Событие открыто в MidaHoshi Anime Sync. Выбери соответствующий тайтл и подтверди запись прогресса.");
+  try {
+    await chrome.tabs.create({ url: destination.toString() });
+    if (pendingEventId) {
+      const { pendingWatchEvents = [] } = await chrome.storage.local.get({ pendingWatchEvents: [] });
+      const nextQueue = (Array.isArray(pendingWatchEvents) ? pendingWatchEvents : [])
+        .filter((item) => item.eventId !== pendingEventId);
+      await chrome.storage.local.set({ pendingWatchEvents: nextQueue });
+      await chrome.action.setBadgeText({ text: nextQueue.length ? String(Math.min(nextQueue.length, 99)) : "" });
+      pendingEventId = null;
+    }
+    status("Событие открыто в MidaHoshi Anime Sync. Выбери соответствующий тайтл и подтверди запись прогресса.");
+  } catch {
+    status("Не удалось открыть локальное приложение. Проверь, что оно запущено и адрес указан верно.");
+  }
 });
 
 document.getElementById("options").addEventListener("click", () => chrome.runtime.openOptionsPage());
