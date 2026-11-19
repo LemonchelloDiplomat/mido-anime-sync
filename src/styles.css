@@ -1574,6 +1574,58 @@ button:disabled {
 .integration-security-note strong {
   color: #d3c3ff;
 }
+
+.integration-danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid #70404a;
+  border-radius: 11px;
+  background: #241b22;
+}
+.integration-danger-zone h3 {
+  margin: 0 0 7px;
+  color: #f0a4ad;
+  font-size: 13px;
+}
+.integration-danger-zone p {
+  max-width: 680px;
+  margin: 0;
+  color: #aaa0a8;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.danger-button {
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  border: 1px solid #9b4c5b;
+  border-radius: 8px;
+  background: #572b36;
+  color: #ffdce1;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.danger-button:hover:not(:disabled) {
+  background: #713744;
+}
+.danger-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+@media (max-width: 700px) {
+  .integration-danger-zone {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .danger-button {
+    width: 100%;
+  }
+}
 @media (max-width: 1000px) {
   .integration-provider {
     flex-wrap: wrap;
