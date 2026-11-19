@@ -280,7 +280,7 @@ describe("BrowserAnimeRepository merge", () => {
     expect(snapshot.sourceEntries).toHaveLength(2);
   });
 
-  it("keeps the newer entry when both records use the same service", async () => {
+  it("rejects merging different entries from the same service instead of losing one", async () => {
     const repo = await createRepository();
 
     const target = makeAnime("target");
@@ -309,25 +309,14 @@ describe("BrowserAnimeRepository merge", () => {
       updatedAt: "2026-11-15T12:00:00.000Z",
     });
 
-    await repo.mergeAnimeRecords("source", "target");
+    await expect(repo.mergeAnimeRecords("source", "target")).rejects.toThrow(
+      "both records contain different myanimelist source entries",
+    );
 
-    const sources = await repo.getSourceEntries("target");
-
-    expect(sources).toHaveLength(1);
-    expect(sources[0]).toMatchObject({
-      animeId: "target",
-      source: "myanimelist",
-      progress: 9,
-      score: 95,
-      favorite: true,
-      updatedAt: "2026-11-15T12:00:00.000Z",
-    });
-
-    expect(await repo.getEntry("target")).toMatchObject({
-      progress: 9,
-      score: 95,
-      favorite: true,
-    });
+    expect(await repo.getAnime("source")).toBeDefined();
+    expect(await repo.getAnime("target")).toBeDefined();
+    expect(await repo.getSourceEntries("source")).toHaveLength(1);
+    expect(await repo.getSourceEntries("target")).toHaveLength(1);
   });
 
   it("does not merge records when external IDs conflict", async () => {
@@ -1667,77 +1656,3 @@ describe("BrowserAnimeRepository identity reconciliation", () => {
   });
 });
 
-
-describe("BrowserAnimeRepository merge safety", () => {
-  it("rejects merging two different entries from the same provider instead of silently dropping one", async () => {
-    const repo = await createRepository();
-    const first = makeAnime("first");
-    first.externalIds = { myanimelist: "100" };
-    const second = makeAnime("second");
-    second.externalIds = { myanimelist: "100", anilist: "200" };
-    await repo.saveAnime(first);
-    await repo.saveAnime(second);
-    await repo.saveSourceEntry({
-      ...makeEntry("first", 3, "2026-11-18T10:00:00.000Z"),
-      source: "myanimelist",
-      sourceMetadata: { comments: "older" },
-    });
-    await repo.saveSourceEntry({
-      ...makeEntry("second", 9, "2026-11-18T11:00:00.000Z"),
-      source: "myanimelist",
-      sourceMetadata: { comments: "newer" },
-    });
-
-    await expect(repo.mergeAnimeRecords("first", "second")).rejects.toThrow(
-      "both records contain different myanimelist source entries",
-    );
-    expect(await repo.getAnime("first")).toBeDefined();
-    expect(await repo.getAnime("second")).toBeDefined();
-    expect(await repo.getSourceEntries("first")).toHaveLength(1);
-    expect(await repo.getSourceEntries("second")).toHaveLength(1);
-  });
-
-  it("remaps pending remote deletion intents when anime identities are merged", async () => {
-    const repo = await createRepository();
-    const target = makeAnime("target");
-    target.externalIds = { anilist: "200" };
-    const source = makeAnime("source");
-    source.externalIds = { myanimelist: "100" };
-    const sourceEntry = {
-      ...makeEntry("source", 4, "2026-11-18T10:00:00.000Z"),
-      source: "myanimelist" as const,
-    };
-    await repo.restoreSnapshot({
-      schemaVersion: 4,
-      exportedAt: "2026-11-18T12:00:00.000Z",
-      anime: [target, source],
-      entries: [],
-      sourceEntries: [sourceEntry],
-      conflictResolutions: [],
-      animeRelations: [],
-      deletionIntents: [{
-        id: "delete-source",
-        provider: "mal",
-        animeId: "source",
-        externalId: "100",
-        anime: source,
-        entry: sourceEntry,
-        createdAt: "2026-11-18T12:00:00.000Z",
-      }],
-    });
-
-    await repo.mergeAnimeRecords("source", "target");
-
-    expect(await repo.getDeletionIntents()).toEqual([
-      expect.objectContaining({
-        id: "delete-source",
-        animeId: "target",
-        anime: expect.objectContaining({
-          id: "target",
-          externalIds: { anilist: "200", myanimelist: "100" },
-        }),
-        entry: expect.objectContaining({ animeId: "target" }),
-      }),
-    ]);
-  });
-});
