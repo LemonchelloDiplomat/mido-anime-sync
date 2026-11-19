@@ -69,7 +69,10 @@ document.getElementById("send").addEventListener("click", async () => {
       status("Эта страница не относится к поддерживаемым источникам.");
       return;
     }
-    detected = { service, sourceUrl: tab.url, currentTimeSeconds: null, durationSeconds: null };
+    const sourceUrl = new URL(tab.url);
+    sourceUrl.search = "";
+    sourceUrl.hash = "";
+    detected = { service, sourceUrl: sourceUrl.toString(), currentTimeSeconds: null, durationSeconds: null };
   }
 
   const event = {
