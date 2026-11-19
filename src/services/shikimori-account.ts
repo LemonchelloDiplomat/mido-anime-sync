@@ -124,7 +124,7 @@ export function parseShikimoriAccountList(
       externalIds: { shikimori: String(raw.target_id) },
       ...(airedOn ? { startDate: airedOn, year: Number(airedOn.slice(0, 4)) } : {}),
       ...(mapFormat(raw.target.kind) ? { format: mapFormat(raw.target.kind)! } : {}),
-      episodes: Number.isInteger(raw.target.episodes) ? raw.target.episodes : null,
+      episodes: typeof raw.target.episodes === "number" && Number.isInteger(raw.target.episodes) ? raw.target.episodes : null,
       averageScore: typeof raw.target.score === "number" ? raw.target.score : null,
       posterUrl: normalizePoster(raw.target.image?.original || raw.target.image?.preview || raw.target.image?.x96),
     };
