@@ -15,7 +15,6 @@ export interface InterruptedSyncSessionDependencies {
  * caller must not turn an unresolved write into a false success or failure.
  */
 export async function reconcileInterruptedSyncSessions(
-  provider: "mal" | "anilist",
   currentSessionId: string,
   sessions: SyncSession[],
   operations: SyncOperation[],
@@ -26,7 +25,6 @@ export async function reconcileInterruptedSyncSessions(
 
   for (const session of sessions) {
     if (
-      session.provider !== provider ||
       session.status !== "running" ||
       session.sessionId === currentSessionId
     ) {
