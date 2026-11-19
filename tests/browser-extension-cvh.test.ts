@@ -60,7 +60,6 @@ describe("AnimeGO CVH iframe tracking", () => {
     };
     const iframe = {
       src: "https://animego.me/cdn-iframe/61443/Jam%20Club/1/7",
-      dataset: { providerSlug: "cvh" },
       contentWindow: frameWindow,
     };
     const parentDocument = {
