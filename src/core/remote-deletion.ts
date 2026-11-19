@@ -1,3 +1,4 @@
+import { getProviderServiceId } from "./provider-capabilities.js";
 import type {
   AnimeListEntry,
   AnimeSnapshot,
@@ -18,7 +19,7 @@ export async function resolvePendingRemoteDeletionIntents(
   provider: SyncProvider,
   deleteDeletionIntent: (id: string) => Promise<void>,
 ): Promise<RemoteDeletionCandidate[]> {
-  const providerSource = provider === "mal" ? "myanimelist" : provider === "anilist" ? "anilist" : "shikimori";
+  const providerSource = getProviderServiceId(provider);
   const candidates: RemoteDeletionCandidate[] = [];
 
   for (const intent of intents) {
