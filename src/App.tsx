@@ -16,6 +16,7 @@ import type {
 } from "./core/types.js";
 
 import { BrowserAnimeRepository } from "./storage/browser-repository.js";
+import { createLocalWatchProgressEntry, findExactAnimeTitleMatches, type IncomingWatchEvent } from "./core/watch-event.js";
 import { validateSnapshot } from "./storage/snapshot-validation.js";
 import { DEFAULT_LIBRARY_FILTERS, filterLibrary, type LibraryFilters } from "./core/library-filter.js";
 import { aniListMetadataProvider, fetchAniListAnimeDetails, getAniListMetadataCandidates, searchAniListAnime, type AniListAnimeDetails } from "./services/anilist.js";
@@ -44,23 +45,6 @@ type LibraryItem = {
 };
 
 
-type IncomingWatchEvent = {
-  eventId: string;
-  provider: "animego" | "yummyanime";
-  title: string;
-  episode: number;
-  sourceUrl: string;
-  watchedAt: string;
-};
-
-function normalizeWatchTitle(value: string): string {
-  return value
-    .toLocaleLowerCase()
-    .replace(/[ё]/g, "е")
-    .replace(/[^\\p{L}\\p{N}]+/gu, " ")
-    .trim()
-    .replace(/\\s+/g, " ");
-}
 
 type MetadataEnrichmentProgress = {
   provider: string;
@@ -1811,17 +1795,12 @@ function App() {
   }
 
   function findWatchEventMatches(event: IncomingWatchEvent): LibraryItem[] {
-    const query = normalizeWatchTitle(event.title);
-    if (!query) return [];
-    return library.filter(({ anime }) => {
-      const titles = [
-        anime.titles.english,
-        anime.titles.romaji,
-        anime.titles.native,
-        ...anime.titles.synonyms,
-      ].filter((title): title is string => Boolean(title));
-      return titles.some((title) => normalizeWatchTitle(title) === query);
-    });
+    const matches = findExactAnimeTitleMatches(
+      library.map((item) => item.anime),
+      event.title,
+    );
+    const matchedIds = new Set(matches.map((anime) => anime.id));
+    return library.filter((item) => matchedIds.has(item.anime.id));
   }
 
   async function applyWatchEvent(event: IncomingWatchEvent) {
@@ -1838,25 +1817,8 @@ function App() {
     try {
       const sourceEntries = await repository.getSourceEntries(anime.id);
       const localEntry = sourceEntries.find((entry) => entry.source === "local");
-      const progress = Math.max(localEntry?.progress ?? 0, event.episode);
-      const status: AnimeStatus = anime.episodes != null && anime.episodes > 0 && progress >= anime.episodes
-        ? "COMPLETED"
-        : "WATCHING";
-      await repository.saveSourceEntry({
-        animeId: anime.id,
-        source: "local",
-        status: localEntry?.status === "COMPLETED" ? "COMPLETED" : status,
-        progress,
-        score: localEntry?.score ?? null,
-        favorite: localEntry?.favorite ?? false,
-        updatedAt: new Date().toISOString(),
-        sourceMetadata: {
-          ...(localEntry?.sourceMetadata ?? {}),
-          lastWatchSource: event.provider,
-          lastWatchSourceUrl: event.sourceUrl,
-          lastWatchDetectedAt: event.watchedAt,
-        },
-      });
+      const nextEntry = createLocalWatchProgressEntry(anime, localEntry, event);
+      await repository.saveSourceEntry(nextEntry);
       await refreshLibrary();
       acknowledgeWatchEvent(event.eventId);
       setError("");
