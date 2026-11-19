@@ -218,7 +218,10 @@ async function exchangeShikimoriToken(fields) {
   for (const [key, value] of Object.entries(fields)) form.append(key, String(value));
   return fetchJson(SHIKIMORI_OAUTH + "/token", {
     method: "POST",
-    headers: { Accept: "application/json" },
+    headers: {
+      Accept: "application/json",
+      "User-Agent": process.env.SHIKIMORI_USER_AGENT || "MidaHoshiAnimeSync/0.2.0",
+    },
     body: form,
   });
 }
