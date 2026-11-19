@@ -92,6 +92,38 @@ describe("watch source events", () => {
     expect(next.sourceMetadata?.lastWatchedAt).toBe("2026-11-20T12:00:00.000Z");
   });
 
+  it("matches exact normalized aliases and leaves non-exact titles unmatched", () => {
+    expect(findExactAnimeTitleMatches([anime], "EXAMPLE   ANIME")).toHaveLength(1);
+    expect(findExactAnimeTitleMatches([anime], "Example Anime 2")).toHaveLength(0);
+  });
+
+  it("does not move provider timestamps or completed status backwards", () => {
+    const existing: AnimeSourceEntry = {
+      animeId: anime.id,
+      source: "animego",
+      status: "COMPLETED",
+      progress: 12,
+      score: 90,
+      favorite: true,
+      updatedAt: "2026-11-20T12:00:00.000Z",
+      sourceMetadata: {
+        lastWatchedAt: "2026-11-20T12:00:00.000Z",
+        lastEpisode: 12,
+      },
+    };
+    const next = createWatchSourceEntry(anime, {
+      ...event,
+      episode: 6,
+      observedAt: "2026-11-19T12:00:00.000Z",
+    }, existing);
+
+    expect(next.progress).toBe(12);
+    expect(next.status).toBe("COMPLETED");
+    expect(next.updatedAt).toBe(existing.updatedAt);
+    expect(next.sourceMetadata?.lastEpisode).toBe(12);
+    expect(next.sourceMetadata?.lastWatchedAt).toBe("2026-11-20T12:00:00.000Z");
+  });
+
   it("marks an anime completed when its final episode is recorded", () => {
     const next = createWatchSourceEntry(anime, { ...event, episode: 12 });
     expect(next.status).toBe("COMPLETED");
