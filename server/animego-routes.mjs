@@ -93,6 +93,43 @@ function safeUrl(value, base = SITE) {
   } catch { return null; }
 }
 
+function posterFromCard(card) {
+  const tags = [...String(card || "").matchAll(/<(?:img|source)\\b[^>]*>/gi)].map((match) => match[0]);
+  const candidates = [];
+  for (const tag of tags) {
+    for (const name of ["data-original", "data-lazy-src", "data-src", "data-cfsrc", "src"]) {
+      const value = attr(tag, name);
+      if (value) candidates.push(value);
+    }
+    for (const name of ["data-srcset", "srcset"]) {
+      const value = attr(tag, name);
+      if (value) {
+        const choices = value.split(",").map((entry) => {
+          const [url, descriptor] = entry.trim().split(/\\s+/);
+          const width = Number(descriptor?.replace(/w$/i, "")) || 0;
+          return { url, width };
+        }).filter((entry) => entry.url);
+        choices.sort((a, b) => b.width - a.width);
+        candidates.push(...choices.map((entry) => entry.url));
+      }
+    }
+    const style = attr(tag, "style");
+    const background = style.match(/background-image\\s*:\\s*url\\((['"]?)(.*?)\\1\\)/i)?.[2];
+    if (background) candidates.push(background);
+  }
+  const styleTags = [...String(card || "").matchAll(/<[^>]+\\bstyle\\s*=\\s*(['"])[^'"]*background-image\\s*:[^'"]*\\1[^>]*>/gi)];
+  for (const match of styleTags) {
+    const style = attr(match[0], "style");
+    const background = style.match(/background-image\\s*:\\s*url\\((['"]?)(.*?)\\1\\)/i)?.[2];
+    if (background) candidates.push(background);
+  }
+  for (const candidate of candidates) {
+    const url = safeUrl(candidate);
+    if (url && !/^(?:data:|blob:)/i.test(candidate)) return url;
+  }
+  return null;
+}
+
 function normalizeAnimeGoSearchText(value) {
   const cyrillicToLatin = {
     а:"a", б:"b", в:"v", г:"g", д:"d", е:"e", ё:"yo", ж:"zh", з:"z", и:"i",
@@ -181,7 +218,7 @@ export function parseAnimeGoSearch(html) {
       ...[...card.matchAll(/<a\b[^>]*>/gi)].map((entry) => attr(entry[0], "title")),
       cardText,
     ].filter(Boolean))];
-    const poster = safeUrl(attr(image, "data-src") || attr(image, "src"));
+    const poster = posterFromCard(card);
     const slug = new URL(selectedUrl).pathname.split("/").filter(Boolean).at(-1) || selectedUrl;
     results.push({
       provider: "animego",
