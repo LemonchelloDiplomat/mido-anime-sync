@@ -1,4 +1,8 @@
+import { Readable } from "node:stream";
+
 const SITE = "https://anixart.site";
+const CVH_API = "https://plapi.cdnvideohub.com/api/v1/player/sv";
+const CVH_PLAYER = "https://player.cdnvideohub.com/";
 function sanitizePlayerCatalog(input) {
   if (!input || typeof input !== "object" ||
       typeof input.slug !== "string" || !/^\d+-[\p{L}\p{N}-]+\.html$/u.test(input.slug) ||
@@ -200,12 +204,14 @@ export function parseAnixArtPlayerPlaylist(payload, titleUrl) {
       voiceTracks: [],
     };
     const voiceKey = voiceName.toLocaleLowerCase() + "\u0000" + String(voiceType || "").toLocaleLowerCase();
+    const videoId = String(row?.vkId || "").trim();
     if (!episode.voiceTracks.some((track) => track.externalId === voiceKey)) {
       episode.voiceTracks.push({
         externalId: voiceKey,
         name: voiceName,
         playerName: voiceType || "CVH",
-        playerUrl: null,
+        // The numeric CVH video id is transient and only used by the local stream proxy.
+        playerUrl: /^\d+$/.test(videoId) ? "/api/anixart/stream/" + videoId : null,
       });
     }
     season.set(episodeNumber, episode);
@@ -222,6 +228,29 @@ export function parseAnixArtPlayerPlaylist(payload, titleUrl) {
     voices: [...voices.values()].sort((a, b) => a.name.localeCompare(b.name)),
     episodeCount: mappedSeasons.reduce((total, season) => total + season.episodes.length, 0),
   };
+}
+
+export function selectAnixArtVideoSource(payload) {
+  const sources = payload && typeof payload === "object" && payload.sources && typeof payload.sources === "object"
+    ? payload.sources : {};
+  const preferredKeys = [
+    "mpeg4kUrl", "mpeg2kUrl", "mpegQhdUrl", "mpegFullHdUrl",
+    "mpegHighUrl", "mpegMediumUrl", "mpegLowUrl", "mpegLowestUrl",
+    "mpegTinyUrl", "mpegMobileUrl",
+  ];
+  for (const key of preferredKeys) {
+    const value = sources[key];
+    if (typeof value !== "string" || !value.trim()) continue;
+    try {
+      const candidate = new URL(value);
+      if (candidate.protocol === "https:" &&
+          (candidate.hostname === "okcdn.ru" || candidate.hostname.endsWith(".okcdn.ru") ||
+           candidate.hostname === "vkuser.net" || candidate.hostname.endsWith(".vkuser.net"))) {
+        return candidate.toString();
+      }
+    } catch {}
+  }
+  return null;
 }
 
 export async function handleAnixArtRequest(request, response, url, deps) {
@@ -246,6 +275,50 @@ export async function handleAnixArtRequest(request, response, url, deps) {
       return sendJson(response, 200, { items: parseAnixArtSearch(await page.text()), page: 1, hasNextPage: false });
     }
 
+    const streamMatch = url.pathname.match(/^\/api\/anixart\/stream\/(\d+)$/);
+    if (streamMatch) {
+      const videoId = streamMatch[1];
+      const playerHeaders = {
+        Accept: "application/json",
+        "User-Agent": headers["User-Agent"],
+        Referer: CVH_PLAYER,
+        Origin: "https://player.cdnvideohub.com",
+      };
+      const metadata = await fetcher(CVH_API + "/video/" + videoId, { headers: playerHeaders });
+      if (!metadata.ok) throw new Error("AnixART CVH video metadata: HTTP " + metadata.status);
+      const sourceUrl = selectAnixArtVideoSource(await metadata.json());
+      if (!sourceUrl) throw new Error("CVH не вернул поддерживаемую MP4-ссылку для этой озвучки.");
+
+      const upstreamHeaders = {
+        "User-Agent": headers["User-Agent"],
+        Referer: CVH_PLAYER,
+        Origin: "https://player.cdnvideohub.com",
+      };
+      const range = request.headers?.range;
+      if (typeof range === "string" && /^bytes=\d*-\d*$/.test(range)) upstreamHeaders.Range = range;
+      const upstream = await fetcher(sourceUrl, { headers: upstreamHeaders });
+      if (!upstream.ok && upstream.status !== 206) {
+        throw new Error("CVH video CDN: HTTP " + upstream.status);
+      }
+      const responseHeaders = {
+        "Content-Type": upstream.headers?.get("content-type") || "video/mp4",
+        "Accept-Ranges": upstream.headers?.get("accept-ranges") || "bytes",
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      };
+      for (const name of ["content-length", "content-range"]) {
+        const value = upstream.headers?.get(name);
+        if (value) responseHeaders[name] = value;
+      }
+      response.writeHead(upstream.status, responseHeaders);
+      if (upstream.body) {
+        Readable.fromWeb(upstream.body).pipe(response);
+      } else {
+        response.end(Buffer.from(await upstream.arrayBuffer()));
+      }
+      return true;
+    }
+
     const match = url.pathname.match(/^\/api\/anixart\/anime\/([^/]+)$/);
     if (match) {
       const slug = decodeURIComponent(match[1]);
@@ -265,8 +338,8 @@ export async function handleAnixArtRequest(request, response, url, deps) {
           headers: {
             Accept: "application/json",
             "User-Agent": headers["User-Agent"],
-            Referer: SITE + "/",
-            Origin: SITE,
+            Referer: CVH_PLAYER,
+            Origin: "https://player.cdnvideohub.com",
           },
         });
         if (playlist.ok) {
@@ -299,7 +372,7 @@ export async function handleAnixArtRequest(request, response, url, deps) {
         limitations: [
           "Каталог сезонов, серий и озвучек загружается локальным сервером из публичного CVH playlist API.",
           "Синхронизация аккаунта мобильного приложения AnixART не поддерживается.",
-          "Получение прямых видеопотоков и воспроизведение в собственном плеере пока не реализованы.",
+          "Видеопотоки CVH разрешаются локальным сервером и передаются встроенному HTML5-плееру через потоковый прокси.",
         ],
       });
     }
