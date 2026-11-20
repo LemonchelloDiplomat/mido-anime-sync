@@ -44,6 +44,8 @@ export interface StreamingEpisode {
   url: string;
   seasonNumber?: number | null;
   durationSeconds?: number | null;
+  /** Provider-specific voice/player variants belonging to this exact episode. */
+  voiceTracks?: StreamingVoice[];
 }
 
 export interface StreamingSeason {
