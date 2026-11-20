@@ -127,7 +127,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
       setAccountMessage("Аккаунт YummyAnime подключён.");
     } catch (reason) {
       const captchaRequired = Boolean(reason && typeof reason === "object" && "captchaRequired" in reason && reason.captchaRequired);
-      setAccountMessage(captchaRequired ? "YummyAnime запросил hCaptcha (HTTP 420). Автоматический вход остановлен, чтобы не обходить защиту. Повтори попытку после прохождения проверки на сайте." : reason instanceof Error ? reason.message : "Не удалось подключить аккаунт.");
+      setAccountMessage(captchaRequired ? "YummyAnime запросил hCaptcha (HTTP 420). В текущем интерфейсе нет встроенного виджета проверки, поэтому подключение этого аккаунта пока приостановлено. Защиту не обходим." : reason instanceof Error ? reason.message : "Не удалось подключить аккаунт.");
     } finally { setAccountBusy(false); }
   }
 
