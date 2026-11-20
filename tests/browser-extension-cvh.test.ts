@@ -474,3 +474,213 @@ describe("YummyAnime CVH iframe tracking", () => {
     });
   });
 });
+
+
+describe("YummyAnime nested CVH iframe bridge", () => {
+  it.each([
+    ["old.yummyani.me", 3],
+    ["ru.yummyani.me", 1],
+  ])("forwards the selected episode from %s iframeCVH URL through the bridge", (hostname, episodeNumber) => {
+    const listeners: Record<string, ((event: any) => void)[]> = {};
+    const forwarded: any[] = [];
+    const bridgeWindow = {
+      postMessage(data: unknown, origin: string) {
+        forwarded.push({ data, origin });
+      },
+    };
+    const bridgeFrame = {
+      src: `https://ru.yummyani.me/iframeCVH.html?anime_id=11499&episode=${episodeNumber}&dubbing_code=AniLibria`,
+      contentWindow: bridgeWindow,
+    };
+    const title = { textContent: "Санка Рэа", getAttribute() { return null; } };
+    const window = {
+      addEventListener(type: string, listener: (event: any) => void) {
+        (listeners[type] ||= []).push(listener);
+      },
+    };
+    const document = {
+      title: "Санка Рэа | YummyAnime",
+      documentElement: {},
+      querySelector(selector: string) {
+        return selector === "h1" ? title : null;
+      },
+      querySelectorAll(selector: string) {
+        return selector === "iframe" ? [bridgeFrame] : [];
+      },
+    };
+
+    vm.runInNewContext(contentScript, {
+      ...common,
+      location: {
+        hostname,
+        origin: `https://${hostname}`,
+        pathname: "/catalog/item/sanka-rea-tv",
+        href: `https://${hostname}/catalog/item/sanka-rea-tv`,
+      },
+      document,
+      window,
+      chrome: { runtime: { onMessage: { addListener() {} }, sendMessage() {} } },
+    });
+
+    expect(forwarded).toHaveLength(1);
+    expect(forwarded[0]).toMatchObject({
+      origin: "https://ru.yummyani.me",
+      data: {
+        type: "MIDAHOSHI_PARENT_METADATA",
+        metadata: {
+          title: "Санка Рэа",
+          episode: episodeNumber,
+          sourceUrl: `https://${hostname}/catalog/item/sanka-rea-tv`,
+          service: "yummyanime",
+        },
+      },
+    });
+
+    // The iframeCVH bridge receives the catalog metadata and relays it to
+    // the nested player.cdnvideohub.com iframe.
+    const bridgeListeners: Record<string, ((event: any) => void)[]> = {};
+    const playerMessages: any[] = [];
+    const playerWindow = {
+      postMessage(data: unknown, origin: string) {
+        playerMessages.push({ data, origin });
+      },
+    };
+    const playerFrame = {
+      src: "https://player.cdnvideohub.com/s2/v2.43.56/frame/",
+      contentWindow: playerWindow,
+    };
+    const bridgeParent = { postMessage() {} };
+    const bridgeRuntimeWindow = {
+      parent: bridgeParent,
+      addEventListener(type: string, listener: (event: any) => void) {
+        (bridgeListeners[type] ||= []).push(listener);
+      },
+    };
+    const bridgeDocument = {
+      title: "CVH",
+      documentElement: {},
+      querySelector() { return null; },
+      querySelectorAll(selector: string) {
+        return selector === "iframe" ? [playerFrame] : [];
+      },
+    };
+
+    vm.runInNewContext(contentScript, {
+      ...common,
+      location: {
+        hostname: "ru.yummyani.me",
+        origin: "https://ru.yummyani.me",
+        pathname: "/iframeCVH.html",
+        href: `https://ru.yummyani.me/iframeCVH.html?episode=${episodeNumber}`,
+      },
+      document: bridgeDocument,
+      window: bridgeRuntimeWindow,
+      chrome: { runtime: { onMessage: { addListener() {} }, sendMessage() {} } },
+    });
+
+    for (const listener of bridgeListeners.message || []) {
+      listener({
+        source: bridgeParent,
+        origin: `https://${hostname}`,
+        data: forwarded[0].data,
+      });
+    }
+
+    expect(playerMessages).toHaveLength(1);
+    expect(playerMessages[0]).toMatchObject({
+      origin: "https://player.cdnvideohub.com",
+      data: {
+        type: "MIDAHOSHI_PARENT_METADATA",
+        metadata: {
+          title: "Санка Рэа",
+          episode: episodeNumber,
+          sourceUrl: `https://${hostname}/catalog/item/sanka-rea-tv`,
+          service: "yummyanime",
+          transport: "yummyanime-cvh-bridge",
+        },
+      },
+    });
+  });
+
+  it("accepts relayed metadata from the YummyAnime CVH bridge and emits playback progress", () => {
+    const listeners: Record<string, ((event: any) => void)[]> = {};
+    const sentEvents: any[] = [];
+    const bridgeWindow = { postMessage() {} };
+    const window = {
+      parent: bridgeWindow,
+      addEventListener(type: string, listener: (event: any) => void) {
+        (listeners[type] ||= []).push(listener);
+      },
+      setInterval() { return 1; },
+      clearInterval() {},
+    };
+
+    vm.runInNewContext(contentScript, {
+      ...common,
+      location: {
+        hostname: "player.cdnvideohub.com",
+        origin: "https://player.cdnvideohub.com",
+        pathname: "/s2/v2.43.56/frame/",
+        href: "https://player.cdnvideohub.com/s2/v2.43.56/frame/",
+      },
+      document: {
+        title: "CVH Player",
+        referrer: "https://ru.yummyani.me/",
+        documentElement: {},
+        querySelectorAll() { return []; },
+      },
+      window,
+      chrome: {
+        runtime: {
+          onMessage: { addListener() {} },
+          sendMessage(message: unknown) { sentEvents.push(message); },
+        },
+      },
+      crypto: { randomUUID: () => "yummy-cvh-bridge-event-id" },
+    });
+
+    const dispatch = (event: any) => {
+      for (const listener of listeners.message || []) listener(event);
+    };
+    dispatch({
+      source: bridgeWindow,
+      origin: "https://ru.yummyani.me",
+      data: {
+        type: "MIDAHOSHI_PARENT_METADATA",
+        metadata: {
+          title: "Санка Рэа",
+          episode: 3,
+          sourceUrl: "https://old.yummyani.me/catalog/item/sanka-rea-tv",
+          service: "yummyanime",
+          transport: "yummyanime-cvh-bridge",
+        },
+      },
+    });
+
+    const sendSample = (currentTime: number) => dispatch({
+      source: window,
+      origin: "https://player.cdnvideohub.com",
+      data: {
+        type: "MIDAHOSHI_CVH_STATE",
+        state: { currentTime, duration: 100, paused: false, readyState: 4 },
+      },
+    });
+    sendSample(89);
+    sendSample(90);
+
+    expect(sentEvents).toHaveLength(1);
+    expect(sentEvents[0]).toMatchObject({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: {
+        service: "yummyanime",
+        title: "Санка Рэа",
+        episode: 3,
+        sourceUrl: "https://old.yummyani.me/catalog/item/sanka-rea-tv",
+        currentTimeSeconds: 90,
+        durationSeconds: 100,
+        hasVideoElement: true,
+        manualOnly: false,
+      },
+    });
+  });
+});
