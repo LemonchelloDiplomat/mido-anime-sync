@@ -204,21 +204,28 @@ describe("browser extension pending watch queue", () => {
   });
 
   it("keeps the existing queue after a storage write failure and accepts later events", async () => {
-    const harness = createBackgroundHarness({ failNextQueueWrite: true });
+    const existingEvent = { ...watchEvent, eventId: "already-pending" };
+    const harness = createBackgroundHarness({
+      storage: { pendingWatchEvents: [existingEvent] },
+      failNextQueueWrite: true,
+    });
 
     await harness.send({
       type: "MIDAHOSHI_AUTO_WATCH_EVENT",
-      event: { ...watchEvent, eventId: "first-write-fails" },
+      event: { ...watchEvent, episode: 4, eventId: "first-write-fails" },
     });
-    expect(harness.storage.pendingWatchEvents).toEqual([]);
+    expect(harness.storage.pendingWatchEvents).toMatchObject([
+      { eventId: "already-pending", episode: 3 },
+    ]);
     expect(harness.warnings.length).toBeGreaterThan(0);
 
     await harness.send({
       type: "MIDAHOSHI_AUTO_WATCH_EVENT",
-      event: { ...watchEvent, episode: 4, eventId: "second-write-succeeds" },
+      event: { ...watchEvent, episode: 5, eventId: "second-write-succeeds" },
     });
     expect(harness.storage.pendingWatchEvents).toMatchObject([
-      { eventId: "second-write-succeeds", episode: 4 },
+      { eventId: "already-pending", episode: 3 },
+      { eventId: "second-write-succeeds", episode: 5 },
     ]);
   });
 
@@ -231,7 +238,12 @@ describe("browser extension pending watch queue", () => {
 
     const restartedWorker = createBackgroundHarness({ storage: firstWorker.storage });
     await restartedWorker.send({ type: "MIDAHOSHI_DISMISS_ALERT" });
+    await restartedWorker.send({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: { ...watchEvent, eventId: "duplicate-after-restart" },
+    });
 
+    expect(restartedWorker.storage.pendingWatchEvents).toHaveLength(1);
     expect(restartedWorker.storage.pendingWatchEvents).toMatchObject([
       { eventId: "survives-restart", title: "Санка Рэа", episode: 3 },
     ]);
