@@ -62,12 +62,24 @@ describe("YummyAnime adapter", () => {
         },
         {
           video_id: 50002,
+          number: "1",
+          data: { translation: "Subtitles Team", player: "Sibnet" },
+        },
+        {
+          video_id: 50003,
           number: "2",
           data: { translation: "Subtitles Team", player: "Sibnet" },
         },
       ],
     });
     expect(details.seasons[0]?.episodes.map((episode) => episode.number)).toEqual([1, 2]);
+    expect(details.seasons[0]?.episodes[0]?.voiceTracks).toEqual([
+      { externalId: "50001", name: "Studio Example" },
+      { externalId: "50002", name: "Subtitles Team" },
+    ]);
+    expect(details.seasons[0]?.episodes[1]?.voiceTracks).toEqual([
+      { externalId: "50003", name: "Subtitles Team" },
+    ]);
     expect(details.voices.map((voice) => voice.name)).toEqual(["Studio Example", "Subtitles Team"]);
     expect(JSON.stringify(details)).not.toContain("temporary");
     expect(JSON.stringify(details)).not.toContain("iframe");
