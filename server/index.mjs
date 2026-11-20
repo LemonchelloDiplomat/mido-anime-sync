@@ -296,7 +296,7 @@ async function handleRequest(request, response) {
     return handleAnimeGoRequest(request, response, url, { sendJson });
   }
   if (url.pathname.startsWith("/api/anixart/")) {
-    return handleAnixArtRequest(request, response, url, { sendJson });
+    return handleAnixArtRequest(request, response, url, { sendJson, readJson });
   }
 
   if (method === "GET" && url.pathname === "/api/health") {

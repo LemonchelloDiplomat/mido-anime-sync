@@ -76,11 +76,9 @@ function decodeHtml(value) {
 }
 
 function attr(tag, name) {
-  const match = String(tag).match(new RegExp("\\b" + name + "\\s*=\\s*(['\"])(.*?)\\1", "i"));
-  return match ? decodeHtml(match[2]) : "";
-}
-
-function stripTags(value) {
+  const match = String(tag).match(new RegExp("\\b" + name + "\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s>]+))", "i"));
+  return match ? decodeHtml(match[1] ?? match[2] ?? match[3] ?? "") : "";
+}function stripTags(value) {
   return decodeHtml(String(value || "").replace(/<script\b[\s\S]*?<\/script>/gi, " ")
     .replace(/<style\b[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " "))
     .replace(/\s+/g, " ").trim();
@@ -91,6 +89,45 @@ function safeUrl(value, base = SITE) {
     const url = new URL(value, base);
     return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
   } catch { return null; }
+}
+
+function posterFromCard(card) {
+  const source = String(card || "");
+  const candidates = [];
+  const tags = [...source.matchAll(/<[a-z][\w:-]*\b[^>]*>/gi)].map((match) => match[0]);
+  const attributes = ["data-original", "data-original-src", "data-lazy-src", "data-src", "data-cfsrc", "data-image", "data-poster", "data-background", "data-bg", "src"];
+  for (const tag of tags) {
+    for (const name of attributes) {
+      const value = attr(tag, name);
+      if (value) candidates.push(value);
+    }
+    for (const name of ["data-srcset", "srcset"]) {
+      const value = attr(tag, name);
+      if (!value) continue;
+      const choices = value.split(",").map((entry) => {
+        const [url, descriptor] = entry.trim().split(/\s+/);
+        const width = Number(descriptor?.replace(/w$/i, "")) || 0;
+        return { url, width };
+      }).filter((entry) => entry.url);
+      choices.sort((a, b) => b.width - a.width);
+      candidates.push(...choices.map((entry) => entry.url));
+    }
+    const style = attr(tag, "style");
+    const background = style.match(/(?:background(?:-image)?|--poster)\s*:\s*url\((['"]?)(.*?)\1\)/i)?.[2];
+    if (background) candidates.push(background);
+  }
+  for (const match of source.matchAll(/\bstyle\s*=\s*(?:(['"])(.*?)\1|([^\s>]+))/gi)) {
+    const style = match[2] ?? match[3] ?? "";
+    const background = style.match(/(?:background(?:-image)?|--poster)\s*:\s*url\((['"]?)(.*?)\1\)/i)?.[2];
+    if (background) candidates.push(background);
+  }
+  for (const candidate of candidates) {
+    const value = decodeHtml(candidate).trim();
+    if (!value || /^(?:data:|blob:|javascript:)/i.test(value) || /(?:placeholder|no[-_]?image|default[-_]?poster)/i.test(value)) continue;
+    const url = safeUrl(value);
+    if (url) return url;
+  }
+  return null;
 }
 
 function normalizeAnimeGoSearchText(value) {
@@ -145,24 +182,27 @@ export function parseAnimeGoSearch(html) {
   // AnimeGO pages contain navigation links to /anime/... alongside actual search cards.
   // Only inspect the dedicated ani-grid__item containers, never arbitrary page anchors.
   const divTags = [...String(html || "").matchAll(/<div\b[^>]*>/gi)];
+  // Match the exact class token. A substring regex also matched
+  // "ani-grid__item-picture", which is a nested image wrapper, not a card.
   const cardStarts = divTags
-    .filter((match) => /\bani-grid__item\b/.test(attr(match[0], "class")))
+    .filter((match) => attr(match[0], "class").split(/\s+/).includes("ani-grid__item"))
     .map((match) => match.index);
   const results = [];
   const seen = new Set();
 
   for (let index = 0; index < cardStarts.length; index += 1) {
     const card = String(html).slice(cardStarts[index], cardStarts[index + 1] ?? String(html).length);
-    const anchors = [...card.matchAll(/<a\b[^>]*>/gi)];
+    const anchors = [...card.matchAll(/<a\b[^>]*>([\s\S]*?)<\/a>/gi)];
     let selectedAnchor = null;
     let selectedUrl = null;
     for (const anchor of anchors) {
-      const href = attr(anchor[0], "href");
+      const openingTag = anchor[0].slice(0, anchor[0].indexOf(">") + 1);
+      const href = attr(openingTag, "href");
       const candidate = safeUrl(href);
       if (!candidate) continue;
       const pathname = new URL(candidate).pathname;
       if (/^\/anime\/[\p{L}\p{N}-]+-\d+\/?$/u.test(pathname)) {
-        selectedAnchor = anchor[0];
+        selectedAnchor = openingTag;
         selectedUrl = candidate;
         break;
       }
@@ -171,7 +211,9 @@ export function parseAnimeGoSearch(html) {
 
     const image = card.match(/<img\b[^>]*>/i)?.[0] || "";
     const title = attr(selectedAnchor, "title") || attr(image, "alt") ||
-      stripTags(card.match(/<a\b[^>]*>([\s\S]*?)<\/a>/i)?.[1] || "");
+      anchors.map((anchor) => attr(anchor[0].slice(0, anchor[0].indexOf(">") + 1), "title") || stripTags(anchor[1]))
+        .find(Boolean) || "";
+
     if (!title) continue;
 
     const cardText = stripTags(card);
@@ -181,7 +223,7 @@ export function parseAnimeGoSearch(html) {
       ...[...card.matchAll(/<a\b[^>]*>/gi)].map((entry) => attr(entry[0], "title")),
       cardText,
     ].filter(Boolean))];
-    const poster = safeUrl(attr(image, "data-src") || attr(image, "src"));
+    const poster = posterFromCard(card);
     const slug = new URL(selectedUrl).pathname.split("/").filter(Boolean).at(-1) || selectedUrl;
     results.push({
       provider: "animego",
@@ -300,6 +342,39 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
   };
   try {
+    if (url.pathname === "/api/animego/poster") {
+      const raw = String(url.searchParams.get("url") || "");
+      let target;
+      try { target = new URL(raw); } catch { return sendJson(response, 400, { error: "Некорректный адрес постера AnimeGO." }); }
+      const allowedHost = (hostname) => ["cdngos.com", "animego.me", "animego.org", "animego.online"].some((domain) => hostname === domain || hostname.endsWith("." + domain));
+      if (target.protocol !== "https:" || !allowedHost(target.hostname)) {
+        return sendJson(response, 400, { error: "Источник постера AnimeGO не разрешён." });
+      }
+      const imageFetcher = deps.fetch || fetch;
+      const image = await imageFetcher(target.toString(), {
+        headers: { ...headers, Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8", Referer: SITE + "/" },
+        redirect: "follow",
+      });
+      const finalUrl = new URL(image.url || target.toString());
+      if (!image.ok) throw new Error("AnimeGO poster: HTTP " + image.status);
+      if (finalUrl.protocol !== "https:" || !allowedHost(finalUrl.hostname)) {
+        return sendJson(response, 502, { error: "AnimeGO перенаправил постер на неизвестный источник." });
+      }
+      const contentType = image.headers?.get("content-type") || "application/octet-stream";
+      if (!contentType.toLowerCase().startsWith("image/")) {
+        return sendJson(response, 502, { error: "AnimeGO вместо изображения вернул другой тип данных." });
+      }
+      const bytes = Buffer.from(await image.arrayBuffer());
+      if (bytes.length > 8 * 1024 * 1024) return sendJson(response, 413, { error: "Постер AnimeGO превышает допустимый размер." });
+      response.writeHead(200, {
+        "Content-Type": contentType,
+        "Content-Length": String(bytes.length),
+        "Cache-Control": "public, max-age=86400",
+        "X-Content-Type-Options": "nosniff",
+      });
+      response.end(bytes);
+      return true;
+    }
     if (url.pathname === "/api/animego/search") {
       const query = String(url.searchParams.get("q") || "").trim();
       if (query.length < 2 || query.length > 120) return sendJson(response, 400, { error: "Поисковый запрос должен содержать от 2 до 120 символов." });
@@ -328,7 +403,8 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
         headers: { ...headers, Accept: "application/json", "X-Requested-With": "XMLHttpRequest", Referer: SITE + "/" },
       });
       if (!player.ok) throw new Error("AnimeGO player: HTTP " + player.status);
-      const voices = parseAnimeGoVoices(await player.json());
+      const payload = typeof player.json === "function" ? await player.json() : JSON.parse(await player.text());
+      const voices = parseAnimeGoVoices(payload);
       return sendJson(response, 200, { voices });
     }
     const match = url.pathname.match(/^\/api\/animego\/anime\/([^/]+)$/);
@@ -342,7 +418,10 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
         headers: { ...headers, Accept: "application/json", "X-Requested-With": "XMLHttpRequest", Referer: SITE + "/" },
       });
       let parsed = { episodes: [], voices: [] };
-      if (player.ok) parsed = parseAnimeGoPlayer(await player.json(), detail.url);
+      if (player.ok) {
+        const payload = typeof player.json === "function" ? await player.json() : JSON.parse(await player.text());
+        parsed = parseAnimeGoPlayer(payload, detail.url);
+      }
       // AnimeGO films can expose player variants without an episode navigation bar.
       // Surface those variants as one synthetic "Фильм" item so the existing player UI can render them.
       const episodes = parsed.episodes.length

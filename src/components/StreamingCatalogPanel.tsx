@@ -32,13 +32,23 @@ const providerLabels: Record<StreamingProviderId, string> = {
 const providerNotes: Record<StreamingProviderId, string> = {
   yummyanime: "Каталог, карточки, серии, озвучки и API аккаунта. Для входа нужен личный X-Application token.",
   animego: "Публичный каталог, карточки, серии и озвучки. Прогресс передаёт браузерное расширение.",
-  anixart: "Каталог сайта, карточки и озвучки. Полный список серий и синхронизация с мобильным приложением недоступны.",
+  anixart: "Каталог и озвучки загружаются сервером AnixART; видео воспроизводится во встроенном плеере через локальный потоковый прокси.",
 };
 
 async function searchProvider(provider: StreamingProviderId, query: string, signal: AbortSignal): Promise<StreamingSearchResult> {
-  if (provider === "yummyanime") return searchYummyAnime(query, 1, signal);
-  if (provider === "animego") return animeGo.search({ query, page: 1, signal });
-  return anixArt.search({ query, page: 1, signal });
+  // A provider that stalls must never leave the catalog in its permanent loading state.
+  const timeout = AbortSignal.timeout(25_000);
+  const requestSignal = AbortSignal.any([signal, timeout]);
+  try {
+    if (provider === "yummyanime") return await searchYummyAnime(query, 1, requestSignal);
+    if (provider === "animego") return await animeGo.search({ query, page: 1, signal: requestSignal });
+    return await anixArt.search({ query, page: 1, signal: requestSignal });
+  } catch (error) {
+    if (timeout.aborted && !signal.aborted) {
+      throw new Error(providerLabels[provider] + ": поиск не ответил за 25 секунд. Проверь соединение с сайтом и попробуй ещё раз.");
+    }
+    throw error;
+  }
 }
 
 async function loadDetails(provider: StreamingProviderId, title: StreamingTitle, signal: AbortSignal): Promise<StreamingTitleDetails> {
@@ -55,7 +65,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
   const [expandedEpisode, setExpandedEpisode] = useState<string | null>(null);
   const [episodeTracks, setEpisodeTracks] = useState<Record<string, StreamingVoice[]>>({});
   const [episodeTracksLoading, setEpisodeTracksLoading] = useState<Record<string, boolean>>({});
-  const [activePlayer, setActivePlayer] = useState<{ name: string; url: string } | null>(null);
+  const [activePlayer, setActivePlayer] = useState<{ name: string; url: string; kind: "embed" | "video" } | null>(null);
   const [loading, setLoading] = useState(false);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -91,7 +101,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
     setDetails(null);
     setExpandedEpisode(null);
     void searchProvider(provider, normalizedQuery, controller.signal)
-      .then((result) => setResults(result.items))
+      .then((result) => { if (!controller.signal.aborted) setResults(result.items); })
       .catch((reason: unknown) => {
         if (reason instanceof Error && reason.name === "AbortError") return;
         setError(reason instanceof Error ? reason.message : "Не удалось выполнить поиск.");
@@ -104,8 +114,9 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
   }, [normalizedQuery, provider]);
 
   useEffect(() => {
-    if (!selected) {
+    if (!selected || selected.provider !== provider) {
       setDetails(null);
+      setDetailsLoading(false);
       return;
     }
     const controller = new AbortController();
@@ -223,7 +234,17 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
           <h2>Каталоги стриминговых сайтов</h2>
           <p>Поиск на AnimeGO, YummyAnime и AnixART отдельно от каталогов MAL, AniList и Shikimori.</p>
         </div>
-        <select aria-label="Источник каталога" value={provider} onChange={(event) => setProvider(event.target.value as StreamingProviderId)}>
+        <select aria-label="Источник каталога" value={provider} onChange={(event) => {
+          const nextProvider = event.target.value as StreamingProviderId;
+          setProvider(nextProvider);
+          setResults([]);
+          setSelected(null);
+          setDetails(null);
+          setExpandedEpisode(null);
+          setEpisodeTracks({});
+          setEpisodeTracksLoading({});
+          setError("");
+        }}>
           <option value="yummyanime">YummyAnime</option>
           <option value="animego">AnimeGO</option>
           <option value="anixart">AnixART</option>
@@ -254,7 +275,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
           <div className="streaming-catalog-list">
             {results.map((item) => (
               <button type="button" className={selected?.externalId === item.externalId ? "streaming-result selected" : "streaming-result"} key={item.externalId} onClick={() => setSelected(item)}>
-                {item.posterUrl ? <img src={item.posterUrl} alt="" loading="lazy" /> : <span className="streaming-poster-placeholder">✦</span>}
+                {item.posterUrl ? <img src={provider === "animego" ? "/api/animego/poster?url=" + encodeURIComponent(item.posterUrl) : item.posterUrl} alt="" loading="lazy" /> : <span className="streaming-poster-placeholder">✦</span>}
                 <span><strong>{item.title}</strong>{item.year ? <small>{item.year}</small> : null}</span>
               </button>
             ))}
@@ -268,7 +289,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
               <>
                 <h3>{details.title}</h3>
                 {details.description && <p>{details.description}</p>}
-                <p className="streaming-detail-meta">{details.year || "Год не указан"}{details.episodeCount ? " · " + details.episodeCount + " эп." : ""}</p>
+                <p className="streaming-detail-meta">{details.year || "Год не указан"}{provider !== "anixart" && details.episodeCount ? " · " + details.episodeCount + " эп." : provider === "anixart" && details.episodeCount ? " · " + details.episodeCount + " эп." : ""}</p>
                 {details.seasons.length > 0 && <div className="streaming-season-list">
                   <strong>Серии</strong>
                   {details.seasons.map((season) => <section className="streaming-season" key={season.number}>
@@ -287,8 +308,8 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
                           {isExpanded && <div className="streaming-episode-voices">
                             <strong>Варианты озвучки</strong>
                             {tracksLoading ? <p>Загружаем варианты озвучки...</p> : tracks.length ? <ul>{tracks.map((track) => <li key={track.externalId}>
-                              <span className="streaming-voice-info"><strong>{track.name}</strong><small>{track.playerName || "Плеер не указан"} · ID {track.externalId}</small></span>
-                              {track.playerUrl ? <button type="button" className="secondary streaming-play-button" onClick={() => setActivePlayer({ name: "Серия " + episode.number + " · " + track.name, url: track.playerUrl! })}>Смотреть</button> : <small>Нет адреса плеера</small>}
+                              <span className="streaming-voice-info"><strong>{track.name}</strong><small>{provider === "anixart" ? (track.playerName || "Тип озвучки не указан") : (track.playerName || "Плеер не указан") + " · ID " + track.externalId}</small></span>
+                              {track.playerUrl ? <button type="button" className="secondary streaming-play-button" onClick={() => setActivePlayer({ name: "Серия " + episode.number + " · " + track.name, url: track.playerUrl!, kind: provider === "anixart" ? "video" : "embed" })}>Смотреть</button> : provider === "anixart" ? <a href={details.url} target="_blank" rel="noreferrer">Открыть на AnixART ↗</a> : <small>Нет адреса плеера</small>}
                             </li>)}</ul> : <p>Для этой серии API не вернул список озвучек.</p>}
                             <p className="streaming-limitation">Плеер открывается во встроенном окне, если источник разрешает встраивание. Некоторые сайты могут блокировать воспроизведение.</p>
                           </div>}
@@ -297,7 +318,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
                     </div>
                   </section>)}
                 </div>}
-                {details.seasons.length === 0 && provider === "anixart" && <p className="streaming-limitation">Сайт не отдаёт полный список сезонов и серий в публичной карточке. При просмотре расширение определяет выбранную серию.</p>}
+
                 <div className="streaming-detail-actions">
                   <a href={details.url} target="_blank" rel="noreferrer">Открыть на сайте ↗</a>
                   <button type="button" disabled={!details.identity || importing} onClick={() => void importSelected()}>{importing ? "Добавляем..." : "Добавить в библиотеку"}</button>
@@ -310,8 +331,13 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
       {activePlayer && <div className="streaming-player-backdrop" role="presentation" onClick={() => setActivePlayer(null)}>
         <section className="streaming-player-dialog" role="dialog" aria-modal="true" aria-label={activePlayer.name} onClick={(event) => event.stopPropagation()}>
           <header><strong>{activePlayer.name}</strong><button type="button" className="secondary" onClick={() => setActivePlayer(null)}>Закрыть</button></header>
-          <iframe key={activePlayer.url} src={activePlayer.url} title={activePlayer.name} referrerPolicy="strict-origin-when-cross-origin" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowFullScreen />
-          <p>Если встроенный просмотр не запускается, попробуй открыть сам плеер отдельно. Некоторые источники ограничивают воспроизведение внутри других сайтов.</p><a href={activePlayer.url} target="_blank" rel="noreferrer">Открыть плеер отдельно ↗</a>
+          {activePlayer.kind === "video" ? (
+            <video key={activePlayer.url} src={activePlayer.url} controls autoPlay playsInline preload="metadata" />
+          ) : (
+            <iframe key={activePlayer.url} src={activePlayer.url} title={activePlayer.name} referrerPolicy="strict-origin-when-cross-origin" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowFullScreen />
+          )}
+          <p>{activePlayer.kind === "video" ? "Видео передаётся локальным сервером. Если воспроизведение не начинается, проверь доступность источника CVH." : "Если встроенный просмотр не запускается, попробуй открыть сам плеер отдельно. Некоторые источники ограничивают воспроизведение внутри других сайтов."}</p>
+          {activePlayer.kind === "embed" && <a href={activePlayer.url} target="_blank" rel="noreferrer">Открыть плеер отдельно ↗</a>}
         </section>
       </div>}
     </section>

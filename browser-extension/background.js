@@ -230,7 +230,7 @@ chrome.tabs?.onUpdated?.addListener((tabId, changeInfo, tab) => {
   }
 });
 
-chrome.runtime.onMessage.addListener((message) => {
+chrome.runtime.onMessage.addListener((message, sender) => {
   if (message?.type === "MIDAHOSHI_DISMISS_ALERT") {
     void enqueueToolbarMutation(async () => {
       const state = await getToolbarState();

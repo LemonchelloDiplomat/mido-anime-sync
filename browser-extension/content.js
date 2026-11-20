@@ -826,9 +826,10 @@
 
   if (service === "anixart") {
     window.addEventListener("message", (event) => {
-      if (event.source !== window || event.origin !== location.origin ||
-          event.data?.type !== "MIDAHOSHI_ANIXART_STATE") return;
-      maybeSendAnixartSample(event.data.state || {});
+      if (event.source !== window || event.origin !== location.origin) return;
+      if (event.data?.type === "MIDAHOSHI_ANIXART_STATE") {
+        maybeSendAnixartSample(event.data.state || {});
+      }
     });
   }
 

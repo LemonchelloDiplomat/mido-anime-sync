@@ -1,6 +1,5 @@
 (() => {
-  // Read only the public playback state exposed by AnixART's own player.
-  // Never inspect or forward stream URLs, credentials, or signed resources.
+  // Read only playback position metadata from the public AnixART page player.
   const host = location.hostname.toLowerCase();
   if (host !== "anixart.site" && !host.endsWith(".anixart.site")) return;
 
@@ -8,14 +7,12 @@
     const element = document.querySelector("video-player");
     const state = element?.state;
     const video = state?.currentVideo;
-    if (!state || !video) return;
+    if (!state || !video || typeof video !== "object") return;
 
     const episode = Number(video.episode ?? state.currentEpisode?.name);
     const season = Number(video.season ?? state.currentSeason?.name);
     const currentTime = Number(state.position);
     const duration = Number(state.duration);
-    const playing = state.playing === true;
-
     if (!Number.isSafeInteger(episode) || episode < 1 ||
         !Number.isFinite(currentTime) || currentTime < 0 ||
         !Number.isFinite(duration) || duration <= 0) return;
@@ -25,7 +22,6 @@
       : typeof state.currentVoice?.name === "string"
         ? state.currentVoice.name.slice(0, 100)
         : null;
-
     window.postMessage({
       type: "MIDAHOSHI_ANIXART_STATE",
       state: {
@@ -34,7 +30,7 @@
         voice,
         currentTime,
         duration,
-        playing,
+        playing: state.playing === true,
       },
     }, location.origin);
   };

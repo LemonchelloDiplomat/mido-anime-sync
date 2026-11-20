@@ -79,6 +79,56 @@ describe("AnimeGO public catalog adapter", () => {
     });
   });
 
+  it("extracts posters from lazy-loaded attributes, srcset, and CSS backgrounds", () => {
+    const html = `
+      <div class="ani-grid__item">
+        <div class="ani-grid__item-picture">
+          <a href="/anime/nested-poster-1000"><img alt="" loading="lazy" src="https://img.cdngos.com/v/250x350/anime/69/69d16a4ca28d1312818966"></a>
+        </div>
+        <div class="ani-grid__item-title"><a title="Nested poster" href="/anime/nested-poster-1000">Nested poster</a></div>
+      </div>
+      <div class="ani-grid__item">
+        <a title="Lazy poster" href="/anime/lazy-poster-1001">
+          <img data-original="//cdn.example/lazy.jpg" src="data:image/gif;base64,placeholder" alt="Lazy poster">
+        </a>
+      </div>
+      <div class="ani-grid__item">
+        <a title="Srcset poster" href="/anime/srcset-poster-1002">
+          <picture><source srcset="/small.jpg 320w, /large.jpg 900w"><img alt="Srcset poster"></picture>
+        </a>
+      </div>
+      <div class="ani-grid__item">
+        <a title="Background poster" href="/anime/background-poster-1003">
+          <div style="background-image: url('/background.jpg')"></div>
+        </a>
+      </div>`;
+    expect(parseAnimeGoSearch(html).map((item) => item.posterUrl)).toEqual([
+      "https://img.cdngos.com/v/250x350/anime/69/69d16a4ca28d1312818966",
+      "https://cdn.example/lazy.jpg",
+      "https://animego.me/large.jpg",
+      "https://animego.me/background.jpg",
+    ]);
+  });
+
+  it("extracts poster URLs from unquoted lazy attributes and non-image background wrappers", () => {
+    const html = `
+      <div class="ani-grid__item">
+        <a href="/anime/unquoted-lazy-2001"><div class="ani-grid__item-picture"><img data-src=https://img.cdngos.com/posters/unquoted.jpg alt="Unquoted"></div></a>
+      </div>
+      <div class="ani-grid__item">
+        <a href="/anime/background-data-2002"><div class="poster" data-bg="https://img.cdngos.com/posters/background.jpg"></div></a>
+      </div>
+      <div class="ani-grid__item">
+        <a href="/anime/style-background-2003"><div class="poster" style="background-image:url(https://img.cdngos.com/posters/style.jpg)"></div></a>
+      </div>
+    `;
+    expect(parseAnimeGoSearch(html).map((item) => item.posterUrl)).toEqual([
+      "https://img.cdngos.com/posters/unquoted.jpg",
+      "https://img.cdngos.com/posters/background.jpg",
+      "https://img.cdngos.com/posters/style.jpg",
+    ]);
+  });
+
   it("ranks the matching romanized title above unrelated AnimeGO results", async () => {
     const relevantHtml = '<div class="ani-grid__item"><a title="Shunkashuutou Daikousha: Haru no Mai" href="/anime/shunkashuutou-daikousha-haru-no-mai-9001"><img alt="Agents of the Four Seasons: Dance of Spring" src="/spring.jpg"></a></div><div class="ani-grid__item"><a title="K-On!" href="/anime/k-on-9002"><img alt="K-On!" src="/kon.jpg"></a></div>';
     const fetcher = vi.fn(async () => ({ ok: true, status: 200, async text() { return relevantHtml; } }));
@@ -158,6 +208,51 @@ describe("AnimeGO public catalog adapter", () => {
       watchProgressRead: "browser-extension",
     });
   });
+  it("serves AnimeGO poster images through a same-origin local proxy", async () => {
+    const imageBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+    const fetcher = vi.fn(async () => new Response(imageBytes, {
+      status: 200,
+      headers: { "Content-Type": "image/jpeg" },
+    }));
+    const response = {
+      status: 0,
+      headers: {} as Record<string, string>,
+      body: Buffer.alloc(0),
+      writeHead(status: number, headers: Record<string, string> = {}) { this.status = status; this.headers = headers; },
+      end(body: Buffer | string = "") { this.body = Buffer.isBuffer(body) ? body : Buffer.from(body); },
+    };
+    await handleAnimeGoRequest(
+      { method: "GET" }, response,
+      new URL("http://127.0.0.1/api/animego/poster?url=" + encodeURIComponent("https://img.cdngos.com/v/250x350/anime/test")),
+      {
+        fetch: fetcher,
+        sendJson(res: any, status: number, body: unknown) { res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(body)); },
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers["Content-Type"]).toBe("image/jpeg");
+    expect(response.body).toEqual(Buffer.from(imageBytes));
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://img.cdngos.com/v/250x350/anime/test",
+      expect.objectContaining({ headers: expect.objectContaining({ Referer: "https://animego.me/" }) }),
+    );
+  });
+
+  it("rejects poster proxy URLs outside the trusted AnimeGO image hosts", async () => {
+    const response = responseCapture();
+    const fetcher = vi.fn();
+    await handleAnimeGoRequest(
+      { method: "GET" }, response,
+      new URL("http://127.0.0.1/api/animego/poster?url=" + encodeURIComponent("https://evil.example/image.jpg")),
+      {
+        fetch: fetcher,
+        sendJson(res: ReturnType<typeof responseCapture>, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); },
+      },
+    );
+    expect(response.status).toBe(400);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("retries AnimeGO search on the alternate route when the primary route returns 404", async () => {
     const fallbackSearchHtml = `
       <div class="ani-grid__item">
