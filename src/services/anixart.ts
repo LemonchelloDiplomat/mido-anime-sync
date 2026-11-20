@@ -13,6 +13,33 @@ async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
   return payload as T;
 }
 
+export interface AnixArtPlayerCatalog {
+  slug: string;
+  title: string;
+  seasons: Array<{
+    number: number;
+    episodes: Array<{
+      number: number;
+      title: string;
+      voices: Array<{ name: string; type: string | null }>;
+    }>;
+  }>;
+  current: { season: number | null; episode: number | null; voice: string | null };
+  receivedAt: string;
+}
+
+export async function getAnixArtPlayerCatalog(
+  slug: string,
+  signal?: AbortSignal,
+): Promise<AnixArtPlayerCatalog | null> {
+  if (!/^\\d+-[\\p{L}\\p{N}-]+\\.html$/u.test(slug)) throw new Error("Некорректный AnixART slug.");
+  const payload = await request<{ catalog: AnixArtPlayerCatalog | null }>(
+    "/api/anixart/player-catalog?slug=" + encodeURIComponent(slug),
+    signal,
+  );
+  return payload.catalog ?? null;
+}
+
 export class AnixArtCatalogProvider implements StreamingCatalogProvider {
   readonly id = "anixart" as const;
   readonly name = "AnixART";
