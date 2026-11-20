@@ -111,6 +111,8 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
     const controller = new AbortController();
     setDetailsLoading(true);
     setExpandedEpisode(null);
+    setEpisodeTracks({});
+    setEpisodeTracksLoading({});
     void loadDetails(provider, selected, controller.signal)
       .then(setDetails)
       .catch((reason: unknown) => {
@@ -273,7 +275,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
                     <h4>{season.title || "Сезон " + season.number}</h4>
                     <div className="streaming-episode-list">
                       {season.episodes.map((episode) => {
-                        const episodeKey = season.number + ":" + episode.number;
+                        const episodeKey = provider + ":" + selected.externalId + ":" + season.number + ":" + episode.number;
                         const isExpanded = expandedEpisode === episodeKey;
                         const tracks = episodeTracks[episodeKey] || episode.voiceTracks || [];
                         const tracksLoading = provider === "animego" && Boolean(episodeTracksLoading[episodeKey]);
