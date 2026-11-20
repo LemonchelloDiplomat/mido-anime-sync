@@ -7,7 +7,7 @@ import type {
 } from "./streaming-provider.js";
 
 async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(path, { signal, headers: { Accept: "application/json" } });
+  const response = await fetch(path, { ...(signal ? { signal } : {}), headers: { Accept: "application/json" } });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error || "Локальный сервер AnimeGO: HTTP " + response.status);
   return payload as T;
