@@ -14,11 +14,23 @@
     button.secondary { background: #e9edf2; color: #252a32; }
     #status { min-height: 38px; margin-top: 10px; white-space: pre-wrap; }
     .muted { font-size: 12px; }
+    #pending-section { margin: 14px 0; padding: 10px; border: 1px solid #d9dee6; border-radius: 9px; }
+    #pending-section h2 { margin: 0 0 8px; font-size: 13px; }
+    #pending-list { display: grid; gap: 8px; }
+    .pending-item { padding: 8px; border-radius: 7px; background: #f3f5f8; }
+    .pending-title { font-weight: 600; overflow-wrap: anywhere; }
+    .pending-meta { margin-top: 2px; color: #626975; font-size: 12px; }
+    .pending-item button { margin-top: 7px; padding: 7px; font-size: 12px; }
+    #pending-empty { color: #626975; font-size: 12px; }
   </style>
 </head>
 <body>
   <h1>mido-anime-sync v0.5</h1>
   <p>После 90% просмотра на поддерживаемом плеере поля заполнятся автоматически. Проверь аниме и номер серии перед передачей. Ничего не отправляется без твоего нажатия.</p>
+  <section id="pending-section" aria-labelledby="pending-heading">
+    <h2 id="pending-heading">Ожидают передачи <span id="pending-count">(0)</span></h2>
+    <div id="pending-list"><div id="pending-empty">Нет сохранённых событий.</div></div>
+  </section>
   <button id="scan" class="secondary">Считать страницу</button>
   <label for="title">Название</label>
   <input id="title" autocomplete="off" placeholder="Название аниме">
