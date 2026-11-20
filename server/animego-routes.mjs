@@ -115,7 +115,7 @@ function posterFromCard(card) {
       const value = attr(tag, name);
       if (value) candidates.push(value);
     }
-    for (const name of ["data-srcset", "srcset"]) {
+    for (const name of ["data-original-srcset", "data-lazy-srcset", "data-srcset", "srcset"]) {
       const value = attr(tag, name);
       if (!value) continue;
       const choices = value.split(",").map((entry) => {
@@ -236,6 +236,7 @@ export function parseAnimeGoSearch(html) {
     if (!title) continue;
 
     const cardText = stripTags(card);
+    const yearMatch = cardText.match(/\b(19\d{2}|20\d{2})\b/);
     const aliases = [...new Set([
       title,
       attr(image, "alt"),
@@ -250,6 +251,7 @@ export function parseAnimeGoSearch(html) {
       title,
       alternativeTitles: aliases.filter((alias) => alias !== title).slice(0, 8),
       posterUrl: poster,
+      year: yearMatch ? Number(yearMatch[1]) : null,
     });
     seen.add(selectedUrl);
   }

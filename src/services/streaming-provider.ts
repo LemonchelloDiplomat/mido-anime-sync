@@ -66,6 +66,9 @@ export interface StreamingTitle {
   title: string;
   alternativeTitles: string[];
   posterUrl?: string | null;
+  averageScore?: number | null;
+  posterSource?: string | null;
+  scoreSource?: string | null;
   description?: string | null;
   year?: number | null;
   episodeCount?: number | null;
