@@ -38,6 +38,8 @@
         "*://*.yummy-ani.me/*",
         "*://*.anixart-app.com/*",
         "*://*.anixartapp.com/*",
+        "*://anixart.site/*",
+        "*://*.anixart.site/*",
         "*://aniboom.one/*",
         "https://player.cdnvideohub.com/*",
         "*://kodikplayer.com/*"
@@ -58,6 +60,17 @@
       "run_at": "document_idle",
       "world": "MAIN",
       "all_frames": true
+    },
+    {
+      "matches": [
+        "https://anixart.site/*",
+        "https://*.anixart.site/*"
+      ],
+      "js": [
+        "anixart-page.js"
+      ],
+      "run_at": "document_idle",
+      "world": "MAIN"
     },
     {
       "matches": [
