@@ -85,6 +85,28 @@ describe("AnixART public website catalog adapter", () => {
     expect(JSON.stringify(title)).not.toContain("token");
   });
 
+  it("finds CVH player identifiers on non-video-player wrappers used by some title types", () => {
+    const html = detailHtml.replace(
+      '<video-player id="myPlayer" data-title-id="51009" data-publisher-id="1103"></video-player>',
+      '<div id="cdn-player" data-title-id="7360" data-publisher-id="1103" data-aggregator="mali"></div>',
+    );
+    expect(parseAnixArtDetail(html, "https://anixart.site/7360-put-naruto.html").sourceMetadata).toMatchObject({
+      playerTitleId: "7360", publisherId: "1103", aggregator: "mali",
+    });
+  });
+
+  it("maps a single CVH video row without episode metadata to a synthetic film episode", () => {
+    const parsed = parseAnixArtPlayerPlaylist({ items: [
+      { voiceStudio: "AniLane", voiceType: "Озвучка", vkId: "7360001" },
+    ] }, "https://anixart.site/7360-put-naruto.html");
+    expect(parsed).toMatchObject({
+      episodeCount: 1,
+      seasons: [{ number: 1, episodes: [{ number: 1, title: "Фильм", voiceTracks: [
+        { name: "AniLane", playerUrl: "/api/anixart/stream/7360001" },
+      ] }] }],
+    });
+  });
+
   it("maps the public CVH playlist into seasons, episodes, and voice variants", () => {
     const parsed = parseAnixArtPlayerPlaylist({
       items: [
