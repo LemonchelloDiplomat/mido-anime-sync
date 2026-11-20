@@ -69,6 +69,22 @@ describe("AnixART public website catalog adapter", () => {
     expect(items.map((item) => item.year)).toEqual([2022, 2017, 2002, 2003]);
   });
 
+  it("keeps poster and rating together when image and title use separate anchors", () => {
+    const html = `
+      <div class="shortstory">
+        <a href="/8101-separated-anchors.html"><img data-original="/posters/separated.jpg" src="/placeholder.jpg" alt="Separated anchors"></a>
+        <h2><a href="/8101-separated-anchors.html">8.9 8.76 Separated anchors 2024, drama</a></h2>
+      </div>
+      <div class="shortstory">
+        <a href="/8102-next-title.html"><img src="/posters/next.jpg" alt="Next title"></a>
+        <h2><a href="/8102-next-title.html">7.1 7.04 Next title 2023, action</a></h2>
+      </div>`;
+    const items = parseAnixArtSearch(html);
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({ title: "Separated anchors", posterUrl: "https://anixart.site/posters/separated.jpg", averageScore: 8.76, year: 2024 });
+    expect(items[1]).toMatchObject({ title: "Next title", posterUrl: "https://anixart.site/posters/next.jpg", averageScore: 7.04, year: 2023 });
+  });
+
   it("extracts AnixART posters from lazy attributes and CSS background wrappers", () => {
     const html = `
       <div class="shortstory">
