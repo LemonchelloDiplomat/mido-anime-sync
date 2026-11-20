@@ -17,6 +17,10 @@
   let kodikMetadataKey = null;
   let kodikAwaitingEpisodeStart = false;
   let previousKodikTime = null;
+  let aniboomMetadataKey = null;
+  let aniboomAwaitingEpisodeStart = false;
+  let previousAniBoomTime = null;
+  const sentAniBoomKeys = new Set();
   const sentCvhKeys = new Set();
   const sentKodikKeys = new Set();
 
@@ -334,6 +338,13 @@
         nextMetadata.episode,
         nextMetadata.sourceUrl,
       ].join("|");
+      if (isAniBoomFrame && aniboomMetadataKey !== null && aniboomMetadataKey !== nextMetadataKey) {
+        // AniBoom can briefly keep the previous episode's near-end timestamp
+        // after AnimeGO has already switched the parent episode metadata.
+        previousAniBoomTime = null;
+        aniboomAwaitingEpisodeStart = true;
+      }
+      if (isAniBoomFrame) aniboomMetadataKey = nextMetadataKey;
       if (isKodikFrame && kodikMetadataKey !== null && kodikMetadataKey !== nextMetadataKey) {
         // A reused Kodik player may briefly retain the previous episode's
         // playback position after the parent page changes episode metadata.
@@ -444,6 +455,58 @@
     });
   }
 
+  function maybeSendAniBoomVideo(video) {
+    if (!isAniBoomFrame || !parentMetadata) return;
+    const duration = Number(video.duration);
+    const currentTime = Number(video.currentTime);
+    if (!Number.isFinite(duration) || duration <= 0 ||
+        !Number.isFinite(currentTime) || currentTime < 0 || video.paused === true) {
+      previousAniBoomTime = null;
+      return;
+    }
+
+    const previousTime = previousAniBoomTime;
+    previousAniBoomTime = currentTime;
+    if (aniboomAwaitingEpisodeStart) {
+      // Do not attribute the previous episode's position to the new episode.
+      // Wait until AniBoom visibly resets its timeline before counting playback.
+      const timelineReset = currentTime <= Math.min(10, duration * 0.02) ||
+        (previousTime !== null && currentTime < previousTime - 5);
+      if (timelineReset) {
+        aniboomAwaitingEpisodeStart = false;
+        previousAniBoomTime = currentTime;
+      }
+      return;
+    }
+
+    const delta = previousTime === null ? 0 : currentTime - previousTime;
+    if (delta < 0.15 || delta > 5 || currentTime / duration < 0.9) return;
+
+    const detected = detect(video);
+    if (detected.manualOnly || !detected.title ||
+        !Number.isSafeInteger(detected.episode) || detected.episode < 1) return;
+    const eventKey = [
+      detected.sourceUrl,
+      detected.episode,
+      video.currentSrc || video.src || "",
+    ].join("|");
+    if (sentAniBoomKeys.has(eventKey)) return;
+    sentAniBoomKeys.add(eventKey);
+
+    chrome.runtime.sendMessage({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: {
+        ...detected,
+        currentTimeSeconds: Math.floor(currentTime),
+        durationSeconds: Math.floor(duration),
+        hasVideoElement: true,
+        manualOnly: false,
+        eventId: crypto.randomUUID(),
+        observedAt: new Date().toISOString(),
+      },
+    });
+  }
+
   function maybeSendKodikVideo(video) {
     if (!isKodikFrame || !parentMetadata) return;
     const duration = Number(video.duration);
@@ -501,6 +564,10 @@
     const maybeSend = () => {
       if (isKodikFrame) {
         maybeSendKodikVideo(video);
+        return;
+      }
+      if (isAniBoomFrame) {
+        maybeSendAniBoomVideo(video);
         return;
       }
       const duration = Number(video.duration);
