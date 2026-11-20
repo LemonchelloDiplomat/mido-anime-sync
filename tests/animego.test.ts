@@ -19,10 +19,19 @@ function responseCapture(): { status: number; body: string; writeHead(status: nu
 }
 
 const searchHtml = `
+<nav class="sidebar">
+  <a href="/anime/top-250">Топ 250</a>
+  <a href="/anime/ongoing">Онгоинг</a>
+  <a href="/anime/season-2026">2026</a>
+  <a href="/anime/random">Случайное аниме</a>
+</nav>
 <div class="grid ani-list">
-  <div class="ani-grid__item">
+  <div class="ani-grid__item ani-grid__item-picture">
     <a class="ani-grid__item-picture" href="/anime/sample-title-1234"><img class="image__img" src="/uploads/sample.jpg" alt="Sample Anime"></a>
     <div class="ani-grid__item-title"><a href="/anime/sample-title-1234">Sample Anime</a></div>
+  </div>
+  <div class="ani-grid__item">
+    <a title="Another Anime" href="/anime/another-title-5678"><img src="/uploads/another.jpg" alt="Another Anime"></a>
   </div>
 </div>`;
 
@@ -56,9 +65,11 @@ describe("AnimeGO DNS adapter", () => {
 });
 
 describe("AnimeGO public catalog adapter", () => {
-  it("parses public search cards and canonical page slugs", () => {
+  it("parses only actual search cards and ignores AnimeGO navigation links", () => {
     const items = parseAnimeGoSearch(searchHtml);
-    expect(items).toHaveLength(1);
+    expect(items).toHaveLength(2);
+    expect(items.map((item) => item.title)).toEqual(["Sample Anime", "Another Anime"]);
+    expect(items.map((item) => item.externalId)).toEqual(["sample-title-1234", "another-title-5678"]);
     expect(items[0]).toMatchObject({
       provider: "animego",
       externalId: "sample-title-1234",
@@ -137,6 +148,32 @@ describe("AnimeGO public catalog adapter", () => {
       watchProgressRead: "browser-extension",
     });
   });
+  it("retries AnimeGO search on the alternate route when the primary route returns 404", async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 404, async text() { return ""; } })
+      .mockResolvedValueOnce({ ok: true, status: 200, async text() { return searchHtml; } });
+    const deps = { request: fetcher, sendJson(res: ReturnType<typeof responseCapture>, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } };
+    const response = responseCapture();
+    await handleAnimeGoRequest(
+      { method: "GET" },
+      response,
+      new URL("http://127.0.0.1/api/animego/search?q=Shunkashuutou+Daikousha%3A+Haru+no+Mai"),
+      deps,
+    );
+    expect(response.status).toBe(200);
+    expect(response.json().items).toHaveLength(2);
+    expect(fetcher).toHaveBeenNthCalledWith(
+      1,
+      "https://animego.me/search/anime?q=Shunkashuutou+Daikousha%3A+Haru+no+Mai",
+      expect.anything(),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      "https://animego.me/search/all?q=Shunkashuutou+Daikousha%3A+Haru+no+Mai",
+      expect.anything(),
+    );
+  });
+
   it("loads player embeds for an individual episode through the local proxy", async () => {
     const payload = {
       data: {
