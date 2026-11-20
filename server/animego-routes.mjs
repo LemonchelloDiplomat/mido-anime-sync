@@ -76,10 +76,9 @@ function decodeHtml(value) {
 }
 
 function attr(tag, name) {
-  const match = String(tag).match(new RegExp("\\b" + name + "\\s*=\\s*(?:(['\\"])(.*?)\\1|([^\\s"'=<>\x60]+))", "i"));
-  return match ? decodeHtml(match[2] ?? match[3] ?? "") : "";
-}
-function stripTags(value) {
+  const match = String(tag).match(new RegExp("\\b" + name + "\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s>]+))", "i"));
+  return match ? decodeHtml(match[1] ?? match[2] ?? match[3] ?? "") : "";
+}function stripTags(value) {
   return decodeHtml(String(value || "").replace(/<script\b[\s\S]*?<\/script>/gi, " ")
     .replace(/<style\b[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " "))
     .replace(/\s+/g, " ").trim();
