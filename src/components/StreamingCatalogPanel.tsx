@@ -185,13 +185,13 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
     } finally { setAccountBusy(false); }
   }
 
-  async function toggleEpisode(episodeKey: string, episodeId: string) {
+  async function toggleEpisode(episodeKey: string, episodeId: string, hasPreloadedTracks = false) {
     if (expandedEpisode === episodeKey) {
       setExpandedEpisode(null);
       return;
     }
     setExpandedEpisode(episodeKey);
-    if (provider !== "animego" || episodeTracks[episodeKey] || episodeTracksLoading[episodeKey]) return;
+    if (provider !== "animego" || hasPreloadedTracks || episodeTracks[episodeKey] || episodeTracksLoading[episodeKey]) return;
     setEpisodeTracksLoading((current) => ({ ...current, [episodeKey]: true }));
     try {
       const tracks = await animeGo.getEpisodeVoices(episodeId);
@@ -280,7 +280,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
                         const tracks = episodeTracks[episodeKey] || episode.voiceTracks || [];
                         const tracksLoading = provider === "animego" && Boolean(episodeTracksLoading[episodeKey]);
                         return <article className={"streaming-episode" + (isExpanded ? " expanded" : "")} key={episodeKey}>
-                          <button type="button" className="streaming-episode-toggle" aria-expanded={isExpanded} onClick={() => void toggleEpisode(episodeKey, episode.externalId)}>
+                          <button type="button" className="streaming-episode-toggle" aria-expanded={isExpanded} onClick={() => void toggleEpisode(episodeKey, episode.externalId, Boolean(episode.voiceTracks?.length))}>
                             <span><strong>Серия {episode.number}</strong>{episode.title ? <small>{episode.title}</small> : null}</span>
                             <span className="streaming-episode-summary">{tracks.length ? tracks.length + " озвуч." : "Озвучки не указаны"} <span aria-hidden="true">{isExpanded ? "−" : "+"}</span></span>
                           </button>
