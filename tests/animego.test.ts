@@ -97,7 +97,7 @@ describe("AnimeGO public catalog adapter", () => {
         </a>
       </div>`;
     expect(parseAnimeGoSearch(html).map((item) => item.posterUrl)).toEqual([
-      "https://animego.me/lazy.jpg",
+      "https://cdn.example/lazy.jpg",
       "https://animego.me/large.jpg",
       "https://animego.me/background.jpg",
     ]);
