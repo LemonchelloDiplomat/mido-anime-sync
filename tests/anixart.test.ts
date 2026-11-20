@@ -227,6 +227,7 @@ describe("AnixART public website catalog adapter", () => {
       catalogSearch: true,
       fullSeasonEpisodeManifest: true,
       playerCatalogSource: "server-cvh-api",
+      playback: "server-cvh-mp4-proxy",
       accountConnection: false,
       listImport: false,
       watchProgressRead: "browser-extension",
