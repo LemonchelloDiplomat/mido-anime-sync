@@ -202,6 +202,7 @@
       ...titleSelectors.map(textFrom),
       titleMeta?.getAttribute("content") || "",
       titleMetaFallback?.getAttribute("content") || "",
+      document.querySelector('img[src*="posters"][alt]')?.getAttribute("alt") || "",
       document.title,
     ];
     const isUsableAnimeTitle = (candidate) => {
@@ -217,13 +218,18 @@
       .trim();
 
     const activeAnimeGoEpisode = service === "animego" ? findAnimeGoActiveEpisode() : null;
+    const activeYummyEpisode = service === "yummyanime"
+      ? Array.from(document.querySelectorAll('[data-selected="1"]'))
+        .map((element) => String(element.textContent || "").trim())
+        .find((value) => /^\d{1,4}$/.test(value))
+      : null;
     const episodeCandidates = [
       ...episodeSelectors.map(textFrom),
       document.title,
       ...Array.from(document.querySelectorAll("h1,h2,h3")).slice(0, 8).map((el) => el.textContent || ""),
       location.pathname,
     ];
-    let episode = activeAnimeGoEpisode;
+    let episode = activeAnimeGoEpisode || (activeYummyEpisode ? Number(activeYummyEpisode) : null);
     if (!episode) {
       for (const candidate of episodeCandidates) {
         episode = findEpisode(candidate);
@@ -645,7 +651,10 @@
     subtree: true,
     ...(!isAnimeGoPlayerFrame ? {
       attributes: true,
-      attributeFilter: ["class", "data-episode-number", "src"],
+      // YummyAnime marks the selected episode with data-selected="1".
+      // Observe attribute changes so switching episodes republishes metadata
+      // to embedded players without requiring a full page reload.
+      attributeFilter: ["class", "data-episode-number", "data-selected", "src"],
     } : {}),
   };
   observer.observe(document.documentElement, observerOptions);
