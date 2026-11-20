@@ -287,7 +287,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
                           {isExpanded && <div className="streaming-episode-voices">
                             <strong>Варианты озвучки</strong>
                             {tracksLoading ? <p>Загружаем варианты озвучки...</p> : tracks.length ? <ul>{tracks.map((track) => <li key={track.externalId}>
-                              <span className="streaming-voice-info"><strong>{track.name}</strong><small>{track.playerName || "Плеер не указан"} · ID {track.externalId}</small></span>
+                              <span className="streaming-voice-info"><strong>{track.name}</strong><small>{provider === "anixart" ? (track.playerName || "Тип озвучки не указан") : (track.playerName || "Плеер не указан") + " · ID " + track.externalId}</small></span>
                               {track.playerUrl ? <button type="button" className="secondary streaming-play-button" onClick={() => setActivePlayer({ name: "Серия " + episode.number + " · " + track.name, url: track.playerUrl! })}>Смотреть</button> : provider === "anixart" ? <a href={details.url} target="_blank" rel="noreferrer">Открыть на AnixART ↗</a> : <small>Нет адреса плеера</small>}
                             </li>)}</ul> : <p>Для этой серии API не вернул список озвучек.</p>}
                             <p className="streaming-limitation">Плеер открывается во встроенном окне, если источник разрешает встраивание. Некоторые сайты могут блокировать воспроизведение.</p>
