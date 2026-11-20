@@ -52,6 +52,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
   const [selected, setSelected] = useState<StreamingTitle | null>(null);
   const [details, setDetails] = useState<StreamingTitleDetails | null>(null);
   const [expandedEpisode, setExpandedEpisode] = useState<string | null>(null);
+  const [activePlayer, setActivePlayer] = useState<{ name: string; url: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -262,9 +263,10 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
                           {isExpanded && <div className="streaming-episode-voices">
                             <strong>Варианты озвучки</strong>
                             {tracks.length ? <ul>{tracks.map((track) => <li key={track.externalId}>
-                              <span>{track.name}</span><small>ID видео: {track.externalId}</small>
+                              <span className="streaming-voice-info"><strong>{track.name}</strong><small>{track.playerName || "Плеер не указан"} · ID {track.externalId}</small></span>
+                              {track.playerUrl ? <button type="button" className="secondary streaming-play-button" onClick={() => setActivePlayer({ name: "Серия " + episode.number + " · " + track.name, url: track.playerUrl! })}>Смотреть</button> : <small>Нет адреса плеера</small>}
                             </li>)}</ul> : <p>Для этой серии API не вернул список озвучек.</p>}
-                            <p className="streaming-limitation">Прямой адрес плеера не предоставлен API в безопасном виде. Открой страницу тайтла на сайте, чтобы выбрать эту серию и озвучку.</p>
+                            <p className="streaming-limitation">Плеер открывается во встроенном окне, если источник разрешает встраивание. Некоторые сайты могут блокировать воспроизведение.</p>
                           </div>}
                         </article>;
                       })}
@@ -281,6 +283,13 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
           </div>
         </div>
       )}
+      {activePlayer && <div className="streaming-player-backdrop" role="presentation" onClick={() => setActivePlayer(null)}>
+        <section className="streaming-player-dialog" role="dialog" aria-modal="true" aria-label={activePlayer.name} onClick={(event) => event.stopPropagation()}>
+          <header><strong>{activePlayer.name}</strong><button type="button" className="secondary" onClick={() => setActivePlayer(null)}>Закрыть</button></header>
+          <iframe key={activePlayer.url} src={activePlayer.url} title={activePlayer.name} sandbox="allow-scripts allow-forms allow-presentation" referrerPolicy="no-referrer" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />
+          <p>Если плеер не загружается, возможно, источник запрещает встраивание. В таком случае открой страницу тайтла на сайте.</p>
+        </section>
+      </div>}
     </section>
   );
 }
