@@ -149,7 +149,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
         try {
           const fallbackQueries = [...new Set([
             normalizedQuery,
-            ...result.items.slice(0, 8).flatMap((item) => [item.title, ...(item.alternativeTitles || []).slice(0, 1)]),
+            ...result.items.slice(0, 20).flatMap((item) => [item.title, ...(item.alternativeTitles || []).slice(0, 1)]),
           ].map((value) => value.trim()).filter((value) => value.length >= 2))].slice(0, 9);
           const metadata = await searchAniListAnimeBatch(fallbackQueries, controller.signal);
           if (controller.signal.aborted) return;
