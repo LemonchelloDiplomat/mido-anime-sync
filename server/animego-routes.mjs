@@ -23,7 +23,17 @@ async function resolveAnimeGoAddress() {
     const resolver = new Resolver();
     resolver.setServers([server]);
     try {
-      const [address] = await resolve4Async(resolver, "animego.me");
+      let timer;
+      const addresses = await Promise.race([
+        resolve4Async(resolver, "animego.me"),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => {
+            resolver.cancel();
+            reject(new Error("Тайм-аут DNS AnimeGO (5 секунд)."));
+          }, 5000);
+        }),
+      ]).finally(() => clearTimeout(timer));
+      const [address] = addresses;
       if (!address) throw new Error("Публичный DNS не вернул IPv4-адрес AnimeGO.");
       cachedAddress = address;
       cachedAddressUntil = Date.now() + DNS_CACHE_TTL_MS;
@@ -62,7 +72,7 @@ function requestAnimeGo(url, { headers = {} } = {}) {
         });
       });
     });
-    req.setTimeout(20000, () => req.destroy(new Error("Превышено время ожидания ответа AnimeGO.")));
+    req.setTimeout(15000, () => req.destroy(new Error("AnimeGO не ответил за 15 секунд. Попробуй ещё раз.")));
     req.on("error", reject);
   }));
 }
@@ -143,7 +153,7 @@ function normalizeAnimeGoSearchText(value) {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[а-яё]/g, (letter) => cyrillicToLatin[letter] ?? letter)
     .replace(/ё/g, "yo")
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/[^\\p{L}\\p{N}]+/gu, " ")
     .trim()
     .replace(/\s+/g, " ");
 }
@@ -164,10 +174,13 @@ function animeGoSimilarity(query, candidate) {
       )).length / qTokens.length
     : 0;
 
+  // Work on Unicode code points so Japanese, Korean and other scripts are not
+  // discarded by an ASCII-only tokenizer. This is especially important for
+  // Japanese titles, which are commonly written without spaces.
   const grams = (text) => {
-    const padded = "  " + text + "  ";
+    const padded = [" ", " ", ...Array.from(text), " ", " "];
     const result = new Set();
-    for (let i = 0; i <= padded.length - 3; i += 1) result.add(padded.slice(i, i + 3));
+    for (let i = 0; i <= padded.length - 3; i += 1) result.add(padded.slice(i, i + 3).join(""));
     return result;
   };
   const a = grams(q);
@@ -351,10 +364,20 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
         return sendJson(response, 400, { error: "Источник постера AnimeGO не разрешён." });
       }
       const imageFetcher = deps.fetch || fetch;
-      const image = await imageFetcher(target.toString(), {
-        headers: { ...headers, Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8", Referer: SITE + "/" },
-        redirect: "follow",
-      });
+      // Poster hosts occasionally stall or rate-limit. Bound both the response
+      // headers and body read so one bad CDN image cannot hang a catalog card.
+      const imageSignal = AbortSignal.timeout(12000);
+      let image;
+      try {
+        image = await imageFetcher(target.toString(), {
+          headers: { ...headers, Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8", Referer: SITE + "/" },
+          redirect: "follow",
+          signal: imageSignal,
+        });
+      } catch (error) {
+        if (imageSignal.aborted) throw new Error("CDN AnimeGO не отдал постер за 12 секунд.");
+        throw error;
+      }
       const finalUrl = new URL(image.url || target.toString());
       if (!image.ok) throw new Error("AnimeGO poster: HTTP " + image.status);
       if (finalUrl.protocol !== "https:" || !allowedHost(finalUrl.hostname)) {
@@ -364,7 +387,13 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
       if (!contentType.toLowerCase().startsWith("image/")) {
         return sendJson(response, 502, { error: "AnimeGO вместо изображения вернул другой тип данных." });
       }
-      const bytes = Buffer.from(await image.arrayBuffer());
+      let bytes;
+      try {
+        bytes = Buffer.from(await image.arrayBuffer());
+      } catch (error) {
+        if (imageSignal.aborted) throw new Error("Загрузка файла постера AnimeGO превысила 12 секунд.");
+        throw error;
+      }
       if (bytes.length > 8 * 1024 * 1024) return sendJson(response, 413, { error: "Постер AnimeGO превышает допустимый размер." });
       response.writeHead(200, {
         "Content-Type": contentType,
