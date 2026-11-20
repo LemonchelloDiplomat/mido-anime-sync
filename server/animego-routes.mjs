@@ -348,7 +348,7 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
       const raw = String(url.searchParams.get("url") || "");
       let target;
       try { target = new URL(raw); } catch { return sendJson(response, 400, { error: "Некорректный адрес постера AnimeGO." }); }
-      const allowedHost = (hostname) => hostname === "img.cdngos.com" || hostname === "animego.me";
+      const allowedHost = (hostname) => ["cdngos.com", "animego.me", "animego.org", "animego.online"].some((domain) => hostname === domain || hostname.endsWith("." + domain));
       if (target.protocol !== "https:" || !allowedHost(target.hostname)) {
         return sendJson(response, 400, { error: "Источник постера AnimeGO не разрешён." });
       }
