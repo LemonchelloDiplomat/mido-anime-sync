@@ -285,3 +285,88 @@ describe("streaming extension host permissions", () => {
     ]));
   });
 });
+
+
+describe("YummyAnime selected episode tracking", () => {
+  it("reads the numeric data-selected episode and falls back to the poster alt title", () => {
+    const listeners: { current: MessageListener | null } = { current: null };
+    const sentMessages: any[] = [];
+    let observedAttributes: string[] = [];
+    const placeholder = { textContent: "...", getAttribute() { return "..."; } };
+    const poster = {
+      textContent: "",
+      getAttribute(name: string) {
+        return name === "alt" ? "Санка Рэа" : null;
+      },
+    };
+    const selectedEpisode = { textContent: "4" };
+
+    class FakeMutationObserver {
+      constructor(_callback: () => void) {}
+      observe(_target: unknown, options: { attributeFilter?: string[] }) {
+        observedAttributes = options.attributeFilter || [];
+      }
+      disconnect() {}
+    }
+    class FakeHTMLSelectElement {}
+
+    const context = {
+      location: {
+        hostname: "ru.yummyani.me",
+        origin: "https://ru.yummyani.me",
+        pathname: "/catalog/item/sanka-rea-tv",
+        href: "https://ru.yummyani.me/catalog/item/sanka-rea-tv",
+      },
+      document: {
+        title: "YummyAnime",
+        documentElement: {},
+        querySelector(selector: string) {
+          if (selector === "h1" || selector === ".watch__title" ||
+              selector === "meta[property='og:title']" || selector === "meta[name='title']") {
+            return placeholder;
+          }
+          if (selector === 'img[src*="posters"][alt]') return poster;
+          return null;
+        },
+        querySelectorAll(selector: string) {
+          if (selector === '[data-selected="1"]') return [selectedEpisode];
+          return [];
+        },
+      },
+      HTMLSelectElement: FakeHTMLSelectElement,
+      MutationObserver: FakeMutationObserver,
+      getComputedStyle() { return { display: "block", visibility: "visible" }; },
+      chrome: {
+        runtime: {
+          onMessage: {
+            addListener(listener: MessageListener) { listeners.current = listener; },
+          },
+          sendMessage(message: unknown) { sentMessages.push(message); },
+        },
+      },
+      window: { addEventListener() {} },
+      URL,
+      Date,
+    };
+
+    vm.runInNewContext(contentScript, context);
+    let detected: any;
+    listeners.current?.(
+      { type: "MIDAHOSHI_DETECT_WATCH_EVENT" },
+      {},
+      (value) => { detected = value; },
+    );
+
+    expect(detected).toMatchObject({
+      service: "yummyanime",
+      title: "Санка Рэа",
+      episode: 4,
+    });
+    expect(observedAttributes).toContain("data-selected");
+    expect(sentMessages).toContainEqual(expect.objectContaining({
+      type: "MIDAHOSHI_CURRENT_WATCH",
+      title: "Санка Рэа",
+      episode: 4,
+    }));
+  });
+});
