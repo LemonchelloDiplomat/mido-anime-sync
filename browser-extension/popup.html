@@ -38,6 +38,10 @@
       <h3>Диагностика очереди</h3>
       <p id="queue-diagnostics-summary">Проверяем события…</p>
       <div id="queue-diagnostics-groups"></div>
+      <p class="muted">Очистка оставит по одной записи на аниме и серию, сохранив запись с наибольшим прогрессом. Перед изменением создаётся резервная копия, которую можно восстановить.</p>
+      <button id="cleanup-duplicates" class="secondary" type="button">Создать копию и убрать повторы</button>
+      <button id="restore-queue-backup" class="secondary" type="button" disabled>Восстановить очередь из копии</button>
+      <p id="queue-maintenance-status" class="muted" role="status" aria-live="polite"></p>
     </div>
     <div id="pending-list"><div id="pending-empty">Нет сохранённых событий.</div></div>
   </section>
