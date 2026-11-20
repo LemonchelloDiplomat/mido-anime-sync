@@ -102,7 +102,8 @@ describe("AnimeGO public catalog adapter", () => {
           <div style="background-image: url('/background.jpg')"></div>
         </a>
       </div>`;
-    expect(parseAnimeGoSearch(html).map((item) => item.posterUrl)).toEqual([
+    const items = parseAnimeGoSearch(html);
+    expect(items.map((item) => item.posterUrl)).toEqual([
       "https://img.cdngos.com/v/250x350/anime/69/69d16a4ca28d1312818966",
       "https://cdn.example/lazy.jpg",
       "https://animego.me/large.jpg",
