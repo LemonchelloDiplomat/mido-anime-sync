@@ -43,9 +43,10 @@ describe("AnimeGO AniBoom iframe tracking", () => {
       },
     };
 
+    let currentEpisode = 7;
     const activeItem = {
       getAttribute(name: string) {
-        return name === "data-episode-number" ? "7" : null;
+        return name === "data-episode-number" ? String(currentEpisode) : null;
       },
       querySelector() {
         return null;
@@ -154,7 +155,12 @@ describe("AnimeGO AniBoom iframe tracking", () => {
       window: parentWindow,
     });
 
-    const watchEvents = sentEvents.filter((message) => message.type === "MIDAHOSHI_AUTO_WATCH_EVENT");
+    // The initial metadata arrives while the reused video element is already
+    // near the end. Require a real forward playback tick before emitting.
+    video.currentTime = 92;
+    videoListeners.timeupdate?.();
+
+    let watchEvents = sentEvents.filter((message) => message.type === "MIDAHOSHI_AUTO_WATCH_EVENT");
     expect(watchEvents).toHaveLength(1);
     expect(sentEvents).toContainEqual(expect.objectContaining({
       type: "MIDAHOSHI_CURRENT_WATCH",
@@ -168,9 +174,33 @@ describe("AnimeGO AniBoom iframe tracking", () => {
         title: "Агенты четырёх сезонов: Весенний танец",
         episode: 7,
         sourceUrl: "https://animego.me/anime/example",
-        currentTimeSeconds: 91,
+        currentTimeSeconds: 92,
         durationSeconds: 100,
       },
+    });
+
+    // Switching the parent episode must not relabel the old episode's 92%
+    // timestamp as a completed watch for episode 8.
+    currentEpisode = 8;
+    parentWindow.postMessage({ type: "MIDAHOSHI_REQUEST_PARENT_METADATA" });
+    watchEvents = sentEvents.filter((message) => message.type === "MIDAHOSHI_AUTO_WATCH_EVENT");
+    expect(watchEvents).toHaveLength(1);
+
+    // AniBoom resets its timeline. Only after the new episode genuinely
+    // reaches 90% should a second event be emitted.
+    video.currentTime = 0;
+    videoListeners.timeupdate?.();
+    for (let time = 4.5; time <= 90; time += 4.5) {
+      video.currentTime = time;
+      videoListeners.timeupdate?.();
+    }
+
+    watchEvents = sentEvents.filter((message) => message.type === "MIDAHOSHI_AUTO_WATCH_EVENT");
+    expect(watchEvents).toHaveLength(2);
+    expect(watchEvents[1].event).toMatchObject({
+      episode: 8,
+      currentTimeSeconds: 90,
+      durationSeconds: 100,
     });
   });
 });
