@@ -79,6 +79,16 @@ describe("AnimeGO public catalog adapter", () => {
     });
   });
 
+  it("ranks the matching romanized title above unrelated AnimeGO results", async () => {
+    const relevantHtml = '<div class="ani-grid__item"><a title="Shunkashuutou Daikousha: Haru no Mai" href="/anime/shunkashuutou-daikousha-haru-no-mai-9001"><img alt="Agents of the Four Seasons: Dance of Spring" src="/spring.jpg"></a></div><div class="ani-grid__item"><a title="K-On!" href="/anime/k-on-9002"><img alt="K-On!" src="/kon.jpg"></a></div>';
+    const fetcher = vi.fn(async () => ({ ok: true, status: 200, async text() { return relevantHtml; } }));
+    const deps = { request: fetcher, sendJson(res: ReturnType<typeof responseCapture>, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } };
+    const response = responseCapture();
+    await handleAnimeGoRequest({ method: "GET" }, response, new URL("http://127.0.0.1/api/animego/search?q=Shunkashuutou+Daikousha%3A+Haru+no+Mai"), deps);
+    expect(response.status).toBe(200);
+    expect(response.json().items).toHaveLength(1);
+    expect(response.json().items[0].title).toBe("Shunkashuutou Daikousha: Haru no Mai");
+  });
   it("parses public title metadata and exact AnimeGO identity", () => {
     const title = parseAnimeGoDetail(detailHtml, "https://animego.me/anime/sample-title-1234");
     expect(title).toMatchObject({
