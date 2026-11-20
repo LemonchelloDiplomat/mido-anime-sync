@@ -322,7 +322,7 @@ export async function handleAnixArtRequest(request, response, url, deps) {
         Referer: CVH_PLAYER,
         Origin: "https://player.cdnvideohub.com",
       };
-      const metadata = await fetcher(CVH_API + "/video/" + videoId, { headers: playerHeaders });
+      const metadata = await fetcher(CVH_API + "/video/" + videoId, { headers: playerHeaders, signal: AbortSignal.timeout(12000) });
       if (!metadata.ok) throw new Error("AnixART CVH video metadata: HTTP " + metadata.status);
       const sourceUrl = selectAnixArtVideoSource(await metadata.json());
       if (!sourceUrl) throw new Error("CVH не вернул поддерживаемую MP4-ссылку для этой озвучки.");
