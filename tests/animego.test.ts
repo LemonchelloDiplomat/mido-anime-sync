@@ -129,6 +129,37 @@ describe("AnimeGO public catalog adapter", () => {
     ]);
   });
 
+  it("keeps Japanese search text intact when ranking AnimeGO results", async () => {
+    const html = '<div class="ani-grid__item"><a title="葬送のフリーレン" href="/anime/sousou-no-frieren-9003"><img alt="葬送のフリーレン" src="/frieren.jpg"></a></div>';
+    const fetcher = vi.fn(async () => ({ ok: true, status: 200, async text() { return html; } }));
+    const response = responseCapture();
+    await handleAnimeGoRequest(
+      { method: "GET" }, response,
+      new URL("http://127.0.0.1/api/animego/search?q=" + encodeURIComponent("葬送のフリーレン")),
+      { request: fetcher, sendJson(res: any, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } },
+    );
+    expect(response.status).toBe(200);
+    expect(response.json().items).toHaveLength(1);
+    expect(response.json().items[0].title).toBe("葬送のフリーレン");
+  });
+
+  it("applies a bounded abort signal to poster CDN requests", async () => {
+    const fetcher = vi.fn(async (_url: string, options: RequestInit) => {
+      expect(options.signal).toBeInstanceOf(AbortSignal);
+      return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), {
+        status: 200, headers: { "Content-Type": "image/jpeg" },
+      });
+    });
+    const response = responseCapture();
+    await handleAnimeGoRequest(
+      { method: "GET" }, response,
+      new URL("http://127.0.0.1/api/animego/poster?url=" + encodeURIComponent("https://img.cdngos.com/test.jpg")),
+      { fetch: fetcher, sendJson(res: any, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } },
+    );
+    expect(response.status).toBe(200);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it("ranks the matching romanized title above unrelated AnimeGO results", async () => {
     const relevantHtml = '<div class="ani-grid__item"><a title="Shunkashuutou Daikousha: Haru no Mai" href="/anime/shunkashuutou-daikousha-haru-no-mai-9001"><img alt="Agents of the Four Seasons: Dance of Spring" src="/spring.jpg"></a></div><div class="ani-grid__item"><a title="K-On!" href="/anime/k-on-9002"><img alt="K-On!" src="/kon.jpg"></a></div>';
     const fetcher = vi.fn(async () => ({ ok: true, status: 200, async text() { return relevantHtml; } }));
