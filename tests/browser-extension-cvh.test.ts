@@ -498,6 +498,7 @@ describe("YummyAnime nested CVH iframe bridge", () => {
         (listeners[type] ||= []).push(listener);
       },
     };
+    let runtimeMessageListener: ((message: any, sender: any, sendResponse: (value: any) => void) => void) | undefined;
     const document = {
       title: "Санка Рэа | YummyAnime",
       documentElement: {},
@@ -519,8 +520,12 @@ describe("YummyAnime nested CVH iframe bridge", () => {
       },
       document,
       window,
-      chrome: { runtime: { onMessage: { addListener() {} }, sendMessage() {} } },
+      chrome: { runtime: { onMessage: { addListener(listener: any) { runtimeMessageListener = listener; } }, sendMessage() {} } },
     });
+
+    let manualDetection: any;
+    runtimeMessageListener?.({ type: "MIDAHOSHI_DETECT_WATCH_EVENT" }, {}, (value) => { manualDetection = value; });
+    expect(manualDetection).toMatchObject({ title: "Санка Рэа", episode: episodeNumber });
 
     expect(forwarded).toHaveLength(1);
     expect(forwarded[0]).toMatchObject({
