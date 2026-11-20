@@ -4,7 +4,7 @@ const PLAYER_CATALOG_TTL_MS = 10 * 60 * 1000;
 
 function sanitizePlayerCatalog(input) {
   if (!input || typeof input !== "object" ||
-      typeof input.slug !== "string" || !/^\\d+-[\\p{L}\\p{N}-]+\\.html$/u.test(input.slug) ||
+      typeof input.slug !== "string" || !/^\d+-[\p{L}\p{N}-]+\.html$/u.test(input.slug) ||
       typeof input.title !== "string" || input.title.trim().length < 2 ||
       !Array.isArray(input.seasons)) return null;
   const seasons = input.seasons.slice(0, 50).flatMap((season) => {
@@ -72,8 +72,8 @@ function titleSlug(url) {
 
 function cleanSearchTitle(value) {
   return String(value || "")
-    .replace(/^\\s*(?:\\d{1,2}(?:[.,]\\d{1,2})?\\s+){1,2}/, "")
-    .replace(/\\s+\\d{4}\\s*,[\\s\\S]*$/, "")
+    .replace(/^\\s*(?:\d{1,2}(?:[.,]\d{1,2})?\\s+){1,2}/, "")
+    .replace(/\\s+\d{4}\\s*,[\\s\\S]*$/, "")
     .replace(/[\\s,;|]+$/, "")
     .replace(/\\s+/g, " ")
     .trim();
@@ -190,7 +190,7 @@ export async function handleAnixArtRequest(request, response, url, deps) {
     }
     if (method === "GET") {
       const slug = String(url.searchParams.get("slug") || "");
-      if (!/^\\d+-[\\p{L}\\p{N}-]+\\.html$/u.test(slug)) return sendJson(response, 400, { error: "Некорректный AnixART slug." });
+      if (!/^\d+-[\p{L}\p{N}-]+\.html$/u.test(slug)) return sendJson(response, 400, { error: "Некорректный AnixART slug." });
       const cached = playerCatalogs.get(slug);
       if (!cached || cached.expiresAt <= Date.now()) {
         playerCatalogs.delete(slug);
