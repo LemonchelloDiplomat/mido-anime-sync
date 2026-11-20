@@ -84,6 +84,9 @@ function createBackgroundHarness(options: HarnessOptions = {}) {
   return {
     storage,
     warnings,
+    dispatch(message: unknown) {
+      messageListener?.(message);
+    },
     async send(message: unknown) {
       messageListener?.(message);
       // Let the serialized background mutation and storage promises settle.
@@ -190,12 +193,12 @@ describe("browser extension pending watch queue", () => {
     harness.storage.pendingWatchEvents = [];
     // Queue both messages without waiting between them to reproduce the
     // storage read/write race that can occur when the app acknowledges fast.
-    const listener = (harness as any).send;
-    await listener({
+    harness.dispatch({
       type: "MIDAHOSHI_AUTO_WATCH_EVENT",
       event: first,
     });
-    await listener({ type: "MIDAHOSHI_APP_ACK", eventId: "ack-me" });
+    harness.dispatch({ type: "MIDAHOSHI_APP_ACK", eventId: "ack-me" });
+    await new Promise((resolve) => setTimeout(resolve, 60));
 
     expect(harness.storage.pendingWatchEvents).toEqual([]);
   });
