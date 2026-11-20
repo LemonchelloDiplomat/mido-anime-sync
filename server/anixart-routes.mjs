@@ -116,47 +116,56 @@ function cleanSearchTitle(value) {
 }
 
 export function parseAnixArtSearch(html) {
+  const source = String(html || "");
   const items = [];
   const seen = new Set();
-  const pattern = /<a\b([^>]*href\s*=\s*(['"])([^'"]+\.html(?:\?[^'"]*)?)\2[^>]*)>([\s\S]*?)<\/a>/gi;
-  let match;
-  while ((match = pattern.exec(html))) {
-    const url = safeUrl(match[3]);
-    if (!url || new URL(url).hostname !== "anixart.site" || seen.has(url)) continue;
-    const slug = titleSlug(url);
-    if (!/^\d+-[\p{L}\p{N}-]+\.html$/u.test(slug)) continue;
-    const inner = match[4];
-    const image = inner.match(/<img\b[^>]*>/i)?.[0] || "";
-    const rawText = stripTags(inner);
-    const title = cleanSearchTitle(rawText) || cleanSearchTitle(attr(image, "alt"));
-    if (!title) continue;
+  const divTags = [...source.matchAll(/<div\\b[^>]*>/gi)];
+  const cardStarts = divTags
+    .filter((entry) => /(?:^|\\s)shortstory(?:\\s|$)/i.test(attr(entry[0], "class")))
+    .map((entry) => entry.index);
 
-    // Scope poster lookup to this result card instead of grabbing the last
-    // image from an arbitrary 1,400-character window (which could be another title).
-    const cardStarts = [...html.slice(0, match.index).matchAll(/<div\b[^>]*>/gi)]
-      .filter((entry) => /(?:^|\s)shortstory(?:\s|$)/i.test(attr(entry[0], "class")))
-      .map((entry) => entry.index);
-    const cardStart = cardStarts.at(-1) ?? match.index;
-    const nextCard = [...html.slice(match.index + match[0].length).matchAll(/<div\b[^>]*>/gi)]
-      .find((entry) => /(?:^|\s)shortstory(?:\s|$)/i.test(attr(entry[0], "class")));
-    const cardMarkup = html.slice(cardStart, nextCard ? match.index + match[0].length + nextCard.index : match.index + match[0].length);
-    const poster = posterFromMarkup(inner) || posterFromMarkup(cardMarkup) || posterFromMarkup(image);
-    const ratingTokens = rawText.match(/^\s*(\d{1,2}(?:[.,]\d{1,2})?)(?:\s+(\d{1,2}(?:[.,]\d{1,2})?))?\s+/);
+  // Parse one result card at a time. The poster link and title/rating link are
+  // often separate anchors, so treating every anchor as a separate anime loses
+  // the rating and can accidentally attach the previous card's poster.
+  const cards = cardStarts.length
+    ? cardStarts.map((start, index) => source.slice(start, cardStarts[index + 1] ?? source.length))
+    : [source];
+
+  for (const card of cards) {
+    const anchors = [...card.matchAll(/<a\\b([^>]*href\\s*=\\s*(['"])([^'"]+\\.html(?:\\?[^'"]*)?)\\2[^>]*)>([\\s\\S]*?)<\\/a>/gi)];
+    const candidates = anchors.flatMap((anchor) => {
+      const url = safeUrl(anchor[3]);
+      if (!url || new URL(url).hostname !== "anixart.site") return [];
+      const slug = titleSlug(url);
+      if (!/^\\d+-[\\p{L}\\p{N}-]+\\.html$/u.test(slug)) return [];
+      const rawText = stripTags(anchor[4]);
+      const image = anchor[4].match(/<img\\b[^>]*>/i)?.[0] || "";
+      return [{ url, slug, rawText, image, title: cleanSearchTitle(rawText) || cleanSearchTitle(attr(image, "alt")) }];
+    });
+    if (!candidates.length) continue;
+    const selected = candidates.find((entry) => entry.rawText.trim()) || candidates.find((entry) => entry.title) || candidates[0];
+    if (!selected || seen.has(selected.url)) continue;
+
+    const title = selected.title || cleanSearchTitle(attr(selected.image, "alt"));
+    if (!title) continue;
+    const poster = posterFromMarkup(card) || posterFromMarkup(selected.image);
+    const ratingTokens = selected.rawText.match(/^\\s*(\\d{1,2}(?:[.,]\\d{1,2})?)(?:\\s+(\\d{1,2}(?:[.,]\\d{1,2})?))?\\s+/);
     const parsedRating = ratingTokens ? Number((ratingTokens[2] || ratingTokens[1]).replace(",", ".")) : null;
     const averageScore = parsedRating != null && Number.isFinite(parsedRating) && parsedRating >= 0 && parsedRating <= 10 ? parsedRating : null;
-    const yearMatch = rawText.match(/\b(19\d{2}|20\d{2})\b/);
+    const yearMatch = (selected.rawText || stripTags(card)).match(/\\b(19\\d{2}|20\\d{2})\\b/);
+
     items.push({
       provider: "anixart",
-      externalId: slug,
-      url,
+      externalId: selected.slug,
+      url: selected.url,
       title,
-      alternativeTitles: [],
+      alternativeTitles: candidates.map((entry) => entry.title).filter((value) => value && value !== title).slice(0, 8),
       posterUrl: poster,
       averageScore,
       scoreSource: averageScore != null ? "AnixART" : null,
       year: yearMatch ? Number(yearMatch[1]) : null,
     });
-    seen.add(url);
+    seen.add(selected.url);
   }
   return items.slice(0, 30);
 }
