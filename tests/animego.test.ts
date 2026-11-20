@@ -171,6 +171,50 @@ describe("AnimeGO public catalog adapter", () => {
     expect(response.json().items[0].title).toBe("葬送のフリーレン");
   });
 
+  it("extracts AnimeGO page poster metadata from Open Graph, Twitter and JSON-LD", () => {
+    expect(parseAnimeGoPagePoster(`
+      <meta name="twitter:image" content="//img.cdngos.com/twitter.jpg">
+      <meta property="og:image" content="https://img.cdngos.com/og.jpg">
+      <script type="application/ld+json">{"image":"https://img.cdngos.com/jsonld.jpg"}</script>
+    `, "https://animego.me/anime/sample-title-1234")).toBe("https://img.cdngos.com/og.jpg");
+    expect(parseAnimeGoPagePoster(`
+      <meta name="twitter:image" content="https://img.cdngos.com/twitter.jpg">
+    `, "https://animego.me/anime/sample-title-1234")).toBe("https://img.cdngos.com/twitter.jpg");
+    expect(parseAnimeGoPagePoster("<h1>No image metadata</h1>")).toBeNull();
+  });
+
+  it("retrieves a poster from the AnimeGO title page metadata endpoint", async () => {
+    const pageHtml = '<meta property="og:image" content="https://img.cdngos.com/page-poster.jpg">';
+    const fetcher = vi.fn(async (target: string) => ({
+      ok: true, status: 200, async text() { return pageHtml; },
+      target,
+    }));
+    const response = responseCapture();
+    await handleAnimeGoRequest(
+      { method: "GET" }, response,
+      new URL("http://127.0.0.1/api/animego/poster-meta?url=" + encodeURIComponent("https://animego.me/anime/sample-title-1234")),
+      { request: fetcher, sendJson(res: any, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } },
+    );
+    expect(response.status).toBe(200);
+    expect(response.json()).toEqual({
+      posterUrl: "https://img.cdngos.com/page-poster.jpg",
+      source: "AnimeGO page metadata",
+    });
+    expect(fetcher).toHaveBeenCalledWith("https://animego.me/anime/sample-title-1234", expect.anything());
+  });
+
+  it("rejects non-title URLs in the AnimeGO poster metadata endpoint", async () => {
+    const fetcher = vi.fn();
+    const response = responseCapture();
+    await handleAnimeGoRequest(
+      { method: "GET" }, response,
+      new URL("http://127.0.0.1/api/animego/poster-meta?url=" + encodeURIComponent("https://evil.example/page")),
+      { request: fetcher, sendJson(res: any, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } },
+    );
+    expect(response.status).toBe(400);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("proxies AnimeGO posters with the title-page Referer and image response headers", async () => {
     const fetcher = vi.fn(async (_url: RequestInfo | URL, options?: RequestInit) => {
       expect(options?.signal).toBeInstanceOf(AbortSignal);
