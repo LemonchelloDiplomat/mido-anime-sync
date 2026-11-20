@@ -72,10 +72,10 @@ function titleSlug(url) {
 
 function cleanSearchTitle(value) {
   return String(value || "")
-    .replace(/^\\s*(?:\d{1,2}(?:[.,]\d{1,2})?\\s+){1,2}/, "")
-    .replace(/\\s+\d{4}\\s*,[\\s\\S]*$/, "")
-    .replace(/[\\s,;|]+$/, "")
-    .replace(/\\s+/g, " ")
+    .replace(/^\s*(?:\d{1,2}(?:[.,]\d{1,2})?\s+){1,2}/, "")
+    .replace(/\s+\d{4}\s*,[\s\S]*$/, "")
+    .replace(/[\s,;|]+$/, "")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
