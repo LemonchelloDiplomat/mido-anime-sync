@@ -4,7 +4,7 @@ import type { AnimeIdentity, AnimeSnapshotV4 } from "../core/types.js";
 import { parseYummyAccountSnapshot } from "../services/yummyanime.js";
 import { fetchYummyAnimeHistory, fetchYummyAnimeLists, getYummyAnimeStatus, loginYummyAnime, logoutYummyAnime, type YummyAnimeConnectionStatus } from "../services/yummyanime-api.js";
 import { AnimeGoCatalogProvider } from "../services/animego.js";
-import { AnixArtCatalogProvider, getAnixArtPlayerCatalog, type AnixArtPlayerCatalog } from "../services/anixart.js";
+import { AnixArtCatalogProvider } from "../services/anixart.js";
 import { getYummyAnimeTitle, searchYummyAnime } from "../services/yummyanime-api.js";
 import type {
   StreamingProviderId,
@@ -32,7 +32,7 @@ const providerLabels: Record<StreamingProviderId, string> = {
 const providerNotes: Record<StreamingProviderId, string> = {
   yummyanime: "Каталог, карточки, серии, озвучки и API аккаунта. Для входа нужен личный X-Application token.",
   animego: "Публичный каталог, карточки, серии и озвучки. Прогресс передаёт браузерное расширение.",
-  anixart: "Каталог сайта, карточки, сезоны, серии и доступные озвучки из плеера. Прогресс просмотра передаёт расширение.",
+  anixart: "Каталог сайта, карточки, сезоны, серии и озвучки загружаются напрямую локальным сервером.",
 };
 
 async function searchProvider(provider: StreamingProviderId, query: string, signal: AbortSignal): Promise<StreamingSearchResult> {
@@ -52,7 +52,6 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
   const [results, setResults] = useState<StreamingTitle[]>([]);
   const [selected, setSelected] = useState<StreamingTitle | null>(null);
   const [details, setDetails] = useState<StreamingTitleDetails | null>(null);
-  const [anixArtCatalog, setAnixArtCatalog] = useState<AnixArtPlayerCatalog | null>(null);
   const [expandedEpisode, setExpandedEpisode] = useState<string | null>(null);
   const [episodeTracks, setEpisodeTracks] = useState<Record<string, StreamingVoice[]>>({});
   const [episodeTracksLoading, setEpisodeTracksLoading] = useState<Record<string, boolean>>({});
@@ -124,33 +123,6 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
         if (!controller.signal.aborted) setDetailsLoading(false);
       });
     return () => controller.abort();
-  }, [provider, selected]);
-
-  useEffect(() => {
-    setAnixArtCatalog(null);
-    if (provider !== "anixart" || !selected) return;
-    const controller = new AbortController();
-    let active = true;
-    let catalogReceived = false;
-    const loadCatalog = async () => {
-      try {
-        const catalog = await getAnixArtPlayerCatalog(selected.externalId, controller.signal);
-        if (active && catalog) { catalogReceived = true; setAnixArtCatalog(catalog); }
-      } catch (reason) {
-        if (active && !(reason instanceof Error && reason.name === "AbortError")) {
-          setError(reason instanceof Error ? reason.message : "Не удалось получить каталог AnixART.");
-        }
-      }
-    };
-    void loadCatalog();
-    const timer = window.setInterval(() => {
-      if (!catalogReceived) void loadCatalog();
-    }, 2500);
-    return () => {
-      active = false;
-      controller.abort();
-      window.clearInterval(timer);
-    };
   }, [provider, selected]);
 
   async function connectYummyAnime(event: FormEvent<HTMLFormElement>) {
@@ -296,7 +268,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
               <>
                 <h3>{details.title}</h3>
                 {details.description && <p>{details.description}</p>}
-                <p className="streaming-detail-meta">{details.year || "Год не указан"}{provider !== "anixart" && details.episodeCount ? " · " + details.episodeCount + " эп." : provider === "anixart" && anixArtCatalog ? " · " + anixArtCatalog.seasons.reduce((total, season) => total + season.episodes.length, 0) + " эп. в каталоге плеера" : ""}</p>
+                <p className="streaming-detail-meta">{details.year || "Год не указан"}{provider !== "anixart" && details.episodeCount ? " · " + details.episodeCount + " эп." : provider === "anixart" && details.episodeCount ? " · " + details.episodeCount + " эп." : ""}</p>
                 {details.seasons.length > 0 && <div className="streaming-season-list">
                   <strong>Серии</strong>
                   {details.seasons.map((season) => <section className="streaming-season" key={season.number}>
@@ -316,7 +288,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
                             <strong>Варианты озвучки</strong>
                             {tracksLoading ? <p>Загружаем варианты озвучки...</p> : tracks.length ? <ul>{tracks.map((track) => <li key={track.externalId}>
                               <span className="streaming-voice-info"><strong>{track.name}</strong><small>{track.playerName || "Плеер не указан"} · ID {track.externalId}</small></span>
-                              {track.playerUrl ? <button type="button" className="secondary streaming-play-button" onClick={() => setActivePlayer({ name: "Серия " + episode.number + " · " + track.name, url: track.playerUrl! })}>Смотреть</button> : <small>Нет адреса плеера</small>}
+                              {track.playerUrl ? <button type="button" className="secondary streaming-play-button" onClick={() => setActivePlayer({ name: "Серия " + episode.number + " · " + track.name, url: track.playerUrl! })}>Смотреть</button> : provider === "anixart" ? <a href={details.url} target="_blank" rel="noreferrer">Открыть на AnixART ↗</a> : <small>Нет адреса плеера</small>}
                             </li>)}</ul> : <p>Для этой серии API не вернул список озвучек.</p>}
                             <p className="streaming-limitation">Плеер открывается во встроенном окне, если источник разрешает встраивание. Некоторые сайты могут блокировать воспроизведение.</p>
                           </div>}
@@ -325,52 +297,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
                     </div>
                   </section>)}
                 </div>}
-                {provider === "anixart" && details.seasons.length === 0 && (
-                  <div className="streaming-season-list">
-                    <strong>Сезоны и серии AnixART</strong>
-                    {anixArtCatalog ? (
-                      <>
-                        <p className="streaming-limitation">Каталог получен из плеера AnixART. Доступно сезонов: {anixArtCatalog.seasons.length}; серий: {anixArtCatalog.seasons.reduce((total, season) => total + season.episodes.length, 0)}.</p>
-                        {anixArtCatalog.seasons.map((season) => (
-                          <section className="streaming-season" key={season.number}>
-                            <h4>Сезон {season.number}</h4>
-                            <div className="streaming-episode-list">
-                              {season.episodes.map((episode) => {
-                                const episodeKey = "anixart:" + selected.externalId + ":" + season.number + ":" + episode.number;
-                                const isExpanded = expandedEpisode === episodeKey;
-                                const isCurrent = anixArtCatalog.current.season === season.number && anixArtCatalog.current.episode === episode.number;
-                                return (
-                                  <article className={"streaming-episode" + (isExpanded ? " expanded" : "")} key={episodeKey}>
-                                    <button type="button" className="streaming-episode-toggle" aria-expanded={isExpanded} onClick={() => setExpandedEpisode(isExpanded ? null : episodeKey)}>
-                                      <span><strong>Серия {episode.number}{isCurrent ? " · Сейчас на сайте" : ""}</strong></span>
-                                      <span className="streaming-episode-summary">{episode.voices.length} озвуч. <span aria-hidden="true">{isExpanded ? "−" : "+"}</span></span>
-                                    </button>
-                                    {isExpanded && (
-                                      <div className="streaming-episode-voices">
-                                        <strong>Варианты озвучки</strong>
-                                        {episode.voices.length > 0 ? (
-                                          <ul>{episode.voices.map((voice, voiceIndex) => (
-                                            <li key={voice.name + ":" + (voice.type || "") + ":" + voiceIndex}>
-                                              <span className="streaming-voice-info"><strong>{voice.name}</strong><small>{voice.type || "Тип озвучки не указан"}</small></span>
-                                              {isCurrent && anixArtCatalog.current.voice === voice.name && <small>Выбрана в плеере</small>}
-                                            </li>
-                                          ))}</ul>
-                                        ) : <p>Для этой серии сайт не предоставил список озвучек.</p>}
-                                      </div>
-                                    )}
-                                  </article>
-                                );
-                              })}
-                            </div>
-                          </section>
-                        ))}
-                        <p className="streaming-limitation">Выбор озвучки и воспроизведение пока выполняются на сайте AnixART. Локальный интерфейс отображает каталог и текущий выбор.</p>
-                      </>
-                    ) : (
-                      <p className="streaming-limitation">Открой карточку этого тайтла на AnixART в браузере и запусти плеер. Расширение передаст сезоны, серии и озвучки сюда автоматически.</p>
-                    )}
-                  </div>
-                )}
+
                 <div className="streaming-detail-actions">
                   <a href={details.url} target="_blank" rel="noreferrer">Открыть на сайте ↗</a>
                   <button type="button" disabled={!details.identity || importing} onClick={() => void importSelected()}>{importing ? "Добавляем..." : "Добавить в библиотеку"}</button>
