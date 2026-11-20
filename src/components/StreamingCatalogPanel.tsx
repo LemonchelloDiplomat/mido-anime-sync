@@ -86,6 +86,14 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
   const normalizedQuery = useMemo(() => normalizeCatalogQuery(query), [query]);
 
   useEffect(() => {
+    if (!activePlayer || playerLoaded || playerError) return;
+    const timer = window.setTimeout(() => {
+      setPlayerError("Плеер не ответил за 15 секунд. Открой тайтл на сайте сервиса или попробуй другой вариант озвучки.");
+    }, 15000);
+    return () => window.clearTimeout(timer);
+  }, [activePlayer, playerLoaded, playerError]);
+
+  useEffect(() => {
     let active = true;
     void getYummyAnimeStatus().then((status) => { if (active) setAccountStatus(status); }).catch(() => { if (active) setAccountStatus(null); });
     return () => { active = false; };
