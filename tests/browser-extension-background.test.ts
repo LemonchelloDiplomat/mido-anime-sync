@@ -170,6 +170,33 @@ describe("browser extension pending watch queue", () => {
     expect(harness.storage.pendingWatchEvents).toHaveLength(2);
   });
 
+  it("accepts AnixART automatic watch events and keeps different seasons distinct", async () => {
+    const harness = createBackgroundHarness();
+    const anixartEvent = {
+      service: "anixart",
+      title: "Магическая битва 2",
+      episode: 5,
+      season: 2,
+      voice: "AniBoom",
+      sourceUrl: "https://anixart.site/7004-magicheskaja-bitva-2.html",
+      currentTimeSeconds: 1292,
+      durationSeconds: 1435,
+    };
+    await harness.send({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: { ...anixartEvent, eventId: "anixart-season-two" },
+    });
+    await harness.send({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: { ...anixartEvent, season: 1, eventId: "anixart-season-one" },
+    });
+    expect(harness.storage.pendingWatchEvents).toHaveLength(2);
+    expect(harness.storage.pendingWatchEvents).toMatchObject([
+      { service: "anixart", episode: 5, season: 2, voice: "AniBoom" },
+      { service: "anixart", episode: 5, season: 1, voice: "AniBoom" },
+    ]);
+  });
+
   it("preserves every pending event instead of silently dropping entries after the twentieth", async () => {
     const harness = createBackgroundHarness();
 
