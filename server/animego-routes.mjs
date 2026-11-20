@@ -447,13 +447,19 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
       const page = await requestAnimeGoImpl(SITE + "/anime/" + encodeURIComponent(slug), { headers });
       if (!page.ok) throw new Error("AnimeGO: HTTP " + page.status);
       const detail = parseAnimeGoDetail(await page.text(), SITE + "/anime/" + encodeURIComponent(slug));
-      const player = await requestAnimeGoImpl(SITE + "/player/" + encodeURIComponent(detail.externalId), {
-        headers: { ...headers, Accept: "application/json", "X-Requested-With": "XMLHttpRequest", Referer: SITE + "/" },
-      });
+      // Player metadata is optional. Some titles are watch-page-only or have
+      // temporarily unavailable player endpoints; keep the title card usable.
       let parsed = { episodes: [], voices: [] };
-      if (player.ok) {
-        const payload = typeof player.json === "function" ? await player.json() : JSON.parse(await player.text());
-        parsed = parseAnimeGoPlayer(payload, detail.url);
+      try {
+        const player = await requestAnimeGoImpl(SITE + "/player/" + encodeURIComponent(detail.externalId), {
+          headers: { ...headers, Accept: "application/json", "X-Requested-With": "XMLHttpRequest", Referer: SITE + "/" },
+        });
+        if (player.ok) {
+          const payload = typeof player.json === "function" ? await player.json() : JSON.parse(await player.text());
+          parsed = parseAnimeGoPlayer(payload, detail.url);
+        }
+      } catch {
+        // The original title page remains available even without an embedded player.
       }
       // AnimeGO films can expose player variants without an episode navigation bar.
       // Surface those variants as one synthetic "Фильм" item so the existing player UI can render them.
