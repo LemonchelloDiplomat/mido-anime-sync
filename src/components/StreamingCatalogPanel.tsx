@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { normalizeCatalogQuery, t, type AppLocale } from "../i18n.js";
-import { searchAniListAnimeBatch } from "../services/anilist.js";
-import { applyFallbackMetadata } from "../services/streaming-metadata.js";
+import { applyStreamingPosterFallback } from "../services/streaming-metadata.js";
 import type { FormEvent } from "react";
 import type { AnimeIdentity, AnimeSnapshotV4 } from "../core/types.js";
 import { parseYummyAccountSnapshot } from "../services/yummyanime.js";
@@ -135,30 +134,26 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
     void searchProvider(provider, normalizedQuery, controller.signal)
       .then(async (result) => {
         if (controller.signal.aborted) return;
-        // AnimeGO uses unstable CDN poster URLs, so always look for a verified
-        // AniList cover. Other providers only need fallback when metadata is absent.
-        // AnimeGO and AnixART can return poster URLs that exist syntactically but
-        // fail when loaded. Resolve a small set of title-specific AniList candidates
-        // so the UI can switch to a verified cover after an image error. Matching
-        // remains exact (including aliases) and ambiguous matches are rejected.
-        const needsFallback = provider !== "yummyanime";
-        if (!needsFallback) {
+        // Streaming catalogues remain independent from library services.
+        // AnimeGO may borrow only an exact-match poster from the public AnixART
+        // catalogue. Its title, rating, URL and identity remain AnimeGO-owned.
+        if (provider !== "animego") {
           setResults(result.items);
           return;
         }
         try {
-          const fallbackQueries = [...new Set([
-            normalizedQuery,
-            ...result.items.slice(0, 20).flatMap((item) => [item.title, ...(item.alternativeTitles || []).slice(0, 1)]),
-          ].map((value) => value.trim()).filter((value) => value.length >= 2))].slice(0, 9);
-          const metadata = await searchAniListAnimeBatch(fallbackQueries, controller.signal);
+          const posterCandidates = await anixArt.search({
+            query: normalizedQuery,
+            page: 1,
+            signal: controller.signal,
+          });
           if (controller.signal.aborted) return;
-          setResults(result.items.map((item) => applyFallbackMetadata(item, metadata, {
-            preferPoster: provider === "animego",
-          })));
+          setResults(result.items.map((item) =>
+            applyStreamingPosterFallback(item, posterCandidates.items),
+          ));
         } catch (reason) {
           if (!controller.signal.aborted) {
-            console.warn("Не удалось загрузить резервные метаданные AniList для каталога:", reason);
+            console.warn("Не удалось получить резервные постеры из каталога AnixART:", reason);
             setResults(result.items);
           }
         }
@@ -370,7 +365,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
               <button type="button" className={selected?.externalId === item.externalId ? "streaming-result selected" : "streaming-result"} key={item.externalId} onClick={() => setSelected(item)}>
                 <span className="streaming-result-poster">
                   {displayPoster && posterFailure !== "fallback"
-                    ? <img src={provider === "animego" && ((usingFallbackPoster && item.fallbackPosterUrl !== item.posterUrl) || (!usingFallbackPoster && item.posterSource !== "AniList")) ? "/api/animego/poster?url=" + encodeURIComponent(displayPoster) : displayPoster} alt="" loading="lazy" onError={() => setFailedPosters((current) => ({ ...current, [posterKey]: current[posterKey] === "provider" ? "fallback" : "provider" }))} />
+                    ? <img src={provider === "animego" && item.posterSource !== "AnixART" ? "/api/animego/poster?url=" + encodeURIComponent(displayPoster) : displayPoster} alt="" loading="lazy" onError={() => setFailedPosters((current) => ({ ...current, [posterKey]: current[posterKey] === "provider" ? "fallback" : "provider" }))} />
                     : <span className="streaming-poster-placeholder" title={t(locale, "noPoster")}>✦</span>}
                   {item.averageScore != null && <b className={`streaming-score ${item.averageScore >= 8 ? "excellent" : item.averageScore >= 7 ? "good" : item.averageScore >= 5 ? "average" : "poor"}`} title={`Оценка: ${item.scoreSource || providerLabels[provider]}`}>{item.averageScore.toFixed(1)}</b>}
                 </span>
