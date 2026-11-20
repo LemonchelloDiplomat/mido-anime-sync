@@ -85,11 +85,11 @@ function posterFromMarkup(markup) {
   const tags = [...source.matchAll(/<[a-z][\w:-]*\b[^>]*>/gi)].map((match) => match[0]);
   const candidates = [];
   for (const tag of tags) {
-    for (const name of ["data-original", "data-original-src", "data-lazy-src", "data-src", "data-poster", "data-image", "data-bg", "src"]) {
+    for (const name of ["data-original", "data-original-src", "data-lazy-src", "data-src", "data-poster", "data-image", "data-background", "data-bg", "src"]) {
       const value = attr(tag, name);
       if (value) candidates.push(value);
     }
-    const srcset = attr(tag, "data-srcset") || attr(tag, "srcset");
+    const srcset = attr(tag, "data-original-srcset") || attr(tag, "data-lazy-srcset") || attr(tag, "data-srcset") || attr(tag, "srcset");
     if (srcset) {
       const options = srcset.split(",").map((item) => item.trim().split(/\s+/)[0]).filter(Boolean);
       candidates.push(...options.reverse());
@@ -127,14 +127,24 @@ export function parseAnixArtSearch(html) {
     if (!/^\d+-[\p{L}\p{N}-]+\.html$/u.test(slug)) continue;
     const inner = match[4];
     const image = inner.match(/<img\b[^>]*>/i)?.[0] || "";
-    const title = cleanSearchTitle(stripTags(inner)) || cleanSearchTitle(attr(image, "alt"));
+    const rawText = stripTags(inner);
+    const title = cleanSearchTitle(rawText) || cleanSearchTitle(attr(image, "alt"));
     if (!title) continue;
-    const prefix = html.slice(Math.max(0, match.index - 1400), match.index);
-    const images = [...prefix.matchAll(/<img\b[^>]*>/gi)];
-    const posterTag = images.at(-1)?.[0] || image;
-    // Posters may live on a lazy-loaded image, picture/source srcset, or a CSS
-    // background wrapper rather than the title anchor itself.
-    const poster = posterFromMarkup(inner) || posterFromMarkup(posterTag);
+
+    // Scope poster lookup to this result card instead of grabbing the last
+    // image from an arbitrary 1,400-character window (which could be another title).
+    const cardStarts = [...html.slice(0, match.index).matchAll(/<div\b[^>]*>/gi)]
+      .filter((entry) => /(?:^|\s)shortstory(?:\s|$)/i.test(attr(entry[0], "class")))
+      .map((entry) => entry.index);
+    const cardStart = cardStarts.at(-1) ?? match.index;
+    const nextCard = [...html.slice(match.index + match[0].length).matchAll(/<div\b[^>]*>/gi)]
+      .find((entry) => /(?:^|\s)shortstory(?:\s|$)/i.test(attr(entry[0], "class")));
+    const cardMarkup = html.slice(cardStart, nextCard ? match.index + match[0].length + nextCard.index : match.index + match[0].length);
+    const poster = posterFromMarkup(inner) || posterFromMarkup(cardMarkup) || posterFromMarkup(image);
+    const ratingTokens = rawText.match(/^\s*(\d{1,2}(?:[.,]\d{1,2})?)(?:\s+(\d{1,2}(?:[.,]\d{1,2})?))?\s+/);
+    const parsedRating = ratingTokens ? Number((ratingTokens[2] || ratingTokens[1]).replace(",", ".")) : null;
+    const averageScore = parsedRating != null && Number.isFinite(parsedRating) && parsedRating >= 0 && parsedRating <= 10 ? parsedRating : null;
+    const yearMatch = rawText.match(/\b(19\d{2}|20\d{2})\b/);
     items.push({
       provider: "anixart",
       externalId: slug,
@@ -142,6 +152,9 @@ export function parseAnixArtSearch(html) {
       title,
       alternativeTitles: [],
       posterUrl: poster,
+      averageScore,
+      scoreSource: averageScore != null ? "AnixART" : null,
+      year: yearMatch ? Number(yearMatch[1]) : null,
     });
     seen.add(url);
   }
