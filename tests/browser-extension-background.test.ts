@@ -39,16 +39,14 @@ function createBackgroundHarness(options: HarnessOptions = {}) {
           return { ...defaults, ...storage };
         },
         async set(values: Record<string, unknown>) {
-          if (Object.hasOwn(values, "pendingWatchEvents")) {
-            queueWriteCount += 1;
-            if (failNextQueueWrite && queueWriteCount === 1) {
-              failNextQueueWrite = false;
-              throw new Error("simulated storage quota failure");
-            }
-            if (options.delayFirstQueueWrite && !delayedQueueWriteUsed) {
-              delayedQueueWriteUsed = true;
-              await new Promise((resolve) => setTimeout(resolve, 20));
-            }
+          queueWriteCount += 1;
+          if (failNextQueueWrite && queueWriteCount === 1) {
+            failNextQueueWrite = false;
+            throw new Error("simulated storage quota failure");
+          }
+          if (options.delayFirstQueueWrite && queueWriteCount === 1 && !delayedQueueWriteUsed) {
+            delayedQueueWriteUsed = true;
+            await new Promise((resolve) => setTimeout(resolve, 20));
           }
           Object.assign(storage, values);
         },
