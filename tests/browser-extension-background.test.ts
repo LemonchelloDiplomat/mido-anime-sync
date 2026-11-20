@@ -14,7 +14,6 @@ const bridgeScript = await readFile(
 type HarnessOptions = {
   storage?: Record<string, unknown>;
   delayFirstQueueWrite?: boolean;
-  failNextQueueWrite?: boolean;
 };
 
 function createBackgroundHarness(options: HarnessOptions = {}) {
@@ -22,7 +21,7 @@ function createBackgroundHarness(options: HarnessOptions = {}) {
   let messageListener: ((message: any) => void) | null = null;
   let delayedQueueWriteUsed = false;
   let queueWriteCount = 0;
-  let failNextQueueWrite = Boolean(options.failNextQueueWrite);
+  let failNextStorageWrite = false;
 
   const drawingContext = {
     clearRect() {}, save() {}, restore() {}, beginPath() {}, roundRect() {}, fill() {},
@@ -40,8 +39,8 @@ function createBackgroundHarness(options: HarnessOptions = {}) {
         },
         async set(values: Record<string, unknown>) {
           queueWriteCount += 1;
-          if (failNextQueueWrite && queueWriteCount === 1) {
-            failNextQueueWrite = false;
+          if (failNextStorageWrite) {
+            failNextStorageWrite = false;
             throw new Error("simulated storage quota failure");
           }
           if (options.delayFirstQueueWrite && queueWriteCount === 1 && !delayedQueueWriteUsed) {
@@ -88,6 +87,9 @@ function createBackgroundHarness(options: HarnessOptions = {}) {
   return {
     storage,
     warnings,
+    failNextStorageWrite() {
+      failNextStorageWrite = true;
+    },
     dispatch(message: unknown) {
       messageListener?.(message);
     },
@@ -209,8 +211,8 @@ describe("browser extension pending watch queue", () => {
     const existingEvent = { ...watchEvent, eventId: "already-pending" };
     const harness = createBackgroundHarness({
       storage: { pendingWatchEvents: [existingEvent] },
-      failNextQueueWrite: true,
     });
+    harness.failNextStorageWrite();
 
     await harness.send({
       type: "MIDAHOSHI_AUTO_WATCH_EVENT",
