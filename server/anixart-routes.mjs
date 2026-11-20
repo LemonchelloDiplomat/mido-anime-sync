@@ -366,13 +366,14 @@ export async function handleAnixArtRequest(request, response, url, deps) {
         titleDetails: true,
         fullSeasonEpisodeManifest: true,
         playerCatalogSource: "server-cvh-api",
+        playback: "server-cvh-mp4-proxy",
         accountConnection: false,
         listImport: false,
         watchProgressRead: "browser-extension",
         limitations: [
           "Каталог сезонов, серий и озвучек загружается локальным сервером из публичного CVH playlist API.",
           "Синхронизация аккаунта мобильного приложения AnixART не поддерживается.",
-          "Видеопотоки CVH разрешаются локальным сервером и передаются встроенному HTML5-плееру через потоковый прокси.",
+          "Воспроизведение поддерживает MP4-варианты CVH; HLS/DASH без MP4 пока не поддерживаются.",
         ],
       });
     }
