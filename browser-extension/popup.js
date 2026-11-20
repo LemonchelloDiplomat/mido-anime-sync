@@ -12,7 +12,7 @@ const pendingList = document.getElementById("pending-list");
 const pendingCount = document.getElementById("pending-count");
 
 function normalizeQueueTitle(value) {
-  return String(value || "").trim().toLocaleLowerCase().replace(/\\s+/g, " ");
+  return String(value || "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
 }
 
 function normalizeQueueSource(value) {
@@ -39,20 +39,54 @@ function normalizeQueueSourceKey(value) {
   }
 }
 
+function getQueueEventKey(event) {
+  return [
+    event.service || "",
+    normalizeQueueTitle(event.title),
+    Number(event.episode) || "",
+    normalizeQueueSourceKey(event.sourceUrl),
+  ].join("|");
+}
+
 function getQueueDuplicateGroups(queue) {
   const groups = new Map();
   for (const event of queue) {
-    const key = [
-      event.service || "",
-      normalizeQueueTitle(event.title),
-      Number(event.episode) || "",
-      normalizeQueueSourceKey(event.sourceUrl),
-    ].join("|");
+    const key = getQueueEventKey(event);
     const group = groups.get(key) || [];
     group.push(event);
     groups.set(key, group);
   }
   return [...groups.values()].filter((group) => group.length > 1);
+}
+
+function getEventProgress(event) {
+  const current = Number(event.currentTimeSeconds);
+  const duration = Number(event.durationSeconds);
+  return Number.isFinite(current) && Number.isFinite(duration) && duration > 0
+    ? current / duration
+    : -1;
+}
+
+function chooseBestQueueEvent(group) {
+  return [...group].sort((a, b) => {
+    const progressDifference = getEventProgress(b) - getEventProgress(a);
+    if (progressDifference !== 0) return progressDifference;
+    return Date.parse(b.observedAt || "") - Date.parse(a.observedAt || "");
+  })[0];
+}
+
+function buildDeduplicatedQueue(queue) {
+  const winners = new Map();
+  for (const event of queue) {
+    const key = getQueueEventKey(event);
+    const current = winners.get(key);
+    if (!current || getEventProgress(event) > getEventProgress(current) ||
+        (getEventProgress(event) === getEventProgress(current) &&
+         Date.parse(event.observedAt || "") > Date.parse(current.observedAt || ""))) {
+      winners.set(key, event);
+    }
+  }
+  return queue.filter((event) => winners.get(getQueueEventKey(event)) === event);
 }
 
 function renderQueueDiagnostics(queue) {
@@ -94,9 +128,17 @@ function renderQueueDiagnostics(queue) {
 }
 
 async function renderPendingEvents() {
-  const { pendingWatchEvents = [] } = await chrome.storage.local.get({ pendingWatchEvents: [] });
+  const {
+    pendingWatchEvents = [],
+    pendingWatchEventsLastBackupKey = null,
+  } = await chrome.storage.local.get({
+    pendingWatchEvents: [],
+    pendingWatchEventsLastBackupKey: null,
+  });
   const queue = Array.isArray(pendingWatchEvents) ? pendingWatchEvents : [];
   renderQueueDiagnostics(queue);
+  document.getElementById("cleanup-duplicates").disabled = getQueueDuplicateGroups(queue).length === 0;
+  document.getElementById("restore-queue-backup").disabled = !pendingWatchEventsLastBackupKey;
   pendingCount.textContent = `(${queue.length})`;
   pendingList.replaceChildren();
 
@@ -138,6 +180,58 @@ async function renderPendingEvents() {
 }
 
 void renderPendingEvents();
+
+document.getElementById("cleanup-duplicates").addEventListener("click", async () => {
+  const maintenanceStatus = document.getElementById("queue-maintenance-status");
+  const stored = await chrome.storage.local.get({
+    pendingWatchEvents: [],
+    pendingWatchEventsLastBackupKey: null,
+  });
+  const queue = Array.isArray(stored.pendingWatchEvents) ? stored.pendingWatchEvents : [];
+  const nextQueue = buildDeduplicatedQueue(queue);
+  const removedCount = queue.length - nextQueue.length;
+  if (removedCount <= 0) {
+    maintenanceStatus.textContent = "Повторов для удаления не найдено.";
+    return;
+  }
+
+  const backupKey = `pendingWatchEventsBackup_${Date.now()}`;
+  await chrome.storage.local.set({
+    [backupKey]: queue,
+    pendingWatchEventsLastBackupKey: backupKey,
+    pendingWatchEvents: nextQueue,
+  });
+  detected = null;
+  pendingEventId = null;
+  titleInput.value = "";
+  episodeInput.value = "";
+  status("Очередь очищена. Можно восстановить исходные события из резервной копии.");
+  maintenanceStatus.textContent = `Удалено повторов: ${removedCount}. Осталось событий: ${nextQueue.length}. Резервная копия сохранена.`;
+  await renderPendingEvents();
+});
+
+document.getElementById("restore-queue-backup").addEventListener("click", async () => {
+  const maintenanceStatus = document.getElementById("queue-maintenance-status");
+  const stored = await chrome.storage.local.get({ pendingWatchEventsLastBackupKey: null });
+  const backupKey = stored.pendingWatchEventsLastBackupKey;
+  if (!backupKey) {
+    maintenanceStatus.textContent = "Резервная копия не найдена.";
+    return;
+  }
+  const backup = await chrome.storage.local.get({ [backupKey]: null });
+  if (!Array.isArray(backup[backupKey])) {
+    maintenanceStatus.textContent = "Резервная копия повреждена или отсутствует. Очередь не изменена.";
+    return;
+  }
+  await chrome.storage.local.set({ pendingWatchEvents: backup[backupKey] });
+  detected = null;
+  pendingEventId = null;
+  titleInput.value = "";
+  episodeInput.value = "";
+  status("Исходная очередь восстановлена из резервной копии.");
+  maintenanceStatus.textContent = `Восстановлено событий: ${backup[backupKey].length}.`;
+  await renderPendingEvents();
+});
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === "local" && changes.pendingWatchEvents) {
