@@ -4,6 +4,7 @@ import type {
   StreamingSearchResult,
   StreamingTitle,
   StreamingTitleDetails,
+  StreamingVoice,
 } from "./streaming-provider.js";
 
 async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
@@ -34,6 +35,15 @@ export class AnimeGoCatalogProvider implements StreamingCatalogProvider {
       page: Number(payload.page) || 1,
       hasNextPage: Boolean(payload.hasNextPage),
     };
+  }
+
+  async getEpisodeVoices(episodeId: string, signal?: AbortSignal): Promise<StreamingVoice[]> {
+    if (!/^\d+$/.test(episodeId)) throw new Error("Некорректный AnimeGO episode ID.");
+    const payload = await request<{ voices: StreamingVoice[] }>(
+      "/api/animego/episode/" + encodeURIComponent(episodeId),
+      signal,
+    );
+    return Array.isArray(payload.voices) ? payload.voices : [];
   }
 
   async getTitle(externalId: string, signal?: AbortSignal): Promise<StreamingTitleDetails> {

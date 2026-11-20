@@ -11,6 +11,7 @@ import type {
   StreamingSearchResult,
   StreamingTitle,
   StreamingTitleDetails,
+  StreamingVoice,
 } from "../services/streaming-provider.js";
 
 type Props = {
@@ -52,6 +53,8 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
   const [selected, setSelected] = useState<StreamingTitle | null>(null);
   const [details, setDetails] = useState<StreamingTitleDetails | null>(null);
   const [expandedEpisode, setExpandedEpisode] = useState<string | null>(null);
+  const [episodeTracks, setEpisodeTracks] = useState<Record<string, StreamingVoice[]>>({});
+  const [episodeTracksLoading, setEpisodeTracksLoading] = useState<Record<string, boolean>>({});
   const [activePlayer, setActivePlayer] = useState<{ name: string; url: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [detailsLoading, setDetailsLoading] = useState(false);
@@ -108,6 +111,8 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
     const controller = new AbortController();
     setDetailsLoading(true);
     setExpandedEpisode(null);
+    setEpisodeTracks({});
+    setEpisodeTracksLoading({});
     void loadDetails(provider, selected, controller.signal)
       .then(setDetails)
       .catch((reason: unknown) => {
@@ -178,6 +183,24 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
     } catch (reason) {
       setAccountMessage(reason instanceof Error ? reason.message : "Не удалось импортировать данные аккаунта.");
     } finally { setAccountBusy(false); }
+  }
+
+  async function toggleEpisode(episodeKey: string, episodeId: string, hasPreloadedTracks = false) {
+    if (expandedEpisode === episodeKey) {
+      setExpandedEpisode(null);
+      return;
+    }
+    setExpandedEpisode(episodeKey);
+    if (provider !== "animego" || hasPreloadedTracks || episodeTracks[episodeKey] || episodeTracksLoading[episodeKey]) return;
+    setEpisodeTracksLoading((current) => ({ ...current, [episodeKey]: true }));
+    try {
+      const tracks = await animeGo.getEpisodeVoices(episodeId);
+      setEpisodeTracks((current) => ({ ...current, [episodeKey]: tracks }));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось загрузить озвучки AnimeGO.");
+    } finally {
+      setEpisodeTracksLoading((current) => ({ ...current, [episodeKey]: false }));
+    }
   }
 
   async function importSelected() {
@@ -252,17 +275,18 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
                     <h4>{season.title || "Сезон " + season.number}</h4>
                     <div className="streaming-episode-list">
                       {season.episodes.map((episode) => {
-                        const episodeKey = season.number + ":" + episode.number;
+                        const episodeKey = provider + ":" + selected.externalId + ":" + season.number + ":" + episode.number;
                         const isExpanded = expandedEpisode === episodeKey;
-                        const tracks = episode.voiceTracks || [];
+                        const tracks = episodeTracks[episodeKey] || episode.voiceTracks || [];
+                        const tracksLoading = provider === "animego" && Boolean(episodeTracksLoading[episodeKey]);
                         return <article className={"streaming-episode" + (isExpanded ? " expanded" : "")} key={episodeKey}>
-                          <button type="button" className="streaming-episode-toggle" aria-expanded={isExpanded} onClick={() => setExpandedEpisode(isExpanded ? null : episodeKey)}>
+                          <button type="button" className="streaming-episode-toggle" aria-expanded={isExpanded} onClick={() => void toggleEpisode(episodeKey, episode.externalId, Boolean(episode.voiceTracks?.length))}>
                             <span><strong>Серия {episode.number}</strong>{episode.title ? <small>{episode.title}</small> : null}</span>
                             <span className="streaming-episode-summary">{tracks.length ? tracks.length + " озвуч." : "Озвучки не указаны"} <span aria-hidden="true">{isExpanded ? "−" : "+"}</span></span>
                           </button>
                           {isExpanded && <div className="streaming-episode-voices">
                             <strong>Варианты озвучки</strong>
-                            {tracks.length ? <ul>{tracks.map((track) => <li key={track.externalId}>
+                            {tracksLoading ? <p>Загружаем варианты озвучки...</p> : tracks.length ? <ul>{tracks.map((track) => <li key={track.externalId}>
                               <span className="streaming-voice-info"><strong>{track.name}</strong><small>{track.playerName || "Плеер не указан"} · ID {track.externalId}</small></span>
                               {track.playerUrl ? <button type="button" className="secondary streaming-play-button" onClick={() => setActivePlayer({ name: "Серия " + episode.number + " · " + track.name, url: track.playerUrl! })}>Смотреть</button> : <small>Нет адреса плеера</small>}
                             </li>)}</ul> : <p>Для этой серии API не вернул список озвучек.</p>}
