@@ -157,7 +157,7 @@ function normalizeAnimeGoSearchText(value) {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[а-яё]/g, (letter) => cyrillicToLatin[letter] ?? letter)
     .replace(/ё/g, "yo")
-    .replace(/[^\\p{L}\\p{N}]+/gu, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
     .replace(/\s+/g, " ");
 }
