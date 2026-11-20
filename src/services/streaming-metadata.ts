@@ -21,8 +21,9 @@ function identityTitles(identity: AnimeIdentity): string[] {
 export function applyFallbackMetadata(
   item: StreamingTitle,
   candidates: AnimeIdentity[],
+  options: { preferPoster?: boolean } = {},
 ): StreamingTitle {
-  if (item.posterUrl && item.averageScore != null) return item;
+  if (item.posterUrl && item.averageScore != null && !options.preferPoster) return item;
   const itemTitles = [item.title, ...(item.alternativeTitles || [])].map(normalizeTitle).filter(Boolean);
   if (!itemTitles.length) return item;
   let matches = candidates.filter((candidate) =>
@@ -36,9 +37,11 @@ export function applyFallbackMetadata(
   const match = matches[0]!;
   return {
     ...item,
-    posterUrl: item.posterUrl || match.posterUrl || null,
+    // AnimeGO's CDN URLs are frequently unavailable to embedded clients.
+    // Prefer a verified AniList cover for this provider, but only after an exact title match.
+    posterUrl: options.preferPoster ? (match.posterUrl || item.posterUrl || null) : (item.posterUrl || match.posterUrl || null),
     averageScore: item.averageScore ?? match.averageScore ?? null,
-    posterSource: item.posterUrl ? (item.posterSource || item.provider) : match.posterUrl ? "AniList" : null,
+    posterSource: options.preferPoster && match.posterUrl ? "AniList" : item.posterUrl ? (item.posterSource || item.provider) : match.posterUrl ? "AniList" : null,
     scoreSource: item.averageScore != null ? (item.scoreSource || item.provider) : match.averageScore != null ? "AniList" : null,
     identity: item.identity || match,
   };
