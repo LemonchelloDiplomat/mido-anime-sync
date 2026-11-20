@@ -24,6 +24,21 @@ function normalizeQueueSource(value) {
   }
 }
 
+function normalizeQueueSourceKey(value) {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    if (host === "yummyani.me" || host.endsWith(".yummyani.me")) {
+      url.hostname = "yummyani.me";
+    } else if (host === "yummy-ani.me" || host.endsWith(".yummy-ani.me")) {
+      url.hostname = "yummy-ani.me";
+    }
+    return url.origin + url.pathname;
+  } catch {
+    return normalizeQueueSource(value);
+  }
+}
+
 function getQueueDuplicateGroups(queue) {
   const groups = new Map();
   for (const event of queue) {
@@ -31,7 +46,7 @@ function getQueueDuplicateGroups(queue) {
       event.service || "",
       normalizeQueueTitle(event.title),
       Number(event.episode) || "",
-      normalizeQueueSource(event.sourceUrl),
+      normalizeQueueSourceKey(event.sourceUrl),
     ].join("|");
     const group = groups.get(key) || [];
     group.push(event);
