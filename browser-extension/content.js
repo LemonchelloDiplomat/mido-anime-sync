@@ -63,6 +63,7 @@
       : ["[data-episode]", ".episode-title"];
 
   const sentVideoKeys = new WeakMap();
+  const sentPageVideoKeys = new Set();
   const videoWatchHandlers = new WeakMap();
 
   let lastPublishedContextKey = "";
@@ -92,6 +93,21 @@
 
   function normalizeWatchTitle(value) {
     return String(value || "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
+  }
+
+  function normalizeWatchSource(rawUrl) {
+    try {
+      const url = new URL(rawUrl);
+      const host = url.hostname.toLowerCase();
+      if (host === "yummyani.me" || host.endsWith(".yummyani.me")) {
+        url.hostname = "yummyani.me";
+      } else if (host === "yummy-ani.me" || host.endsWith(".yummy-ani.me")) {
+        url.hostname = "yummy-ani.me";
+      }
+      return url.origin + url.pathname;
+    } catch {
+      return String(rawUrl || "");
+    }
   }
 
   function textFrom(selector) {
@@ -577,15 +593,17 @@
       const detected = detect(video);
       if (detected.manualOnly || !detected.title || !Number.isSafeInteger(detected.episode) || detected.episode < 1) return;
 
-      // Some SPA players reuse one <video> element for every episode.
-      // Deduplicate by the actual episode/source, not by the element lifetime.
+      // A page can briefly contain more than one <video> element for the
+      // same episode (for example, an old player during a player swap).
+      // Deduplicate at page level as well as per element.
       const videoKey = [
-        location.origin + location.pathname,
-        video.currentSrc || video.src || "",
+        normalizeWatchTitle(detected.title),
         detected.episode,
+        normalizeWatchSource(detected.sourceUrl),
       ].join("|");
-      if (sentVideoKeys.get(video) === videoKey) return;
+      if (sentVideoKeys.get(video) === videoKey || sentPageVideoKeys.has(videoKey)) return;
       sentVideoKeys.set(video, videoKey);
+      sentPageVideoKeys.add(videoKey);
       chrome.runtime.sendMessage({
         type: "MIDAHOSHI_AUTO_WATCH_EVENT",
         event: {
