@@ -13,10 +13,19 @@ function sanitizePlayerCatalog(input) {
     const episodes = season.episodes.slice(0, 500).flatMap((episode) => {
       const episodeNumber = Number(episode?.number);
       if (!Number.isSafeInteger(episodeNumber) || episodeNumber < 1 || !Array.isArray(episode.voices)) return [];
-      const voices = episode.voices.slice(0, 100).flatMap((voice) => {
-        const name = typeof voice?.name === "string" ? voice.name.trim().slice(0, 100) : "";
-        return name ? [{ name, type: typeof voice.type === "string" ? voice.type.slice(0, 60) : null }] : [];
-      });
+      const voiceMap = new Map();
+      for (const voice of episode.voices.slice(0, 100)) {
+        let name = typeof voice?.name === "string" ? voice.name.trim().slice(0, 100) : "";
+        let type = typeof voice?.type === "string" ? voice.type.trim().slice(0, 60) : "";
+        if (!name) continue;
+        if (/^субтитры$/i.test(name) && !type) {
+          name = "Студия не указана";
+          type = "Субтитры";
+        }
+        const key = name.toLocaleLowerCase() + "\\u0000" + type.toLocaleLowerCase();
+        if (!voiceMap.has(key)) voiceMap.set(key, { name, type: type || null });
+      }
+      const voices = [...voiceMap.values()];
       return [{ number: episodeNumber, title: typeof episode.title === "string" ? episode.title.slice(0, 120) : String(episodeNumber), voices }];
     });
     episodes.sort((a, b) => a.number - b.number);
@@ -158,7 +167,7 @@ export function parseAnixArtDetail(html, requestedUrl) {
     posterUrl: poster,
     description,
     year,
-    episodeCount,
+    episodeCount: null,
     identity: {
       id: "anixart:" + identityId,
       titles: { romaji: title, synonyms: [] },
