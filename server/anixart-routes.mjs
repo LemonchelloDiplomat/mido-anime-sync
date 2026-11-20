@@ -119,27 +119,27 @@ export function parseAnixArtSearch(html) {
   const source = String(html || "");
   const items = [];
   const seen = new Set();
-  const divTags = [...source.matchAll(/<div\\b[^>]*>/gi)];
+  const divTags = [...source.matchAll(/<div\b[^>]*>/gi)];
   const cardStarts = divTags
-    .filter((entry) => /(?:^|\\s)shortstory(?:\\s|$)/i.test(attr(entry[0], "class")))
+    .filter((entry) => /(?:^|\s)shortstory(?:\s|$)/i.test(attr(entry[0], "class")))
     .map((entry) => entry.index);
 
   // Parse one result card at a time. The poster link and title/rating link are
   // often separate anchors, so treating every anchor as a separate anime loses
   // the rating and can accidentally attach the previous card's poster.
   const cards = cardStarts.length
-    ? cardStarts.map((start, index) => source.slice(start, cardStarts[index + 1] ?? source.length))
+    ? cardStarts.map((cardStart, index) => source.slice(cardStart, cardStarts[index + 1] ?? source.length))
     : [source];
 
   for (const card of cards) {
-    const anchors = [...card.matchAll(/<a\\b([^>]*href\\s*=\\s*(['"])([^'"]+\\.html(?:\\?[^'"]*)?)\\2[^>]*)>([\\s\\S]*?)<\\/a>/gi)];
+    const anchors = [...card.matchAll(/<a\b([^>]*href\s*=\s*(['"])([^'"]+\.html(?:\?[^'"]*)?)\2[^>]*)>([\s\S]*?)<\/a>/gi)];
     const candidates = anchors.flatMap((anchor) => {
       const url = safeUrl(anchor[3]);
       if (!url || new URL(url).hostname !== "anixart.site") return [];
       const slug = titleSlug(url);
-      if (!/^\\d+-[\\p{L}\\p{N}-]+\\.html$/u.test(slug)) return [];
+      if (!/^\d+-[\p{L}\p{N}-]+\.html$/u.test(slug)) return [];
       const rawText = stripTags(anchor[4]);
-      const image = anchor[4].match(/<img\\b[^>]*>/i)?.[0] || "";
+      const image = anchor[4].match(/<img\b[^>]*>/i)?.[0] || "";
       return [{ url, slug, rawText, image, title: cleanSearchTitle(rawText) || cleanSearchTitle(attr(image, "alt")) }];
     });
     if (!candidates.length) continue;
@@ -149,10 +149,10 @@ export function parseAnixArtSearch(html) {
     const title = selected.title || cleanSearchTitle(attr(selected.image, "alt"));
     if (!title) continue;
     const poster = posterFromMarkup(card) || posterFromMarkup(selected.image);
-    const ratingTokens = selected.rawText.match(/^\\s*(\\d{1,2}(?:[.,]\\d{1,2})?)(?:\\s+(\\d{1,2}(?:[.,]\\d{1,2})?))?\\s+/);
+    const ratingTokens = selected.rawText.match(/^\s*(\d{1,2}(?:[.,]\d{1,2})?)(?:\s+(\d{1,2}(?:[.,]\d{1,2})?))?\s+/);
     const parsedRating = ratingTokens ? Number((ratingTokens[2] || ratingTokens[1]).replace(",", ".")) : null;
     const averageScore = parsedRating != null && Number.isFinite(parsedRating) && parsedRating >= 0 && parsedRating <= 10 ? parsedRating : null;
-    const yearMatch = (selected.rawText || stripTags(card)).match(/\\b(19\\d{2}|20\\d{2})\\b/);
+    const yearMatch = (selected.rawText || stripTags(card)).match(/\b(19\d{2}|20\d{2})\b/);
 
     items.push({
       provider: "anixart",
