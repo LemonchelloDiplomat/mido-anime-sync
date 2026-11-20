@@ -81,6 +81,52 @@ describe("AnixART public website catalog adapter", () => {
     expect(JSON.stringify(title)).not.toContain("token");
   });
 
+  it("accepts and serves a sanitized player catalog from the browser extension", async () => {
+    const catalog = {
+      slug: "7004-magicheskaja-bitva-2.html",
+      title: "Магическая битва 2",
+      seasons: [{
+        number: 2,
+        episodes: [{
+          number: 1,
+          title: "1",
+          voices: [{ name: "AniBoom", type: "Дубляж" }],
+        }],
+      }],
+      current: { season: 2, episode: 1, voice: "AniBoom" },
+      privateField: "must-not-be-stored",
+    };
+    const deps = {
+      sendJson(res: ReturnType<typeof responseCapture>, status: number, body: unknown) {
+        res.writeHead(status);
+        res.end(JSON.stringify(body));
+      },
+      async readJson() { return catalog; },
+    };
+    const postResponse = responseCapture();
+    await handleAnixArtRequest(
+      { method: "POST" },
+      postResponse,
+      new URL("http://127.0.0.1/api/anixart/player-catalog"),
+      deps,
+    );
+    expect(postResponse.status).toBe(200);
+
+    const getResponse = responseCapture();
+    await handleAnixArtRequest(
+      { method: "GET" },
+      getResponse,
+      new URL("http://127.0.0.1/api/anixart/player-catalog?slug=7004-magicheskaja-bitva-2.html"),
+      deps,
+    );
+    expect(getResponse.json().catalog).toMatchObject({
+      slug: catalog.slug,
+      seasons: catalog.seasons,
+      current: catalog.current,
+    });
+    expect(JSON.stringify(getResponse.json())).not.toContain("must-not-be-stored");
+  });
+
   it("proxies public site search and explicitly reports unsupported account capabilities", async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL) => ({
       ok: true,
