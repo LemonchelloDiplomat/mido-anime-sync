@@ -152,7 +152,11 @@ describe("AnixART site playback integration", () => {
             1: {
               name: 1,
               visibleName: "1",
-              voices: { AniBoom: { name: "AniBoom", videos: [voiceVideo] } },
+              voices: {
+                AniBoom: { name: "AniBoom", videos: [voiceVideo] },
+                "Субтитры": { name: "Субтитры", videos: [] },
+                "Субтитры (дубликат)": { name: "Субтитры", videos: [] },
+              },
             },
           },
         },
@@ -192,7 +196,10 @@ describe("AnixART site playback integration", () => {
         number: 2,
         episodes: [{
           number: 1,
-          voices: [{ name: "AniBoom", type: "Дубляж" }],
+          voices: [
+            { name: "AniBoom", type: "Дубляж" },
+            { name: "Студия не указана", type: "Субтитры" },
+          ],
         }],
       }],
       current: { season: 2, episode: 1, voice: "AniBoom" },
