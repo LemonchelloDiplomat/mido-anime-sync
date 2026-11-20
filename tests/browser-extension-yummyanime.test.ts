@@ -71,7 +71,7 @@ function runPageDetection(hostname: string) {
   });
 
   let detected: any;
-  listeners.message(
+  listeners.message?.(
     { type: "MIDAHOSHI_DETECT_WATCH_EVENT" },
     {},
     (value) => { detected = value; },
