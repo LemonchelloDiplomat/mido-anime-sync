@@ -287,6 +287,85 @@ describe("streaming extension host permissions", () => {
 });
 
 
+describe("legacy YummyAnime Kodik iframe episode fallback", () => {
+  it("forwards the episode from the Kodik iframe URL when the page DOM has no selected episode", () => {
+    const sentToFrame: any[] = [];
+    const frame = {
+      src: "https://kodikplayer.com/season/50160/ffea133c9c2659f95da7508bca9c4d7c/720p?translations=false&only_episode=true&only_season=true&episode=5",
+      contentWindow: {
+        postMessage(message: unknown, targetOrigin: string) {
+          sentToFrame.push({ message, targetOrigin });
+        },
+      },
+    };
+    const placeholder = { textContent: "...", getAttribute() { return "..."; } };
+    const poster = {
+      textContent: "",
+      getAttribute(name: string) {
+        return name === "alt" ? "Санка Рэа" : null;
+      },
+    };
+
+    class FakeMutationObserver {
+      constructor(_callback: () => void) {}
+      observe() {}
+      disconnect() {}
+    }
+    class FakeHTMLSelectElement {}
+
+    vm.runInNewContext(contentScript, {
+      location: {
+        hostname: "old.yummyani.me",
+        origin: "https://old.yummyani.me",
+        pathname: "/catalog/item/sanka-rea-tv",
+        href: "https://old.yummyani.me/catalog/item/sanka-rea-tv",
+      },
+      document: {
+        title: "Смотреть аниме онлайн | YummyAnime",
+        documentElement: {},
+        querySelector(selector: string) {
+          if (selector === "h1" || selector === ".watch__title" ||
+              selector === "meta[property='og:title']" || selector === "meta[name='title']") {
+            return placeholder;
+          }
+          if (selector === 'img[src*="posters"][alt]') return poster;
+          return null;
+        },
+        querySelectorAll(selector: string) {
+          if (selector === "iframe") return [frame];
+          return [];
+        },
+      },
+      HTMLSelectElement: FakeHTMLSelectElement,
+      MutationObserver: FakeMutationObserver,
+      getComputedStyle() { return { display: "block", visibility: "visible" }; },
+      chrome: {
+        runtime: {
+          onMessage: { addListener() {} },
+          sendMessage() {},
+        },
+      },
+      window: { addEventListener() {} },
+      URL,
+      Date,
+    });
+
+    expect(sentToFrame).toContainEqual({
+      targetOrigin: "https://kodikplayer.com",
+      message: {
+        type: "MIDAHOSHI_PARENT_METADATA",
+        metadata: {
+          title: "Санка Рэа",
+          episode: 5,
+          sourceUrl: "https://old.yummyani.me/catalog/item/sanka-rea-tv",
+          service: "yummyanime",
+        },
+      },
+    });
+  });
+});
+
+
 describe("YummyAnime selected episode tracking", () => {
   it("reads the numeric data-selected episode and falls back to the poster alt title", () => {
     const listeners: { current: MessageListener | null } = { current: null };
