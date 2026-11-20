@@ -26,13 +26,11 @@ const searchHtml = `
 </div>`;
 
 const detailHtml = `
-<link rel="canonical" href="https://animego.org/anime/sample-title-1234">
-<meta property="og:image" content="https://animego.org/poster.jpg">
+<link rel="canonical" href="https://animego.me/anime/sample-title-1234">
+<meta property="og:image" content="https://animego.me/poster.jpg">
 <meta name="description" content="A sample synopsis">
 <h1>Sample Anime</h1>
 <script type="application/ld+json">{"datePublished":"2024-01-01","alternateName":"Sample JP","genre":["Action","Drama"],"numberOfEpisodes":12,"aggregateRating":{"ratingValue":8.2}}</script>`;
-
-afterEach(() => vi.unstubAllGlobals());
 
 describe("AnimeGO public catalog adapter", () => {
   it("parses public search cards and canonical page slugs", () => {
@@ -42,13 +40,13 @@ describe("AnimeGO public catalog adapter", () => {
       provider: "animego",
       externalId: "sample-title-1234",
       title: "Sample Anime",
-      url: "https://animego.org/anime/sample-title-1234",
-      posterUrl: "https://animego.org/uploads/sample.jpg",
+      url: "https://animego.me/anime/sample-title-1234",
+      posterUrl: "https://animego.me/uploads/sample.jpg",
     });
   });
 
   it("parses public title metadata and exact AnimeGO identity", () => {
-    const title = parseAnimeGoDetail(detailHtml, "https://animego.org/anime/sample-title-1234");
+    const title = parseAnimeGoDetail(detailHtml, "https://animego.me/anime/sample-title-1234");
     expect(title).toMatchObject({
       provider: "animego",
       externalId: "1234",
@@ -72,7 +70,7 @@ describe("AnimeGO public catalog adapter", () => {
         `,
       },
     };
-    const parsed = parseAnimeGoPlayer(payload, "https://animego.org/anime/sample-title-1234");
+    const parsed = parseAnimeGoPlayer(payload, "https://animego.me/anime/sample-title-1234");
     expect(parsed.episodes.map((episode) => episode.number)).toEqual([1, 2]);
     expect(parsed.episodes.map((episode) => episode.externalId)).toEqual(["555", "556"]);
     expect(parsed.voices).toHaveLength(2);
@@ -91,8 +89,7 @@ describe("AnimeGO public catalog adapter", () => {
       status: 200,
       async text() { return searchHtml; },
     }));
-    vi.stubGlobal("fetch", fetcher);
-    const deps = { sendJson(res: ReturnType<typeof responseCapture>, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } };
+    const deps = { request: fetcher, sendJson(res: ReturnType<typeof responseCapture>, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } };
     const searchResponse = responseCapture();
     await handleAnimeGoRequest(
       { method: "GET" },
@@ -130,8 +127,7 @@ describe("AnimeGO public catalog adapter", () => {
       async text() { return ""; },
       options,
     }));
-    vi.stubGlobal("fetch", fetcher);
-    const deps = { sendJson(res: ReturnType<typeof responseCapture>, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } };
+    const deps = { request: fetcher, sendJson(res: ReturnType<typeof responseCapture>, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } };
     const response = responseCapture();
     await handleAnimeGoRequest(
       { method: "GET" },
@@ -146,7 +142,7 @@ describe("AnimeGO public catalog adapter", () => {
       playerUrl: "https://kodikplayer.com/seria/123/hash/720p",
     });
     expect(fetcher).toHaveBeenCalledWith(
-      "https://animego.org/player/videos/555",
+      "https://animego.me/player/videos/555",
       expect.objectContaining({ headers: expect.objectContaining({ "X-Requested-With": "XMLHttpRequest" }) }),
     );
   });
