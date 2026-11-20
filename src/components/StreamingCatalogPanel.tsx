@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { normalizeCatalogQuery, t, type AppLocale } from "../i18n.js";
-import { searchAniListAnime } from "../services/anilist.js";
+import { searchAniListAnimeBatch } from "../services/anilist.js";
 import { applyFallbackMetadata } from "../services/streaming-metadata.js";
 import type { FormEvent } from "react";
 import type { AnimeIdentity, AnimeSnapshotV4 } from "../core/types.js";
@@ -151,16 +151,16 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
             normalizedQuery,
             ...result.items.slice(0, 8).flatMap((item) => [item.title, ...(item.alternativeTitles || []).slice(0, 1)]),
           ].map((value) => value.trim()).filter((value) => value.length >= 2))].slice(0, 9);
-          const candidateSets = await Promise.all(fallbackQueries.map((value) =>
-            searchAniListAnime(value, controller.signal).catch(() => []),
-          ));
+          const metadata = await searchAniListAnimeBatch(fallbackQueries, controller.signal);
           if (controller.signal.aborted) return;
-          const metadata = [...new Map(candidateSets.flat().map((identity) => [identity.externalIds.anilist || identity.id, identity])).values()];
           setResults(result.items.map((item) => applyFallbackMetadata(item, metadata, {
             preferPoster: provider === "animego",
           })));
-        } catch {
-          if (!controller.signal.aborted) setResults(result.items);
+        } catch (reason) {
+          if (!controller.signal.aborted) {
+            console.warn("Не удалось загрузить резервные метаданные AniList для каталога:", reason);
+            setResults(result.items);
+          }
         }
       })
       .catch((reason: unknown) => {
