@@ -239,7 +239,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
             !(senderUrl.hostname === "anixart.site" || senderUrl.hostname.endsWith(".anixart.site"))) return;
         const catalog = message.catalog;
         if (!catalog || typeof catalog.slug !== "string" ||
-            !/^\\d+-[\\p{L}\\p{N}-]+\\.html$/u.test(catalog.slug) ||
+            !/^\d+-[\p{L}\p{N}-]+\.html$/u.test(catalog.slug) ||
             !Array.isArray(catalog.seasons)) return;
         await fetch("http://127.0.0.1:3001/api/anixart/player-catalog", {
           method: "POST",
