@@ -2069,3 +2069,18 @@ button:disabled {
 .streaming-catalog-toolbar { display: flex; justify-content: flex-end; margin-top: .8rem; }
 .streaming-catalog-toolbar label { display: flex; align-items: center; gap: .55rem; color: var(--muted, #9696a4); font-size: .78rem; }
 .streaming-catalog-toolbar select { padding: .45rem .65rem; border: 1px solid var(--border, rgba(255,255,255,.15)); border-radius: .55rem; color: inherit; background: var(--input, #191923); }
+
+
+/* Let library posters span the complete height of their anime card content. */
+.anime-card { align-items: stretch; }
+.anime-card > .anime-cover {
+  height: auto;
+  min-height: 84px;
+  align-self: stretch;
+}
+@media (max-width: 600px) {
+  .anime-card > .anime-cover {
+    height: auto;
+    min-height: 70px;
+  }
+}
