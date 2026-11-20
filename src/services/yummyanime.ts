@@ -56,7 +56,7 @@ function titleFrom(rawValue: unknown): StreamingTitle | null {
   if (!raw) return null;
   const id = number(raw.anime_id ?? raw.id);
   const title = text(raw.title);
-  const url = safeHttpUrl(raw.anime_url || raw.url || (text(raw.alias) ? "/catalog/item/" + text(raw.alias) : ""));
+  const url = safeHttpUrl(raw.anime_url || raw.url || (text(raw.alias) ? "/catalog/item/" + text(raw.alias) : id ? "/catalog/item/" + id : ""));
   if (!id || !title || !url) return null;
   const alternatives = Array.isArray(raw.other_titles)
     ? raw.other_titles.map(text).filter(Boolean)
