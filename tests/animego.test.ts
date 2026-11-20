@@ -183,6 +183,21 @@ describe("AnimeGO public catalog adapter", () => {
     expect(title.identity.genres).toEqual(["Action", "Drama"]);
   });
 
+  it("keeps the title card when AnimeGO has no player endpoint", async () => {
+    const calls = vi.fn(async (url: string) => {
+      if (url.includes("/anime/")) return { ok: true, status: 200, async text() { return detailHtml; } };
+      throw new Error("player endpoint unavailable");
+    });
+    const response = responseCapture();
+    await handleAnimeGoRequest(
+      { method: "GET" }, response,
+      new URL("http://127.0.0.1/api/animego/anime/sample-title-1234"),
+      { request: calls, sendJson(res: any, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } },
+    );
+    expect(response.status).toBe(200);
+    expect(response.json()).toMatchObject({ title: "Sample Anime", seasons: [], url: "https://animego.me/anime/sample-title-1234" });
+  });
+
   it("parses episode IDs and provider-specific player embeds", () => {
     const payload = {
       data: {
