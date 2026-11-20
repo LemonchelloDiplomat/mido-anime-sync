@@ -1,7 +1,4 @@
 const SITE = "https://anixart.site";
-const playerCatalogs = new Map();
-const PLAYER_CATALOG_TTL_MS = 10 * 60 * 1000;
-
 function sanitizePlayerCatalog(input) {
   if (!input || typeof input !== "object" ||
       typeof input.slug !== "string" || !/^\d+-[\p{L}\p{N}-]+\.html$/u.test(input.slug) ||
@@ -145,6 +142,7 @@ export function parseAnixArtDetail(html, requestedUrl) {
   const id = slug.match(/^(\d+)-/)?.[1] || attr(playerTag, "data-title-id");
   const playerId = attr(playerTag, "data-title-id");
   const publisherId = attr(playerTag, "data-publisher-id");
+  const aggregator = attr(playerTag, "data-aggregator") || "mali";
   const bodyText = stripTags(html);
   const yearMatch = bodyText.match(/(?:Год|Год выпуска)\s*:\s*(20\d{2}|19\d{2})/i);
   const year = yearMatch ? Number(yearMatch[1]) : null;
@@ -177,7 +175,52 @@ export function parseAnixArtDetail(html, requestedUrl) {
     },
     seasons: [],
     voices,
-    sourceMetadata: { playerTitleId: playerId || null, publisherId: publisherId || null },
+    sourceMetadata: { playerTitleId: playerId || null, publisherId: publisherId || null, aggregator },
+  };
+}
+
+export function parseAnixArtPlayerPlaylist(payload, titleUrl) {
+  const rows = Array.isArray(payload?.items) ? payload.items
+    : Array.isArray(payload?.data?.items) ? payload.data.items : [];
+  const seasons = new Map();
+  const voices = new Map();
+  for (const row of rows) {
+    const seasonNumber = Number(row?.season) || 1;
+    const episodeNumber = Number(row?.episode);
+    if (!Number.isSafeInteger(episodeNumber) || episodeNumber < 1) continue;
+    const voiceName = String(row?.voiceStudio || row?.voice || "").trim() || "Озвучка не указана";
+    const voiceType = String(row?.voiceType || "").trim() || null;
+    const season = seasons.get(seasonNumber) || new Map();
+    const episode = season.get(episodeNumber) || {
+      externalId: "anixart:" + seasonNumber + ":" + episodeNumber,
+      number: episodeNumber,
+      title: String(row?.name || episodeNumber),
+      url: titleUrl,
+      seasonNumber,
+      voiceTracks: [],
+    };
+    const voiceKey = voiceName.toLocaleLowerCase() + "\\u0000" + String(voiceType || "").toLocaleLowerCase();
+    if (!episode.voiceTracks.some((track) => track.externalId === voiceKey)) {
+      episode.voiceTracks.push({
+        externalId: voiceKey,
+        name: voiceName,
+        playerName: voiceType || "CVH",
+        playerUrl: null,
+      });
+    }
+    season.set(episodeNumber, episode);
+    seasons.set(seasonNumber, season);
+    if (!voices.has(voiceKey)) voices.set(voiceKey, { externalId: voiceKey, name: voiceName, playerName: voiceType || "CVH" });
+  }
+  const mappedSeasons = [...seasons.entries()].sort(([a], [b]) => a - b).map(([number, episodes]) => ({
+    number,
+    title: "Сезон " + number,
+    episodes: [...episodes.values()].sort((a, b) => a.number - b.number),
+  }));
+  return {
+    seasons: mappedSeasons,
+    voices: [...voices.values()].sort((a, b) => a.name.localeCompare(b.name)),
+    episodeCount: mappedSeasons.reduce((total, season) => total + season.episodes.length, 0),
   };
 }
 
@@ -185,67 +228,78 @@ export async function handleAnixArtRequest(request, response, url, deps) {
   const { sendJson } = deps;
   const method = request.method || "GET";
   if (!url.pathname.startsWith("/api/anixart/")) return false;
+  if (method !== "GET") return sendJson(response, 405, { error: "AnixART поддерживает только чтение публичного каталога." });
 
-  if (url.pathname === "/api/anixart/player-catalog") {
-    if (method === "POST") {
-      if (typeof deps.readJson !== "function") return sendJson(response, 503, { error: "Приём каталога AnixART не настроен." });
-      const body = await deps.readJson(request, 512 * 1024);
-      const catalog = sanitizePlayerCatalog(body);
-      if (!catalog) return sendJson(response, 400, { error: "Некорректная структура каталога AnixART." });
-      playerCatalogs.set(catalog.slug, { catalog, expiresAt: Date.now() + PLAYER_CATALOG_TTL_MS });
-      return sendJson(response, 200, { ok: true, seasonCount: catalog.seasons.length });
-    }
-    if (method === "GET") {
-      const slug = String(url.searchParams.get("slug") || "");
-      if (!/^\d+-[\p{L}\p{N}-]+\.html$/u.test(slug)) return sendJson(response, 400, { error: "Некорректный AnixART slug." });
-      const cached = playerCatalogs.get(slug);
-      if (!cached || cached.expiresAt <= Date.now()) {
-        playerCatalogs.delete(slug);
-        return sendJson(response, 200, { catalog: null });
-      }
-      return sendJson(response, 200, { catalog: cached.catalog });
-    }
-    return sendJson(response, 405, { error: "Метод не поддерживается." });
-  }
-
-  if (method !== "GET") return sendJson(response, 405, { error: "AnixART поддерживает только чтение публичного каталога и приём данных плеера." });
+  const fetcher = deps.fetch || fetch;
   const headers = {
-    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    Accept: "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+    Referer: SITE + "/",
   };
   try {
     if (url.pathname === "/api/anixart/search") {
       const query = String(url.searchParams.get("q") || "").trim();
       if (query.length < 2 || query.length > 120) return sendJson(response, 400, { error: "Поисковый запрос должен содержать от 2 до 120 символов." });
       const searchUrl = SITE + "/?do=search&subaction=search&story=" + encodeURIComponent(query);
-      const page = await fetch(searchUrl, { headers });
+      const page = await fetcher(searchUrl, { headers });
       if (!page.ok) throw new Error("AnixART: HTTP " + page.status);
       return sendJson(response, 200, { items: parseAnixArtSearch(await page.text()), page: 1, hasNextPage: false });
     }
-    const match = url.pathname.match(/^\/api\/anixart\/anime\/([^/]+)$/);
+
+    const match = url.pathname.match(/^\\/api\\/anixart\\/anime\\/([^/]+)$/);
     if (match) {
       const slug = decodeURIComponent(match[1]);
-      if (!/^\d+-[\p{L}\p{N}-]+\.html$/u.test(slug)) return sendJson(response, 400, { error: "Некорректный AnixART slug." });
-      const page = await fetch(SITE + "/" + encodeURIComponent(slug), { headers });
+      if (!/^\\d+-[\\p{L}\\p{N}-]+\\.html$/u.test(slug)) return sendJson(response, 400, { error: "Некорректный AnixART slug." });
+      const titleUrl = SITE + "/" + encodeURIComponent(slug);
+      const page = await fetcher(titleUrl, { headers });
       if (!page.ok) throw new Error("AnixART: HTTP " + page.status);
-      return sendJson(response, 200, parseAnixArtDetail(await page.text(), SITE + "/" + encodeURIComponent(slug)));
+      const detail = parseAnixArtDetail(await page.text(), titleUrl);
+      const playerTitleId = String(detail.sourceMetadata?.playerTitleId || "");
+      const publisherId = String(detail.sourceMetadata?.publisherId || "");
+      const aggregator = String(detail.sourceMetadata?.aggregator || "mali");
+      let playerCatalog = { seasons: [], voices: [], episodeCount: null };
+      if (/^\\d+$/.test(playerTitleId) && /^\\d+$/.test(publisherId) && /^[a-z0-9_-]{1,32}$/i.test(aggregator)) {
+        const playlistUrl = new URL("https://plapi.cdnvideohub.com/api/v1/player/sv/playlist");
+        playlistUrl.search = new URLSearchParams({ pub: publisherId, aggr: aggregator, id: playerTitleId }).toString();
+        const playlist = await fetcher(playlistUrl, {
+          headers: {
+            Accept: "application/json",
+            "User-Agent": headers["User-Agent"],
+            Referer: SITE + "/",
+            Origin: SITE,
+          },
+        });
+        if (playlist.ok) {
+          playerCatalog = parseAnixArtPlayerPlaylist(await playlist.json(), detail.url);
+        } else {
+          throw new Error("AnixART CVH playlist: HTTP " + playlist.status);
+        }
+      }
+      return sendJson(response, 200, {
+        ...detail,
+        seasons: playerCatalog.seasons,
+        voices: playerCatalog.voices.length ? playerCatalog.voices : detail.voices,
+        episodeCount: playerCatalog.episodeCount,
+        identity: {
+          ...detail.identity,
+          episodes: playerCatalog.episodeCount || null,
+        },
+      });
     }
+
     if (url.pathname === "/api/anixart/status") {
       return sendJson(response, 200, {
         catalogSearch: true,
         titleDetails: true,
-        episodeCount: "player-catalog",
-        voiceTracks: true,
         fullSeasonEpisodeManifest: true,
-        playerCatalogBridge: true,
+        playerCatalogSource: "server-cvh-api",
         accountConnection: false,
         listImport: false,
         watchProgressRead: "browser-extension",
         limitations: [
-          "Сайт anixart.site сам указывает, что он не связан с мобильным приложением Anixart. Аккаунты сайта и приложения нельзя считать одним профилем.",
-          "Полный каталог сезонов, серий и озвучек передаётся расширением из состояния плеера в локальный интерфейс после открытия тайтла на сайте.",
-          "Выбор серии и озвучки, а также встроенное воспроизведение пока остаются на сайте AnixART.",
-          "Неофициальный reverse-engineered API приложения не используется для входа или синхронизации аккаунта.",
+          "Каталог сезонов, серий и озвучек загружается локальным сервером из публичного CVH playlist API.",
+          "Синхронизация аккаунта мобильного приложения AnixART не поддерживается.",
+          "Получение прямых видеопотоков и воспроизведение в собственном плеере пока не реализованы.",
         ],
       });
     }
