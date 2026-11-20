@@ -113,7 +113,6 @@ function identityFrom(rawValue: unknown): AnimeIdentity | null {
     ? raw.genres.map((item) => text(record(item)?.title)).filter(Boolean)
     : [];
   const rating = number(record(raw.rating)?.average ?? raw.rating);
-  const date = number(raw.updated_at);
   return {
     id: "yummyanime:" + title.externalId,
     titles: {
@@ -126,14 +125,13 @@ function identityFrom(rawValue: unknown): AnimeIdentity | null {
       ...(number(ids.myanimelist_id) ? { myanimelist: String(ids.myanimelist_id) } : {}),
       ...(number(ids.shikimori_id) ? { shikimori: String(ids.shikimori_id) } : {}),
     },
-    year: title.year,
+    year: title.year ?? null,
     ...(mapFormat(raw.type) ? { format: mapFormat(raw.type)! } : {}),
-    episodes: title.episodeCount,
+    episodes: title.episodeCount ?? null,
     genres,
-    posterUrl: title.posterUrl,
+    posterUrl: title.posterUrl ?? null,
     averageScore: rating,
     ...(mapStatus(record(raw.anime_status)?.alias) ? { releaseStatus: mapStatus(record(raw.anime_status)?.alias)! } : {}),
-    ...(date ? { startDate: new Date(date * 1000).toISOString().slice(0, 10) } : {}),
   };
 }
 
@@ -163,6 +161,7 @@ function parseVideos(payload: unknown, titleUrl: string): { episodes: StreamingE
       number: episode,
       title: text(raw.title) || null,
       url: titleUrl,
+      seasonNumber: number(raw.season) || 1,
     });
     if (voice) {
       const key = voice.toLocaleLowerCase();
@@ -176,7 +175,8 @@ function parseVideos(payload: unknown, titleUrl: string): { episodes: StreamingE
 }
 
 export function parseYummySearch(payload: unknown, page = 1): StreamingSearchResult {
-  const items = parseRows(payload).map(titleFrom).filter((item): item is StreamingTitle => item !== null);
+  const items = parseRows(payload).map((raw) => {
+    const title = titleFrom(raw);\n    const identity = identityFrom(raw);\n    return title ? { ...title, ...(identity ? { identity } : {}) } : null;\n  }).filter((item): item is StreamingTitle => item !== null);
   const envelope = record(unwrap(payload));
   const limit = number(envelope?.limit) || items.length;
   const offset = number(envelope?.offset) || (page - 1) * limit;
@@ -192,12 +192,19 @@ export function parseYummyDetails(payload: unknown, videosPayload?: unknown): St
     ? { episodes: [], voices: [] }
     : parseVideos(videosPayload, title.url);
   const episodes = parsedVideos.episodes;
-  const seasons = episodes.length ? [{
-    number: 1,
-    title: "Основной сезон",
-    episodes,
-  }] : [];
-  return { ...title, seasons, voices: parsedVideos.voices };
+  const seasonGroups = new Map<number, StreamingEpisode[]>();
+  for (const episode of episodes) {
+    const seasonNumber = episode.seasonNumber || 1;
+    const group = seasonGroups.get(seasonNumber) || [];
+    group.push(episode);
+    seasonGroups.set(seasonNumber, group);
+  }
+  const seasons = [...seasonGroups.entries()].sort(([a], [b]) => a - b).map(([number, seasonEpisodes]) => ({
+    number,
+    title: "Сезон " + number,
+    episodes: seasonEpisodes,
+  }));
+  return { ...title, ...(identityFrom(raw) ? { identity: identityFrom(raw)! } : {}), seasons, voices: parsedVideos.voices };
 }
 
 export function parseYummyAccountSnapshot(
@@ -336,7 +343,7 @@ export class YummyAnimeCatalogProvider implements StreamingCatalogProvider {
 
   private async request(path: string, signal?: AbortSignal): Promise<unknown> {
     const response = await this.fetcher(this.apiBase + path, {
-      signal,
+      ...(signal ? { signal } : {}),
       headers: {
         Accept: "application/json",
         "X-Application": this.applicationToken,
