@@ -21,7 +21,7 @@ function createBackgroundHarness(options: HarnessOptions = {}) {
   let messageListener: ((message: any) => void) | null = null;
   let delayedQueueWriteUsed = false;
   let queueWriteCount = 0;
-  let failNextStorageWrite = false;
+  const failureState = { nextStorageWrite: false };
 
   const drawingContext = {
     clearRect() {}, save() {}, restore() {}, beginPath() {}, roundRect() {}, fill() {},
@@ -39,8 +39,8 @@ function createBackgroundHarness(options: HarnessOptions = {}) {
         },
         async set(values: Record<string, unknown>) {
           queueWriteCount += 1;
-          if (failNextStorageWrite) {
-            failNextStorageWrite = false;
+          if (failureState.nextStorageWrite) {
+            failureState.nextStorageWrite = false;
             throw new Error("simulated storage quota failure");
           }
           if (options.delayFirstQueueWrite && queueWriteCount === 1 && !delayedQueueWriteUsed) {
@@ -87,8 +87,8 @@ function createBackgroundHarness(options: HarnessOptions = {}) {
   return {
     storage,
     warnings,
-    failNextStorageWrite() {
-      failNextStorageWrite = true;
+    triggerStorageWriteFailure() {
+      failureState.nextStorageWrite = true;
     },
     dispatch(message: unknown) {
       messageListener?.(message);
@@ -212,7 +212,7 @@ describe("browser extension pending watch queue", () => {
     const harness = createBackgroundHarness({
       storage: { pendingWatchEvents: [existingEvent] },
     });
-    harness.failNextStorageWrite();
+    harness.triggerStorageWriteFailure();
 
     await harness.send({
       type: "MIDAHOSHI_AUTO_WATCH_EVENT",
