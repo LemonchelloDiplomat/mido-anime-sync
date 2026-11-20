@@ -30,7 +30,7 @@ No authoritative public account API has been verified. The adapter reads public 
 
 ## AnixART
 
-This integration targets https://anixart.site/ only. The website states that it is not connected to the mobile AnixART application. No mobile app credentials or reverse-engineered mobile API are used. The public title page exposes title metadata, dubbing labels and episode count, while the extension reads the actual season/episode/voice from player state during playback.
+This integration targets https://anixart.site/ only. The website states that it is not connected to the mobile AnixART application. No mobile app credentials or reverse-engineered mobile API are used. The local server reads public title metadata and requests the public CVH playlist using the player identifiers embedded in the title page. It maps seasons, episodes, and voice variants without requiring the browser extension. The extension remains optional for watch-progress events only.
 
 ## Safety and data-integrity requirements
 
