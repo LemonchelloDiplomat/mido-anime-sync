@@ -5,6 +5,7 @@ type RouteResponse = { writeHead(status: number, headers?: Record<string, string
 type AnimeGoRouteDependencies = { sendJson(response: RouteResponse, status: number, body: unknown): void; fetch?: typeof fetch; request?: (url: string, options?: { headers?: Record<string, string> }) => Promise<{ ok: boolean; status: number; text(): Promise<string>; json?(): Promise<unknown> }> };
 export function resolve4Async(resolver: { resolve4(hostname: string, callback: (error: NodeJS.ErrnoException | null, addresses?: string[]) => void): void }, hostname: string): Promise<string[]>;
 export function parseAnimeGoSearch(html: string): StreamingTitle[];
+export function parseAnimeGoPagePoster(html: string, pageUrl?: string): string | null;
 export function parseAnimeGoDetail(html: string, url: string): StreamingTitle & { identity: AnimeIdentity };
 export function parseAnimeGoPlayer(payload: unknown, titleUrl: string): { episodes: StreamingEpisode[]; voices: StreamingVoice[] };
 export function parseAnimeGoVoices(payload: unknown): StreamingVoice[];
