@@ -16,7 +16,7 @@ async function loadQueuedEvent() {
   pendingEventId = latest.eventId || null;
   titleInput.value = latest.title || "";
   episodeInput.value = latest.episode || "";
-  status("Сайт автоматически обнаружил почти завершённую серию. Проверь данные и нажми «Передать в локальную библиотеку».");
+  status("Есть неподтверждённое событие просмотра. Проверь название и номер серии, затем нажми «Передать в локальную библиотеку».");
 }
 
 void loadQueuedEvent();
