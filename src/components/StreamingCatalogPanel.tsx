@@ -91,7 +91,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
     setDetails(null);
     setExpandedEpisode(null);
     void searchProvider(provider, normalizedQuery, controller.signal)
-      .then((result) => setResults(result.items))
+      .then((result) => { if (!controller.signal.aborted) setResults(result.items); })
       .catch((reason: unknown) => {
         if (reason instanceof Error && reason.name === "AbortError") return;
         setError(reason instanceof Error ? reason.message : "Не удалось выполнить поиск.");
