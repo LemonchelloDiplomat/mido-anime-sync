@@ -52,8 +52,6 @@ export async function handleYummyAnimeRequest(request, response, url, deps) {
   const applicationToken = process.env.YUMMY_APPLICATION_TOKEN || "";
   const tokens = await readTokens();
   const account = tokens.yummyanime || null;
-  const api = createApi(applicationToken, account?.accessToken || null);
-
   if (method === "GET" && pathname === "/api/yummyanime/status") {
     return sendJson(response, 200, {
       configured: Boolean(applicationToken),
@@ -109,8 +107,8 @@ export async function handleYummyAnimeRequest(request, response, url, deps) {
   }
 
   if (method === "POST" && pathname === "/api/yummyanime/logout") {
-    if (account?.accessToken) {
-      try { await api("/profile/logout", { method: "POST" }); } catch {}
+    if (account?.accessToken && applicationToken) {
+      try { await createApi(applicationToken, account.accessToken)("/profile/logout", { method: "POST" }); } catch {}
     }
     delete tokens.yummyanime;
     await writeTokens(tokens);
@@ -118,6 +116,7 @@ export async function handleYummyAnimeRequest(request, response, url, deps) {
   }
 
   if (!applicationToken) return sendJson(response, 503, { error: "Добавь YUMMY_APPLICATION_TOKEN в .env.local." });
+  const api = createApi(applicationToken, account?.accessToken || null);
 
   async function authorizedApi() {
     if (!tokens.yummyanime?.accessToken) throw Object.assign(new Error("Аккаунт YummyAnime не подключён."), { status: 401 });
