@@ -130,6 +130,7 @@ async function renderPendingEvents() {
   const queue = Array.isArray(pendingWatchEvents) ? pendingWatchEvents : [];
   renderQueueDiagnostics(queue);
   document.getElementById("cleanup-duplicates").disabled = getQueueDuplicateGroups(queue).length === 0;
+  document.getElementById("clear-all-pending").disabled = queue.length === 0;
   document.getElementById("restore-queue-backup").disabled = !pendingWatchEventsLastBackupKey;
   pendingCount.textContent = `(${queue.length})`;
   pendingList.replaceChildren();
@@ -202,6 +203,38 @@ document.getElementById("cleanup-duplicates").addEventListener("click", async ()
   await renderPendingEvents();
 });
 
+document.getElementById("clear-all-pending").addEventListener("click", async () => {
+  const maintenanceStatus = document.getElementById("queue-maintenance-status");
+  const stored = await chrome.storage.local.get({ pendingWatchEvents: [] });
+  const queue = Array.isArray(stored.pendingWatchEvents) ? stored.pendingWatchEvents : [];
+  if (queue.length === 0) {
+    maintenanceStatus.textContent = "Очередь уже пуста.";
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Удалить все ${queue.length} ожидающих передач? Перед удалением будет сохранена резервная копия, которую можно восстановить.`,
+  );
+  if (!confirmed) {
+    maintenanceStatus.textContent = "Удаление отменено. Очередь не изменена.";
+    return;
+  }
+
+  const backupKey = `pendingWatchEventsBackup_${Date.now()}`;
+  await chrome.storage.local.set({
+    [backupKey]: queue,
+    pendingWatchEventsLastBackupKey: backupKey,
+    pendingWatchEvents: [],
+  });
+  detected = null;
+  pendingEventId = null;
+  titleInput.value = "";
+  episodeInput.value = "";
+  status("Все ожидающие передачи удалены. Исходную очередь можно восстановить из резервной копии.");
+  maintenanceStatus.textContent = `Удалено передач: ${queue.length}. Очередь пуста. Резервная копия сохранена.`;
+  await renderPendingEvents();
+});
+
 document.getElementById("restore-queue-backup").addEventListener("click", async () => {
   const maintenanceStatus = document.getElementById("queue-maintenance-status");
   const stored = await chrome.storage.local.get({ pendingWatchEventsLastBackupKey: null });
@@ -259,7 +292,7 @@ document.getElementById("scan").addEventListener("click", async () => {
           : "Плеер найден, но номер серии нужно ввести вручную.";
     status(note);
   } catch {
-    status("Эта страница не поддерживается. Открой AnimeGO, YummyAnime или веб-страницу Anixart.");
+    status("Расширение не ответило на этой вкладке. Проверь адрес страницы, обнови вкладку после перезагрузки расширения и попробуй снова.");
   }
 });
 

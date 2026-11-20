@@ -121,4 +121,331 @@ describe("AnimeGO browser episode detection", () => {
   it("does not guess an episode when no active episode item exists", () => {
     expect(detectAnimeGoEpisode(null).episode).toBeNull();
   });
+
+  it("detects YummyAnime title, episode, and 90-percent playback progress", () => {
+    const listeners: Record<string, () => void> = {};
+    const sentMessages: any[] = [];
+    const video = {
+      currentTime: 88,
+      duration: 100,
+      currentSrc: "https://cdn.example/yummy-episode.m3u8",
+      src: "",
+      paused: false,
+      getBoundingClientRect() { return { width: 640, height: 360 }; },
+      addEventListener(type: string, listener: () => void) {
+        listeners[type] = listener;
+      },
+    };
+    const titleElement = { textContent: "Санка Рэа", getAttribute() { return null; } };
+    const episodeElement = { textContent: "Серия 4", getAttribute() { return null; } };
+
+    class FakeMutationObserver {
+      observe() {}
+      disconnect() {}
+    }
+    class FakeHTMLSelectElement {}
+
+    vm.runInNewContext(contentScript, {
+      location: {
+        hostname: "yummyani.me",
+        origin: "https://yummyani.me",
+        pathname: "/catalog/sanka-reya/episode-4",
+        href: "https://yummyani.me/catalog/sanka-reya/episode-4",
+      },
+      document: {
+        title: "Санка Рэа",
+        documentElement: {},
+        querySelector(selector: string) {
+          if (selector === "h1") return titleElement;
+          if (selector === ".watch__episode") return episodeElement;
+          return null;
+        },
+        querySelectorAll(selector: string) {
+          return selector === "video" ? [video] : [];
+        },
+      },
+      HTMLSelectElement: FakeHTMLSelectElement,
+      MutationObserver: FakeMutationObserver,
+      getComputedStyle() { return { display: "block", visibility: "visible" }; },
+      chrome: {
+        runtime: {
+          onMessage: { addListener() {} },
+          sendMessage(message: unknown) { sentMessages.push(message); },
+        },
+      },
+      window: { addEventListener() {} },
+      crypto: { randomUUID: () => "yummy-test-event-id" },
+      URL,
+      Date,
+    });
+
+    expect(sentMessages).toContainEqual(expect.objectContaining({
+      type: "MIDAHOSHI_CURRENT_WATCH",
+      title: "Санка Рэа",
+      episode: 4,
+    }));
+
+    video.currentTime = 90;
+    listeners.timeupdate?.();
+    const events = sentMessages.filter((message) => message.type === "MIDAHOSHI_AUTO_WATCH_EVENT");
+    expect(events).toHaveLength(1);
+    expect(events[0].event).toMatchObject({
+      service: "yummyanime",
+      title: "Санка Рэа",
+      episode: 4,
+      sourceUrl: "https://yummyani.me/catalog/sanka-reya/episode-4",
+      currentTimeSeconds: 90,
+      durationSeconds: 100,
+    });
+
+    video.currentTime = 95;
+    listeners.timeupdate?.();
+    expect(sentMessages.filter((message) => message.type === "MIDAHOSHI_AUTO_WATCH_EVENT")).toHaveLength(1);
+  });
+
+});
+
+
+describe("YummyAnime domain and title fallback regression", () => {
+  it.each(["old.yummyani.me", "ru.yummyani.me"])(
+    "detects YummyAnime on %s and ignores a placeholder title",
+    (hostname) => {
+      const listeners: { current: MessageListener | null } = { current: null };
+      const placeholder = { textContent: "...", getAttribute() { return null; } };
+      const ogTitle = {
+        textContent: "",
+        getAttribute(name: string) {
+          return name === "content" ? "Санка Рэа | YummyAnime" : null;
+        },
+      };
+      class FakeMutationObserver {
+        observe() {}
+        disconnect() {}
+      }
+      class FakeHTMLSelectElement {}
+      const context = {
+        location: {
+          hostname,
+          origin: `https://${hostname}`,
+          pathname: "/catalog/sanka-reya/episode-4",
+          href: `https://${hostname}/catalog/sanka-reya/episode-4`,
+        },
+        document: {
+          title: "Смотреть аниме онлайн | YummyAnime",
+          documentElement: {},
+          querySelector(selector: string) {
+            if (selector === ".watch__title") return placeholder;
+            if (selector === "meta[property='og:title']") return ogTitle;
+            return null;
+          },
+          querySelectorAll() { return []; },
+        },
+        HTMLSelectElement: FakeHTMLSelectElement,
+        MutationObserver: FakeMutationObserver,
+        getComputedStyle() { return { display: "block", visibility: "visible" }; },
+        chrome: {
+          runtime: {
+            onMessage: {
+              addListener(listener: MessageListener) { listeners.current = listener; },
+            },
+          },
+        },
+        window: { addEventListener() {} },
+        URL,
+        Date,
+      };
+      vm.runInNewContext(contentScript, context);
+      let detected: any;
+      listeners.current?.(
+        { type: "MIDAHOSHI_DETECT_WATCH_EVENT" },
+        {},
+        (value) => { detected = value; },
+      );
+      expect(detected).toMatchObject({
+        service: "yummyanime",
+        title: "Санка Рэа",
+        episode: 4,
+      });
+    },
+  );
+});
+
+
+describe("streaming extension host permissions", () => {
+  it("explicitly matches the AnimeGO apex and both YummyAnime legacy/current subdomains", async () => {
+    const manifest = JSON.parse(await readFile(
+      new URL("../browser-extension/manifest.json", import.meta.url),
+      "utf8",
+    ));
+    const matches = manifest.content_scripts[0].matches as string[];
+    expect(matches).toEqual(expect.arrayContaining([
+      "*://animego.me/*",
+      "*://old.yummyani.me/*",
+      "*://ru.yummyani.me/*",
+    ]));
+  });
+});
+
+
+describe("legacy YummyAnime Kodik iframe episode fallback", () => {
+  it("forwards the episode from the Kodik iframe URL when the page DOM has no selected episode", () => {
+    const sentToFrame: any[] = [];
+    const frame = {
+      src: "https://kodikplayer.com/season/50160/ffea133c9c2659f95da7508bca9c4d7c/720p?translations=false&only_episode=true&only_season=true&episode=5",
+      contentWindow: {
+        postMessage(message: unknown, targetOrigin: string) {
+          sentToFrame.push({ message, targetOrigin });
+        },
+      },
+    };
+    const placeholder = { textContent: "...", getAttribute() { return "..."; } };
+    const poster = {
+      textContent: "",
+      getAttribute(name: string) {
+        return name === "alt" ? "Санка Рэа" : null;
+      },
+    };
+
+    class FakeMutationObserver {
+      constructor(_callback: () => void) {}
+      observe() {}
+      disconnect() {}
+    }
+    class FakeHTMLSelectElement {}
+
+    vm.runInNewContext(contentScript, {
+      location: {
+        hostname: "old.yummyani.me",
+        origin: "https://old.yummyani.me",
+        pathname: "/catalog/item/sanka-rea-tv",
+        href: "https://old.yummyani.me/catalog/item/sanka-rea-tv",
+      },
+      document: {
+        title: "Смотреть аниме онлайн | YummyAnime",
+        documentElement: {},
+        querySelector(selector: string) {
+          if (selector === "h1" || selector === ".watch__title" ||
+              selector === "meta[property='og:title']" || selector === "meta[name='title']") {
+            return placeholder;
+          }
+          if (selector === 'img[src*="posters"][alt]') return poster;
+          return null;
+        },
+        querySelectorAll(selector: string) {
+          if (selector === "iframe") return [frame];
+          return [];
+        },
+      },
+      HTMLSelectElement: FakeHTMLSelectElement,
+      MutationObserver: FakeMutationObserver,
+      getComputedStyle() { return { display: "block", visibility: "visible" }; },
+      chrome: {
+        runtime: {
+          onMessage: { addListener() {} },
+          sendMessage() {},
+        },
+      },
+      window: { addEventListener() {} },
+      URL,
+      Date,
+    });
+
+    expect(sentToFrame).toContainEqual({
+      targetOrigin: "https://kodikplayer.com",
+      message: {
+        type: "MIDAHOSHI_PARENT_METADATA",
+        metadata: {
+          title: "Санка Рэа",
+          episode: 5,
+          sourceUrl: "https://old.yummyani.me/catalog/item/sanka-rea-tv",
+          service: "yummyanime",
+        },
+      },
+    });
+  });
+});
+
+
+describe("YummyAnime selected episode tracking", () => {
+  it("reads the numeric data-selected episode and falls back to the poster alt title", () => {
+    const listeners: { current: MessageListener | null } = { current: null };
+    const sentMessages: any[] = [];
+    let observedAttributes: string[] = [];
+    const placeholder = { textContent: "...", getAttribute() { return "..."; } };
+    const poster = {
+      textContent: "",
+      getAttribute(name: string) {
+        return name === "alt" ? "Санка Рэа" : null;
+      },
+    };
+    const selectedEpisode = { textContent: "4" };
+
+    class FakeMutationObserver {
+      constructor(_callback: () => void) {}
+      observe(_target: unknown, options: { attributeFilter?: string[] }) {
+        observedAttributes = options.attributeFilter || [];
+      }
+      disconnect() {}
+    }
+    class FakeHTMLSelectElement {}
+
+    const context = {
+      location: {
+        hostname: "ru.yummyani.me",
+        origin: "https://ru.yummyani.me",
+        pathname: "/catalog/item/sanka-rea-tv",
+        href: "https://ru.yummyani.me/catalog/item/sanka-rea-tv",
+      },
+      document: {
+        title: "YummyAnime",
+        documentElement: {},
+        querySelector(selector: string) {
+          if (selector === "h1" || selector === ".watch__title" ||
+              selector === "meta[property='og:title']" || selector === "meta[name='title']") {
+            return placeholder;
+          }
+          if (selector === 'img[src*="posters"][alt]') return poster;
+          return null;
+        },
+        querySelectorAll(selector: string) {
+          if (selector === '[data-selected="1"]') return [selectedEpisode];
+          return [];
+        },
+      },
+      HTMLSelectElement: FakeHTMLSelectElement,
+      MutationObserver: FakeMutationObserver,
+      getComputedStyle() { return { display: "block", visibility: "visible" }; },
+      chrome: {
+        runtime: {
+          onMessage: {
+            addListener(listener: MessageListener) { listeners.current = listener; },
+          },
+          sendMessage(message: unknown) { sentMessages.push(message); },
+        },
+      },
+      window: { addEventListener() {} },
+      URL,
+      Date,
+    };
+
+    vm.runInNewContext(contentScript, context);
+    let detected: any;
+    listeners.current?.(
+      { type: "MIDAHOSHI_DETECT_WATCH_EVENT" },
+      {},
+      (value) => { detected = value; },
+    );
+
+    expect(detected).toMatchObject({
+      service: "yummyanime",
+      title: "Санка Рэа",
+      episode: 4,
+    });
+    expect(observedAttributes).toContain("data-selected");
+    expect(sentMessages).toContainEqual(expect.objectContaining({
+      type: "MIDAHOSHI_CURRENT_WATCH",
+      title: "Санка Рэа",
+      episode: 4,
+    }));
+  });
 });
