@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { normalizeCatalogQuery, t, type AppLocale } from "../i18n.js";
+import { searchAniListAnime } from "../services/anilist.js";
+import { applyFallbackMetadata } from "../services/streaming-metadata.js";
 import type { FormEvent } from "react";
 import type { AnimeIdentity, AnimeSnapshotV4 } from "../core/types.js";
 import { parseYummyAccountSnapshot } from "../services/yummyanime.js";
@@ -117,7 +119,21 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
     setDetails(null);
     setExpandedEpisode(null);
     void searchProvider(provider, normalizedQuery, controller.signal)
-      .then((result) => { if (!controller.signal.aborted) setResults(result.items); })
+      .then(async (result) => {
+        if (controller.signal.aborted) return;
+        const needsFallback = result.items.some((item) => !item.posterUrl || item.averageScore == null);
+        if (!needsFallback) {
+          setResults(result.items);
+          return;
+        }
+        try {
+          const metadata = await searchAniListAnime(normalizedQuery, controller.signal);
+          if (controller.signal.aborted) return;
+          setResults(result.items.map((item) => applyFallbackMetadata(item, metadata)));
+        } catch {
+          if (!controller.signal.aborted) setResults(result.items);
+        }
+      })
       .catch((reason: unknown) => {
         if (reason instanceof Error && reason.name === "AbortError") return;
         setError(reason instanceof Error ? reason.message : "Не удалось выполнить поиск.");
@@ -308,10 +324,13 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
           <div className="streaming-catalog-list">
             {results.map((item) => (
               <button type="button" className={selected?.externalId === item.externalId ? "streaming-result selected" : "streaming-result"} key={item.externalId} onClick={() => setSelected(item)}>
-                {item.posterUrl && !failedPosters[provider + ":" + item.externalId]
-                  ? <img src={provider === "animego" ? "/api/animego/poster?url=" + encodeURIComponent(item.posterUrl) : item.posterUrl} alt="" loading="lazy" onError={() => setFailedPosters((current) => ({ ...current, [provider + ":" + item.externalId]: true }))} />
-                  : <span className="streaming-poster-placeholder" title={t(locale, "noPoster")}>✦</span>}
-                <span><strong>{item.title}</strong>{item.year ? <small>{item.year}</small> : null}</span>
+                <span className="streaming-result-poster">
+                  {item.posterUrl && !failedPosters[provider + ":" + item.externalId]
+                    ? <img src={provider === "animego" && item.posterSource !== "AniList" ? "/api/animego/poster?url=" + encodeURIComponent(item.posterUrl) : item.posterUrl} alt="" loading="lazy" onError={() => setFailedPosters((current) => ({ ...current, [provider + ":" + item.externalId]: true }))} />
+                    : <span className="streaming-poster-placeholder" title={t(locale, "noPoster")}>✦</span>}
+                  {item.averageScore != null && <b className={`streaming-score ${item.averageScore >= 8 ? "excellent" : item.averageScore >= 7 ? "good" : item.averageScore >= 5 ? "average" : "poor"}`} title={`Оценка: ${item.scoreSource || providerLabels[provider]}`}>{item.averageScore.toFixed(1)}</b>}
+                </span>
+                <span><strong>{item.title}</strong>{item.year ? <small>{item.year}</small> : null}{item.averageScore != null ? <small>★ {item.averageScore.toFixed(1)} · {item.scoreSource || providerLabels[provider]}</small> : null}</span>
               </button>
             ))}
           </div>
