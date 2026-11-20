@@ -99,6 +99,24 @@ describe("browser extension pending watch queue", () => {
     ]);
   });
 
+  it("treats YummyAnime regional and legacy subdomains as the same pending source", async () => {
+    const harness = createBackgroundHarness();
+
+    await harness.send({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: { ...watchEvent, sourceUrl: "https://ru.yummyani.me/catalog/item-1", eventId: "regional-event" },
+    });
+    await harness.send({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: { ...watchEvent, sourceUrl: "https://old.yummyani.me/catalog/item-1", eventId: "legacy-event" },
+    });
+
+    expect(harness.storage.pendingWatchEvents).toHaveLength(1);
+    expect(harness.storage.pendingWatchEvents).toMatchObject([
+      { eventId: "regional-event", episode: 3 },
+    ]);
+  });
+
   it("keeps different episodes separate and allows a new event after acknowledgement", async () => {
     const harness = createBackgroundHarness();
 
