@@ -21,6 +21,7 @@ function createBackgroundHarness(options: HarnessOptions = {}) {
   const storage = options.storage || { pendingWatchEvents: [] as unknown[] };
   let messageListener: ((message: any) => void) | null = null;
   let delayedQueueWriteUsed = false;
+  let queueWriteCount = 0;
   let failNextQueueWrite = Boolean(options.failNextQueueWrite);
 
   const drawingContext = {
@@ -39,7 +40,8 @@ function createBackgroundHarness(options: HarnessOptions = {}) {
         },
         async set(values: Record<string, unknown>) {
           if (Object.hasOwn(values, "pendingWatchEvents")) {
-            if (failNextQueueWrite) {
+            queueWriteCount += 1;
+            if (failNextQueueWrite && queueWriteCount === 1) {
               failNextQueueWrite = false;
               throw new Error("simulated storage quota failure");
             }
@@ -184,10 +186,8 @@ describe("browser extension pending watch queue", () => {
     }
 
     expect(harness.storage.pendingWatchEvents).toHaveLength(25);
-    expect(harness.storage.pendingWatchEvents).toMatchObject([
-      { eventId: "event-1" },
-      { eventId: "event-25" },
-    ]);
+    expect((harness.storage.pendingWatchEvents as any[])[0]).toMatchObject({ eventId: "event-1" });
+    expect((harness.storage.pendingWatchEvents as any[])[24]).toMatchObject({ eventId: "event-25" });
   });
 
   it("serializes acknowledgement with incoming events so an acknowledged event cannot reappear", async () => {
