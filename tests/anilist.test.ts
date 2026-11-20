@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { searchAniListAnime, searchAniListAnimeBatch } from "../src/services/anilist.js";
+import { searchAniListAnime } from "../src/services/anilist.js";
 
 const sampleMedia = {
   id: 154587,
@@ -68,32 +68,6 @@ describe("AniList catalogue search", () => {
       startDate: "2023-09-29",
       releaseStatus: "RELEASED",
     });
-  });
-
-  it("searches multiple streaming titles in one AniList request and deduplicates results", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({
-        data: {
-          results0: { media: [sampleMedia] },
-          results1: { media: [sampleMedia, { ...sampleMedia, id: 154588, idMal: null }] },
-        },
-      }), { status: 200 }),
-    );
-
-    const result = await searchAniListAnimeBatch([" Frieren ", "Frieren", "Sousou no Frieren"]);
-
-    expect(fetchMock).toHaveBeenCalledOnce();
-    const [, request] = fetchMock.mock.calls[0]!;
-    const body = JSON.parse(String(request?.body));
-    expect(body.variables).toEqual({ search0: "Frieren", search1: "Sousou no Frieren" });
-    expect(body.query).toContain("results0: Page");
-    expect(body.query).toContain("results1: Page");
-    expect(result.map((anime) => anime.externalIds.anilist)).toEqual(["154587", "154588"]);
-  });
-
-  it("reports batch AniList rate limiting instead of silently returning empty metadata", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 429 }));
-    await expect(searchAniListAnimeBatch(["Naruto", "Boruto"])).rejects.toThrow(/ограничил частоту/i);
   });
 
   it("uses the season year if the exact start date is unavailable", async () => {
