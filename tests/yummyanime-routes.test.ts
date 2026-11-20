@@ -1,28 +1,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleYummyAnimeRequest } from "../server/yummyanime-routes.mjs";
 
-function responseCapture() {
+function responseCapture(): { status: number; headers: Record<string, string>; body: string; writeHead(status: number, headers?: Record<string, string>): void; end(body?: string): void; json(): any } {
   return {
     status: 0,
     headers: {},
     body: "",
-    writeHead(status, headers) { this.status = status; this.headers = headers; },
-    end(body) { this.body = body; },
+    writeHead(status: number, headers: Record<string, string> = {}) { this.status = status; this.headers = headers; },
+    end(body = "") { this.body = body; },
     json() { return JSON.parse(this.body); },
   };
 }
 
-function dependencies(initialTokens = {}) {
+function dependencies(initialTokens: Record<string, any> = {}) {
   const state = { tokens: structuredClone(initialTokens) };
   return {
     state,
-    sendJson(res, status, body) {
+    sendJson(res: ReturnType<typeof responseCapture>, status: number, body: unknown) {
       res.writeHead(status, { "Content-Type": "application/json" });
       res.end(JSON.stringify(body));
     },
-    async readJson(req) { return req.body || {}; },
-    async readTokens() { return state.tokens; },
-    async writeTokens(tokens) { state.tokens = structuredClone(tokens); },
+    async readJson(req: { body?: unknown }) { return req.body || {}; },
+    async readTokens(): Promise<Record<string, any>> { return state.tokens; },
+    async writeTokens(tokens: Record<string, any>) { state.tokens = structuredClone(tokens); },
   };
 }
 
@@ -32,6 +32,19 @@ afterEach(() => {
 });
 
 describe("YummyAnime local API routes", () => {
+  it("reports an unconfigured state without constructing an API client", async () => {
+    delete process.env.YUMMY_APPLICATION_TOKEN;
+    const res = responseCapture();
+    await handleYummyAnimeRequest(
+      { method: "GET" },
+      res,
+      new URL("http://127.0.0.1/api/yummyanime/status"),
+      dependencies(),
+    );
+    expect(res.status).toBe(200);
+    expect(res.json()).toMatchObject({ configured: false, connected: false });
+  });
+
   it("reports configuration without exposing credentials or tokens", async () => {
     process.env.YUMMY_APPLICATION_TOKEN = "public-app-token";
     const deps = dependencies({ yummyanime: { accessToken: "private-user-token", username: "tester", userId: 42 } });
