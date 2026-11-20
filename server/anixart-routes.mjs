@@ -372,19 +372,19 @@ export async function handleAnixArtRequest(request, response, url, deps) {
       if (/^\d+$/.test(playerTitleId) && /^\d+$/.test(publisherId) && /^[a-z0-9_-]{1,32}$/i.test(aggregator)) {
         const playlistUrl = new URL("https://plapi.cdnvideohub.com/api/v1/player/sv/playlist");
         playlistUrl.search = new URLSearchParams({ pub: publisherId, aggr: aggregator, id: playerTitleId }).toString();
-        const playlist = await fetcher(playlistUrl, {
-          headers: {
-            Accept: "application/json",
-            "User-Agent": headers["User-Agent"],
-            Referer: CVH_PLAYER,
-            Origin: "https://player.cdnvideohub.com",
-          },
-          signal: AbortSignal.timeout(12000),
-        });
-        if (playlist.ok) {
-          playerCatalog = parseAnixArtPlayerPlaylist(await playlist.json(), detail.url);
-        } else {
-          throw new Error("AnixART CVH playlist: HTTP " + playlist.status);
+        try {
+          const playlist = await fetcher(playlistUrl, {
+            headers: {
+              Accept: "application/json",
+              "User-Agent": headers["User-Agent"],
+              Referer: CVH_PLAYER,
+              Origin: "https://player.cdnvideohub.com",
+            },
+            signal: AbortSignal.timeout(12000),
+          });
+          if (playlist.ok) playerCatalog = parseAnixArtPlayerPlaylist(await playlist.json(), detail.url);
+        } catch {
+          // A missing CVH playlist must not hide the public title page and its link.
         }
       }
       return sendJson(response, 200, {
