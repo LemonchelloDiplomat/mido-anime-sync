@@ -34,6 +34,29 @@ function normalizeTitle(title) {
   return String(title || "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
 }
 
+function normalizeSourceUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+    return url.origin + url.pathname;
+  } catch {
+    return "";
+  }
+}
+
+// Do not enqueue the same anime episode/source twice while an earlier
+// event is still awaiting the user's confirmation. Once acknowledged, a
+// later genuine rewatch can create a new queue entry.
+function isDuplicatePendingEvent(queue, event) {
+  const title = normalizeTitle(event.title);
+  const sourceUrl = normalizeSourceUrl(event.sourceUrl);
+  return queue.some((item) =>
+    item.service === event.service &&
+    normalizeTitle(item.title) === title &&
+    Number(item.episode) === event.episode &&
+    normalizeSourceUrl(item.sourceUrl) === sourceUrl
+  );
+}
+
 function drawToolbarIcon(alerted) {
   const size = 32;
   const canvas = new OffscreenCanvas(size, size);
@@ -237,6 +260,7 @@ chrome.runtime.onMessage.addListener((message) => {
 
     const stored = await chrome.storage.local.get({ [QUEUE_KEY]: [] });
     const queue = Array.isArray(stored[QUEUE_KEY]) ? stored[QUEUE_KEY] : [];
+    if (isDuplicatePendingEvent(queue, event)) return;
     const eventId = String(event.eventId || crypto.randomUUID());
     if (queue.some((item) => item.eventId === eventId)) return;
 
