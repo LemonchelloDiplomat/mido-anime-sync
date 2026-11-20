@@ -309,7 +309,7 @@ describe("YummyAnime browser tracking", () => {
     };
     dispatch({
       source: parentWindow,
-      origin: "https://ru.yummyani.me",
+      origin: "https://animego.me",
       data: {
         type: "MIDAHOSHI_PARENT_METADATA",
         metadata: {
