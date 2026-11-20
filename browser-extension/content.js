@@ -3,10 +3,11 @@
   const isAniBoomFrame = host === "aniboom.one";
   const isCvhFrame = host === "animego.me" && location.pathname.startsWith("/cdn-iframe/");
   const isCvhPlayerFrame = host === "player.cdnvideohub.com";
+  const isYummyCvhWrapperFrame = host.endsWith(".yummyani.me") && location.pathname === "/iframeCVH.html";
   const isCvhTrackingFrame = isCvhFrame || isCvhPlayerFrame;
   const isKodikFrame = host === "kodikplayer.com";
-  const isAnimeGoPlayerFrame = isAniBoomFrame || isCvhTrackingFrame || isKodikFrame;
-  const service = isAnimeGoPlayerFrame ? "animego" : host.includes("yummy") ? "yummyanime"
+  const isAnimeGoPlayerFrame = isAniBoomFrame || isCvhTrackingFrame || isKodikFrame || isYummyCvhWrapperFrame;
+  const service = isAnimeGoPlayerFrame && !isYummyCvhWrapperFrame ? "animego" : host.includes("yummy") ? "yummyanime"
     : host.includes("anixart") ? "anixart"
     : "animego";
   let parentMetadata = null;
@@ -143,6 +144,26 @@
       const episode = Number(rawNumber);
       if (Number.isSafeInteger(episode) && episode > 0) return episode;
     }
+
+    // The legacy YummyAnime layout keeps the selected episode in the CVH
+    // wrapper URL instead of marking an episode element in the page DOM.
+    const cvhFrame = Array.from(document.querySelectorAll("iframe")).find((frame) => {
+      try {
+        const url = new URL(frame.src, location.href);
+        return url.hostname.toLowerCase().endsWith(".yummyani.me") &&
+          url.pathname === "/iframeCVH.html";
+      } catch {
+        return false;
+      }
+    });
+    if (cvhFrame) {
+      try {
+        const episode = Number(new URL(cvhFrame.src, location.href).searchParams.get("episode"));
+        if (Number.isSafeInteger(episode) && episode > 0 && episode <= 9999) return episode;
+      } catch {
+        // Ignore malformed or unavailable player URLs.
+      }
+    }
     return null;
   }
 
@@ -276,7 +297,8 @@
   }
 
   function sendParentMetadataToFrame(frame) {
-    if ((service !== "animego" && service !== "yummyanime") || (isAnimeGoPlayerFrame && !isCvhFrame) || !frame?.contentWindow) return;
+    if ((service !== "animego" && service !== "yummyanime") ||
+        (isAnimeGoPlayerFrame && !isCvhFrame && !isYummyCvhWrapperFrame) || !frame?.contentWindow) return;
     let frameUrl;
     try {
       frameUrl = new URL(frame.src, location.href);
@@ -290,7 +312,10 @@
     const isCvhTarget = targetHost === "animego.me" && frameUrl.pathname.startsWith("/cdn-iframe/");
     const isCvhPlayerTarget = targetHost === "player.cdnvideohub.com";
     const isKodikTarget = targetHost === "kodikplayer.com";
-    if (!isAniBoomTarget && !isCvhTarget && !isCvhPlayerTarget && !isKodikTarget) return;
+    const isYummyCvhWrapperTarget = targetHost.endsWith(".yummyani.me") &&
+      frameUrl.pathname === "/iframeCVH.html";
+    if (!isAniBoomTarget && !isCvhTarget && !isCvhPlayerTarget && !isKodikTarget &&
+        !isYummyCvhWrapperTarget) return;
     if (isAniBoomTarget && service !== "animego") return;
     // YummyAnime may embed CVH through AnimeGO's /cdn-iframe/ wrapper.
     // That wrapper is a CVH transport, not an AnimeGO watch source.
@@ -309,7 +334,8 @@
   }
 
   function syncParentMetadataToFrames() {
-    if ((service !== "animego" && service !== "yummyanime") || (isAnimeGoPlayerFrame && !isCvhFrame)) return;
+    if ((service !== "animego" && service !== "yummyanime") ||
+        (isAnimeGoPlayerFrame && !isCvhFrame && !isYummyCvhWrapperFrame)) return;
     queryAllDeep("iframe").forEach(sendParentMetadataToFrame);
   }
 
@@ -405,7 +431,7 @@
       });
     }
 
-    if (isCvhFrame) {
+    if (isCvhFrame || isYummyCvhWrapperFrame) {
       window.addEventListener("message", (event) => {
         if (event.source === window.parent ||
             event.origin !== "https://player.cdnvideohub.com" ||
@@ -424,7 +450,8 @@
           event.origin !== "https://kodikplayer.com" &&
           event.origin !== "https://player.cdnvideohub.com" &&
           event.origin !== "https://animego.me" &&
-          event.origin !== location.origin) return;
+          event.origin !== location.origin &&
+          !isAllowedWatchSourceUrl(event.origin)) return;
       if (event.data?.type !== "MIDAHOSHI_REQUEST_PARENT_METADATA") return;
       const frame = queryAllDeep("iframe")
         .find((candidate) => candidate.contentWindow === event.source);
