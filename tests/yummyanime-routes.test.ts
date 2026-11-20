@@ -84,6 +84,27 @@ describe("YummyAnime local API routes", () => {
     expect(fetcher.mock.calls[0]?.[1]?.headers.Authorization).toBeUndefined();
   });
 
+  it("keeps YummyAnime title details when video metadata is unavailable", async () => {
+    process.env.YUMMY_APPLICATION_TOKEN = "public-app-token";
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.endsWith("/anime/42")) return {
+        ok: true, status: 200,
+        async text() { return JSON.stringify({ response: { anime_id: 42, title: "Test Anime", anime_url: "/catalog/item/42" } }); },
+      };
+      throw new Error("video metadata unavailable");
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const res = responseCapture();
+    await handleYummyAnimeRequest(
+      { method: "GET" }, res,
+      new URL("http://127.0.0.1/api/yummyanime/anime/42"),
+      dependencies(),
+    );
+    expect(res.status).toBe(200);
+    expect(res.json().detail.title).toBe("Test Anime");
+    expect(res.json().videos).toEqual([]);
+  });
+
   it("stores only the returned bearer token and account metadata after login", async () => {
     process.env.YUMMY_APPLICATION_TOKEN = "public-app-token";
     const fetcher = vi.fn()

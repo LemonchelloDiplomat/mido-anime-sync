@@ -67,6 +67,20 @@ describe("AnixART public website catalog adapter", () => {
     ]);
   });
 
+  it("extracts AnixART posters from lazy attributes and CSS background wrappers", () => {
+    const html = `
+      <div class="shortstory">
+        <a href="/8001-lazy-poster.html"><div class="poster"><img data-original="/images/lazy.jpg" src="/images/placeholder.jpg"></div><span>Lazy poster</span></a>
+      </div>
+      <div class="shortstory">
+        <a href="/8002-background-poster.html"><div class="poster" style="background-image:url('/images/background.jpg')"></div><span>Background poster</span></a>
+      </div>`;
+    expect(parseAnixArtSearch(html).map((item) => item.posterUrl)).toEqual([
+      "https://anixart.site/images/lazy.jpg",
+      "https://anixart.site/images/background.jpg",
+    ]);
+  });
+
   it("parses public title metadata, dubbings and the player identifiers only", () => {
     const title = parseAnixArtDetail(detailHtml, "https://anixart.site/7004-magicheskaja-bitva-2.html");
     expect(title).toMatchObject({
@@ -176,6 +190,21 @@ describe("AnixART public website catalog adapter", () => {
       "https://vd576.okcdn.ru/video.mp4",
       expect.objectContaining({ headers: expect.objectContaining({ Range: "bytes=0-10", Referer: "https://player.cdnvideohub.com/" }) }),
     );
+  });
+
+  it("keeps the AnixART title page when the CVH playlist is unavailable", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("plapi.cdnvideohub.com")) throw new Error("CVH unavailable");
+      return new Response(detailHtml, { status: 200 });
+    });
+    const response = responseCapture();
+    await handleAnixArtRequest(
+      { method: "GET" }, response,
+      new URL("http://127.0.0.1/api/anixart/anime/7004-magicheskaja-bitva-2.html"),
+      { fetch: fetcher, sendJson(res: any, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } },
+    );
+    expect(response.status).toBe(200);
+    expect(response.json()).toMatchObject({ title: "Магическая битва 2", seasons: [], url: "https://anixart.site/7004-magicheskaja-bitva-2.html" });
   });
 
   it("loads the AnixART CVH playlist directly from the local server route", async () => {

@@ -17,6 +17,42 @@ export interface StreamingProviderCapabilities {
   limitations?: string[];
 }
 
+
+/**
+ * Verified capabilities, kept separate from catalog parsing. A public website
+ * search result is not evidence that its user account or list API is available.
+ */
+export const STREAMING_PROVIDER_CAPABILITIES: Record<StreamingProviderId, StreamingProviderCapabilities> = {
+  yummyanime: {
+    catalogSearch: true, titleDetails: true, seasonsAndEpisodes: true, voiceTracks: true,
+    accountConnection: true, listImport: true, listWrite: true,
+    watchProgressRead: true, watchProgressWrite: true,
+  },
+  animego: {
+    catalogSearch: true, titleDetails: true, seasonsAndEpisodes: true, voiceTracks: true,
+    accountConnection: false, listImport: false, listWrite: false,
+    watchProgressRead: true, watchProgressWrite: false,
+    limitations: [
+      "Личный API аккаунта и списков не подтверждён.",
+      "Состояние просмотра доступно только через браузерное расширение.",
+    ],
+  },
+  anixart: {
+    catalogSearch: true, titleDetails: true, seasonsAndEpisodes: true, voiceTracks: true,
+    accountConnection: false, listImport: false, listWrite: false,
+    watchProgressRead: true, watchProgressWrite: false,
+    limitations: [
+      "Интеграция относится к публичному сайту AnixART, а не к мобильному приложению.",
+      "Синхронизация мобильного аккаунта не поддерживается.",
+      "Состояние просмотра доступно через браузерное расширение.",
+    ],
+  },
+};
+
+export function getStreamingProviderCapabilities(provider: StreamingProviderId): StreamingProviderCapabilities {
+  return structuredClone(STREAMING_PROVIDER_CAPABILITIES[provider]);
+}
+
 export interface StreamingSearchQuery {
   query: string;
   page?: number;

@@ -21,7 +21,7 @@ function createApi(applicationToken, token) {
         ...(token ? { Authorization: "Bearer " + token } : {}),
       },
       ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
-      signal: options.signal,
+      signal: options.signal || AbortSignal.timeout(15000),
     });
     const raw = await response.text();
     let payload;
@@ -156,7 +156,14 @@ export async function handleYummyAnimeRequest(request, response, url, deps) {
       const id = encodeURIComponent(decodeURIComponent(detailMatch[1]));
       const detail = unwrap(await api("/anime/" + id));
       const numericId = requireId(detail?.anime_id || id, "аниме");
-      const videos = unwrap(await api("/anime/" + numericId + "/videos"));
+      // Video metadata is optional for catalog browsing. Preserve title details
+      // and the official page link when a film has no player or the video API stalls.
+      let videos = [];
+      try {
+        videos = unwrap(await api("/anime/" + numericId + "/videos"));
+      } catch {
+        videos = [];
+      }
       return sendJson(response, 200, { detail, videos });
     } catch (error) { return sendJson(response, error.status || 502, { error: error.message }); }
   }
