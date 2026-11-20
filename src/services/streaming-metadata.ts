@@ -2,7 +2,7 @@ import type { AnimeIdentity } from "../core/types.js";
 import type { StreamingTitle } from "./streaming-provider.js";
 
 function normalizeTitle(value: string): string {
-  return value.normalize("NFKC").toLocaleLowerCase().replace(/[\\p{P}\\p{S}\\s]+/gu, "");
+  return value.normalize("NFKC").toLocaleLowerCase().replace(/[\p{P}\p{S}\s]+/gu, "");
 }
 
 function identityTitles(identity: AnimeIdentity): string[] {
