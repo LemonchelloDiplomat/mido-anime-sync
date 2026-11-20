@@ -389,14 +389,34 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
       if (target.protocol !== "https:" || !allowedHost(target.hostname)) {
         return sendJson(response, 400, { error: "Источник постера AnimeGO не разрешён." });
       }
+      // Use the actual AnimeGO title page as the hotlink referrer when supplied.
+      // Only AnimeGO-owned pages are accepted, preventing this endpoint from
+      // becoming a general-purpose proxy or an SSRF primitive.
+      const rawReferer = String(url.searchParams.get("referer") || "");
+      let posterReferer = SITE + "/";
+      if (rawReferer) {
+        try {
+          const parsedReferer = new URL(rawReferer);
+          if (parsedReferer.protocol !== "https:" || !allowedHost(parsedReferer.hostname)) {
+            return sendJson(response, 400, { error: "Недопустимый Referer постера AnimeGO." });
+          }
+          posterReferer = parsedReferer.toString();
+        } catch {
+          return sendJson(response, 400, { error: "Некорректный Referer постера AnimeGO." });
+        }
+      }
       const imageFetcher = deps.fetch || fetch;
-      // Poster hosts occasionally stall or rate-limit. Bound both the response
-      // headers and body read so one bad CDN image cannot hang a catalog card.
+      // Bound the upstream request and body read so a stalled CDN cannot hang a catalog card.
       const imageSignal = AbortSignal.timeout(12000);
       let image;
       try {
         image = await imageFetcher(target.toString(), {
-          headers: { ...headers, Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8", Referer: SITE + "/" },
+          headers: {
+            ...headers,
+            Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            Referer: posterReferer,
+            Origin: SITE,
+          },
           redirect: "follow",
           signal: imageSignal,
         });
@@ -413,6 +433,10 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
       if (!contentType.toLowerCase().startsWith("image/")) {
         return sendJson(response, 502, { error: "AnimeGO вместо изображения вернул другой тип данных." });
       }
+      const declaredLength = Number(image.headers?.get("content-length") || 0);
+      if (declaredLength > 8 * 1024 * 1024) {
+        return sendJson(response, 413, { error: "Постер AnimeGO превышает допустимый размер." });
+      }
       let bytes;
       try {
         bytes = Buffer.from(await image.arrayBuffer());
@@ -420,11 +444,12 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
         if (imageSignal.aborted) throw new Error("Загрузка файла постера AnimeGO превысила 12 секунд.");
         throw error;
       }
+      if (!bytes.length) return sendJson(response, 502, { error: "AnimeGO вернул пустой файл постера." });
       if (bytes.length > 8 * 1024 * 1024) return sendJson(response, 413, { error: "Постер AnimeGO превышает допустимый размер." });
       response.writeHead(200, {
         "Content-Type": contentType,
         "Content-Length": String(bytes.length),
-        "Cache-Control": "public, max-age=86400",
+        "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
         "X-Content-Type-Options": "nosniff",
       });
       response.end(bytes);
