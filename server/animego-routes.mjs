@@ -209,6 +209,7 @@ export function parseAnimeGoPlayer(payload, titleUrl) {
 
 export async function handleAnimeGoRequest(request, response, url, deps) {
   const { sendJson } = deps;
+  const requestAnimeGoImpl = deps.request || requestAnimeGo;
   const method = request.method || "GET";
   if (!url.pathname.startsWith("/api/animego/")) return false;
   if (method !== "GET") return sendJson(response, 405, { error: "AnimeGO поддерживает только чтение публичного каталога." });
@@ -220,13 +221,13 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
     if (url.pathname === "/api/animego/search") {
       const query = String(url.searchParams.get("q") || "").trim();
       if (query.length < 2 || query.length > 120) return sendJson(response, 400, { error: "Поисковый запрос должен содержать от 2 до 120 символов." });
-      const page = await requestAnimeGo(SITE + "/search/anime?" + new URLSearchParams({ q: query }), { headers });
+      const page = await requestAnimeGoImpl(SITE + "/search/anime?" + new URLSearchParams({ q: query }), { headers });
       if (!page.ok) throw new Error("AnimeGO: HTTP " + page.status);
       return sendJson(response, 200, { items: parseAnimeGoSearch(await page.text()), page: 1, hasNextPage: false });
     }
     const episodeMatch = url.pathname.match(/^\/api\/animego\/episode\/(\d+)$/);
     if (episodeMatch) {
-      const player = await requestAnimeGo(SITE + "/player/videos/" + encodeURIComponent(episodeMatch[1]), {
+      const player = await requestAnimeGoImpl(SITE + "/player/videos/" + encodeURIComponent(episodeMatch[1]), {
         headers: { ...headers, Accept: "application/json", "X-Requested-With": "XMLHttpRequest", Referer: SITE + "/" },
       });
       if (!player.ok) throw new Error("AnimeGO player: HTTP " + player.status);
@@ -237,10 +238,10 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
     if (match) {
       const slug = decodeURIComponent(match[1]);
       if (!/^[\p{L}\p{N}-]+$/u.test(slug)) return sendJson(response, 400, { error: "Некорректный AnimeGO slug." });
-      const page = await requestAnimeGo(SITE + "/anime/" + encodeURIComponent(slug), { headers });
+      const page = await requestAnimeGoImpl(SITE + "/anime/" + encodeURIComponent(slug), { headers });
       if (!page.ok) throw new Error("AnimeGO: HTTP " + page.status);
       const detail = parseAnimeGoDetail(await page.text(), SITE + "/anime/" + encodeURIComponent(slug));
-      const player = await requestAnimeGo(SITE + "/player/" + encodeURIComponent(detail.externalId), {
+      const player = await requestAnimeGoImpl(SITE + "/player/" + encodeURIComponent(detail.externalId), {
         headers: { ...headers, Accept: "application/json", "X-Requested-With": "XMLHttpRequest", Referer: SITE + "/" },
       });
       let parsed = { episodes: [], voices: [] };
