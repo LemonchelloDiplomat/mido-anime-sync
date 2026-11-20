@@ -82,6 +82,12 @@ describe("AnimeGO public catalog adapter", () => {
   it("extracts posters from lazy-loaded attributes, srcset, and CSS backgrounds", () => {
     const html = `
       <div class="ani-grid__item">
+        <div class="ani-grid__item-picture">
+          <a href="/anime/nested-poster-1000"><img alt="" loading="lazy" src="https://img.cdngos.com/v/250x350/anime/69/69d16a4ca28d1312818966"></a>
+        </div>
+        <div class="ani-grid__item-title"><a title="Nested poster" href="/anime/nested-poster-1000">Nested poster</a></div>
+      </div>
+      <div class="ani-grid__item">
         <a title="Lazy poster" href="/anime/lazy-poster-1001">
           <img data-original="//cdn.example/lazy.jpg" src="data:image/gif;base64,placeholder" alt="Lazy poster">
         </a>
@@ -97,6 +103,7 @@ describe("AnimeGO public catalog adapter", () => {
         </a>
       </div>`;
     expect(parseAnimeGoSearch(html).map((item) => item.posterUrl)).toEqual([
+      "https://img.cdngos.com/v/250x350/anime/69/69d16a4ca28d1312818966",
       "https://cdn.example/lazy.jpg",
       "https://animego.me/large.jpg",
       "https://animego.me/background.jpg",
