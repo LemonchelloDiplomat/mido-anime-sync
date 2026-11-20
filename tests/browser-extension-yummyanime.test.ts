@@ -243,6 +243,77 @@ describe("YummyAnime browser tracking", () => {
     });
   });
 
+  it("detects the legacy YummyAnime episode from a direct Kodik iframe URL", () => {
+    const forwarded: any[] = [];
+    const kodikFrame = {
+      src: "https://kodikplayer.com/season/50160/ffea133c9c2659f95da7508bca9c4d7c/720p?translations=false&only_episode=true&only_season=true&episode=1&start_from=1418",
+      contentWindow: {
+        postMessage(data: unknown, origin: string) {
+          forwarded.push({ data, origin });
+        },
+      },
+    };
+    const title = {
+      textContent: "Санка Рэа",
+      getAttribute() { return null; },
+    };
+    const document = {
+      title: "Санка Рэа | YummyAnime",
+      documentElement: {},
+      querySelector(selector: string) {
+        return selector === "h1" ? title : null;
+      },
+      querySelectorAll(selector: string) {
+        if (selector === "iframe") return [kodikFrame];
+        return [];
+      },
+    };
+    let detected: any;
+    vm.runInNewContext(contentScript, {
+      ...common,
+      location: {
+        hostname: "old.yummyani.me",
+        origin: "https://old.yummyani.me",
+        pathname: "/catalog/item/sanka-rea-tv",
+        href: "https://old.yummyani.me/catalog/item/sanka-rea-tv",
+      },
+      document,
+      window: { addEventListener() {} },
+      chrome: {
+        runtime: {
+          onMessage: {
+            addListener(listener: RuntimeMessageListener) {
+              listener({ type: "MIDAHOSHI_DETECT_WATCH_EVENT" }, {}, (value: any) => {
+                detected = value;
+              });
+            },
+          },
+          sendMessage() {},
+        },
+      },
+    });
+
+    expect(detected).toMatchObject({
+      service: "yummyanime",
+      title: "Санка Рэа",
+      episode: 1,
+      sourceUrl: "https://old.yummyani.me/catalog/item/sanka-rea-tv",
+    });
+    expect(forwarded).toHaveLength(1);
+    expect(forwarded[0]).toMatchObject({
+      origin: "https://kodikplayer.com",
+      data: {
+        type: "MIDAHOSHI_PARENT_METADATA",
+        metadata: {
+          title: "Санка Рэа",
+          episode: 1,
+          service: "yummyanime",
+          sourceUrl: "https://old.yummyani.me/catalog/item/sanka-rea-tv",
+        },
+      },
+    });
+  });
+
   it("relays legacy YummyAnime metadata through iframeCVH Shadow DOM to the CVH player", () => {
     const messages: any[] = [];
     const parentWindow = { postMessage(data: unknown, origin: string) {
