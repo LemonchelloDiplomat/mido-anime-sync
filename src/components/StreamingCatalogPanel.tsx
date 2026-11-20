@@ -104,8 +104,9 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
   }, [normalizedQuery, provider]);
 
   useEffect(() => {
-    if (!selected) {
+    if (!selected || selected.provider !== provider) {
       setDetails(null);
+      setDetailsLoading(false);
       return;
     }
     const controller = new AbortController();
@@ -223,7 +224,17 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
           <h2>Каталоги стриминговых сайтов</h2>
           <p>Поиск на AnimeGO, YummyAnime и AnixART отдельно от каталогов MAL, AniList и Shikimori.</p>
         </div>
-        <select aria-label="Источник каталога" value={provider} onChange={(event) => setProvider(event.target.value as StreamingProviderId)}>
+        <select aria-label="Источник каталога" value={provider} onChange={(event) => {
+          const nextProvider = event.target.value as StreamingProviderId;
+          setProvider(nextProvider);
+          setResults([]);
+          setSelected(null);
+          setDetails(null);
+          setExpandedEpisode(null);
+          setEpisodeTracks({});
+          setEpisodeTracksLoading({});
+          setError("");
+        }}>
           <option value="yummyanime">YummyAnime</option>
           <option value="animego">AnimeGO</option>
           <option value="anixart">AnixART</option>
@@ -254,7 +265,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
           <div className="streaming-catalog-list">
             {results.map((item) => (
               <button type="button" className={selected?.externalId === item.externalId ? "streaming-result selected" : "streaming-result"} key={item.externalId} onClick={() => setSelected(item)}>
-                {item.posterUrl ? <img src={item.posterUrl} alt="" loading="lazy" /> : <span className="streaming-poster-placeholder">✦</span>}
+                {item.posterUrl ? <img src={provider === "animego" ? "/api/animego/poster?url=" + encodeURIComponent(item.posterUrl) : item.posterUrl} alt="" loading="lazy" /> : <span className="streaming-poster-placeholder">✦</span>}
                 <span><strong>{item.title}</strong>{item.year ? <small>{item.year}</small> : null}</span>
               </button>
             ))}
