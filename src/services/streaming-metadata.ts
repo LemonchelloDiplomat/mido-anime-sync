@@ -37,7 +37,7 @@ export function applyFallbackMetadata(
   const matchedPoster = match.posterUrl || null;
   return {
     ...item,
-    fallbackPosterUrl: matchedPoster && matchedPoster !== item.posterUrl ? matchedPoster : item.fallbackPosterUrl || null,
+    fallbackPosterUrl: matchedPoster && matchedPoster !== (options.preferPoster ? (match.posterUrl || item.posterUrl) : item.posterUrl) ? matchedPoster : item.fallbackPosterUrl || null,
     // AnimeGO's CDN URLs are frequently unavailable to embedded clients.
     // Prefer a verified AniList cover for this provider, but only after an exact title match.
     posterUrl: options.preferPoster ? (match.posterUrl || item.posterUrl || null) : (item.posterUrl || match.posterUrl || null),
