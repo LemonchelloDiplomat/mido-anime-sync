@@ -37,11 +37,12 @@ export function applyStreamingPosterFallback(
 
   const match = matches[0]!;
   if (item.year != null && match.year != null && item.year !== match.year) return item;
-  if (match.posterUrl === item.posterUrl) return item;
+  const borrowedPoster = match.posterUrl;
+  if (!borrowedPoster || borrowedPoster === item.posterUrl) return item;
 
   return {
     ...item,
-    posterUrl: match.posterUrl,
+    posterUrl: borrowedPoster,
     fallbackPosterUrl: item.posterUrl || item.fallbackPosterUrl || null,
     posterSource: match.provider === "anixart" ? "AnixART" : match.provider,
   };
