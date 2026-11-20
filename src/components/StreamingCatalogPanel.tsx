@@ -370,7 +370,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
               <button type="button" className={selected?.externalId === item.externalId ? "streaming-result selected" : "streaming-result"} key={item.externalId} onClick={() => setSelected(item)}>
                 <span className="streaming-result-poster">
                   {displayPoster && posterFailure !== "fallback"
-                    ? <img src={provider === "animego" && !usingFallbackPoster && item.posterSource !== "AniList" ? "/api/animego/poster?url=" + encodeURIComponent(displayPoster) : displayPoster} alt="" loading="lazy" onError={() => setFailedPosters((current) => ({ ...current, [posterKey]: current[posterKey] === "provider" ? "fallback" : "provider" }))} />
+                    ? <img src={provider === "animego" && ((usingFallbackPoster && item.fallbackPosterUrl !== item.posterUrl) || (!usingFallbackPoster && item.posterSource !== "AniList")) ? "/api/animego/poster?url=" + encodeURIComponent(displayPoster) : displayPoster} alt="" loading="lazy" onError={() => setFailedPosters((current) => ({ ...current, [posterKey]: current[posterKey] === "provider" ? "fallback" : "provider" }))} />
                     : <span className="streaming-poster-placeholder" title={t(locale, "noPoster")}>✦</span>}
                   {item.averageScore != null && <b className={`streaming-score ${item.averageScore >= 8 ? "excellent" : item.averageScore >= 7 ? "good" : item.averageScore >= 5 ? "average" : "poor"}`} title={`Оценка: ${item.scoreSource || providerLabels[provider]}`}>{item.averageScore.toFixed(1)}</b>}
                 </span>
