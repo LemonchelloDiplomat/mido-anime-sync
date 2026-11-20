@@ -1,3 +1,5 @@
+import type { StreamingTitle } from "./streaming-provider.js";
+
 function normalizeStreamingTitle(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase()
     .replace(/[ё]/g, "е")
