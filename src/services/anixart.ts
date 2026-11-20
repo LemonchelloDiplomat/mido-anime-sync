@@ -32,7 +32,7 @@ export async function getAnixArtPlayerCatalog(
   slug: string,
   signal?: AbortSignal,
 ): Promise<AnixArtPlayerCatalog | null> {
-  if (!/^\\d+-[\\p{L}\\p{N}-]+\\.html$/u.test(slug)) throw new Error("Некорректный AnixART slug.");
+  if (!/^\d+-[\p{L}\p{N}-]+\.html$/u.test(slug)) throw new Error("Некорректный AnixART slug.");
   const payload = await request<{ catalog: AnixArtPlayerCatalog | null }>(
     "/api/anixart/player-catalog?slug=" + encodeURIComponent(slug),
     signal,
