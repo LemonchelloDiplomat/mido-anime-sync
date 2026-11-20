@@ -37,11 +37,12 @@ document.getElementById("scan").addEventListener("click", async () => {
     pendingEventId = null;
     titleInput.value = detected.title || detected.pageTitle || "";
     episodeInput.value = detected.episode || "";
-    const hasAnimeGoMetadata = detected.service === "animego" &&
+    const hasSourceMetadata = ["animego", "yummyanime"].includes(detected.service) &&
       typeof detected.title === "string" && detected.title.trim().length > 2 &&
       Number.isSafeInteger(detected.episode) && detected.episode > 0;
-    const note = hasAnimeGoMetadata && detected.manualOnly
-      ? "Название и серия найдены на AnimeGO. Видео находится во встроенном плеере. Продолжай просмотр: событие появится автоматически после 90%."
+    const sourceName = detected.service === "yummyanime" ? "YummyAnime" : "AnimeGO";
+    const note = hasSourceMetadata && detected.manualOnly
+      ? `Название и серия найдены на ${sourceName}. Видео находится во встроенном плеере. Продолжай просмотр: событие появится автоматически после 90%.`
       : detected.manualOnly
         ? "Плеер или номер серии не обнаружен. Проверь название и введи номер вручную."
         : detected.episode
