@@ -173,7 +173,7 @@ export function parseAnixArtDetail(html, requestedUrl) {
       titles: { romaji: title, synonyms: [] },
       externalIds: { anixart: identityId },
       year,
-      episodes: episodeCount,
+      episodes: null,
       genres,
       posterUrl: poster,
     },
@@ -236,7 +236,7 @@ export async function handleAnixArtRequest(request, response, url, deps) {
       return sendJson(response, 200, {
         catalogSearch: true,
         titleDetails: true,
-        episodeCount: true,
+        episodeCount: "player-catalog",
         voiceTracks: true,
         fullSeasonEpisodeManifest: true,
         playerCatalogBridge: true,
