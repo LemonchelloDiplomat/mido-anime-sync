@@ -197,7 +197,9 @@ export function parseAnixArtPlayerPlaylist(payload, titleUrl) {
     const parsedEpisodeNumber = Number(row?.episode);
     // Some AnixART films/ONAs are represented by a single CVH video row without
     // season/episode numbers. Preserve that playable row as a synthetic film episode.
-    const isSingleVideo = (!Number.isSafeInteger(parsedEpisodeNumber) || parsedEpisodeNumber < 1) && /^\d+$/.test(videoId);
+    const hasSeasonNumber = Number.isSafeInteger(Number(row?.season)) && Number(row?.season) > 0;
+    const hasEpisodeNumber = Number.isSafeInteger(parsedEpisodeNumber) && parsedEpisodeNumber > 0;
+    const isSingleVideo = /^\d+$/.test(videoId) && (!hasEpisodeNumber || (rows.length === 1 && !hasSeasonNumber));
     const episodeNumber = isSingleVideo ? 1 : parsedEpisodeNumber;
     const seasonNumber = isSingleVideo ? 1 : Number(row?.season) || 1;
     if (!Number.isSafeInteger(episodeNumber) || episodeNumber < 1) continue;
