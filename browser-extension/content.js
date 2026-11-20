@@ -414,7 +414,7 @@
       parentMetadata = nextMetadata;
       requestParentMetadata();
       scanVideos();
-      if (isCvhFrame) syncParentMetadataToFrames();
+      if (isCvhFrame || isYummyCvhWrapperFrame) syncParentMetadataToFrames();
       if (isCvhTrackingFrame) maybeSendCvhSample();
     });
 
