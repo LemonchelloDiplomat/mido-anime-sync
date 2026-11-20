@@ -1,7 +1,7 @@
 function normalizeStreamingTitle(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase()
     .replace(/[ё]/g, "е")
-    .replace(/[\\p{P}\\p{S}\\s]+/gu, "");
+    .replace(/[\p{P}\p{S}\s]+/gu, "");
 }
 
 /**
