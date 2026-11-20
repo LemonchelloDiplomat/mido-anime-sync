@@ -6,12 +6,12 @@ import {
   parseAnimeGoSearch,
 } from "../server/animego-routes.mjs";
 
-function responseCapture() {
+function responseCapture(): { status: number; body: string; writeHead(status: number): void; end(body?: string): void; json(): any } {
   return {
     status: 0,
     body: "",
-    writeHead(status) { this.status = status; },
-    end(body) { this.body = body; },
+    writeHead(status: number) { this.status = status; },
+    end(body = "") { this.body = body; },
     json() { return JSON.parse(this.body); },
   };
 }
@@ -83,7 +83,7 @@ describe("AnimeGO public catalog adapter", () => {
       async text() { return searchHtml; },
     }));
     vi.stubGlobal("fetch", fetcher);
-    const deps = { sendJson(res, status, body) { res.writeHead(status); res.end(JSON.stringify(body)); } };
+    const deps = { sendJson(res: ReturnType<typeof responseCapture>, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } };
     const searchResponse = responseCapture();
     await handleAnimeGoRequest(
       { method: "GET" },
