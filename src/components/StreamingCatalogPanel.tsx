@@ -359,9 +359,13 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
         <section className="streaming-player-dialog" role="dialog" aria-modal="true" aria-label={activePlayer.name} onClick={(event) => event.stopPropagation()}>
           <header><strong>{activePlayer.name}</strong><button type="button" className="secondary" onClick={() => setActivePlayer(null)}>{t(locale, "close")}</button></header>
           {activePlayer.kind === "video" ? (
-            <video key={activePlayer.url} src={activePlayer.url} controls autoPlay playsInline preload="metadata" />
+            <video key={activePlayer.url} src={activePlayer.url} controls autoPlay playsInline preload="metadata"
+              onLoadedMetadata={() => setPlayerLoaded(true)}
+              onError={() => setPlayerError("Не удалось загрузить видео. Источник недоступен или не поддерживает MP4.")} />
           ) : (
-            <iframe key={activePlayer.url} src={activePlayer.url} title={activePlayer.name} referrerPolicy="strict-origin-when-cross-origin" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowFullScreen />
+            <iframe key={activePlayer.url} src={activePlayer.url} title={activePlayer.name} referrerPolicy="strict-origin-when-cross-origin" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowFullScreen
+              onLoad={() => setPlayerLoaded(true)}
+              onError={() => setPlayerError("Встроенный плеер не загрузился. Попробуй открыть его отдельно.")} />
           )}
           <p>{activePlayer.kind === "video" ? "Видео передаётся локальным сервером. Если воспроизведение не начинается, проверь доступность источника CVH." : "Если встроенный просмотр не запускается, попробуй открыть сам плеер отдельно. Некоторые источники ограничивают воспроизведение внутри других сайтов."}</p>
           {activePlayer.kind === "embed" && <a href={activePlayer.url} target="_blank" rel="noreferrer">Открыть плеер отдельно ↗</a>}
