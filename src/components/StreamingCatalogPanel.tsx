@@ -54,6 +54,47 @@ async function searchProvider(provider: StreamingProviderId, query: string, sign
   }
 }
 
+/**
+ * Searches AnixART by each AnimeGO title instead of relying on the user's
+ * broad catalog query. A small worker pool keeps the public site load bounded.
+ */
+async function findAnixArtPoster(item: StreamingTitle, signal: AbortSignal): Promise<StreamingTitle> {
+  const queries = [...new Set([item.title, ...(item.alternativeTitles || [])]
+    .map((value) => value.trim())
+    .filter((value) => value.length >= 3))]
+    .slice(0, 3);
+
+  for (const query of queries) {
+    if (signal.aborted) return item;
+    try {
+      const timeout = AbortSignal.timeout(18_000);
+      const requestSignal = AbortSignal.any([signal, timeout]);
+      const result = await anixArt.search({ query, page: 1, signal: requestSignal });
+      if (signal.aborted) return item;
+      const matched = applyStreamingPosterFallback(item, result.items);
+      if (matched.posterSource === "AnixART" && matched.posterUrl) return matched;
+    } catch (reason) {
+      if (signal.aborted) return item;
+      console.warn("Не удалось найти постер AnixART для " + item.title + ":", reason);
+    }
+  }
+  return item;
+}
+
+async function findAnixArtPosters(items: StreamingTitle[], signal: AbortSignal): Promise<StreamingTitle[]> {
+  const output = new Array<StreamingTitle>(items.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (!signal.aborted) {
+      const index = nextIndex++;
+      if (index >= items.length) return;
+      output[index] = await findAnixArtPoster(items[index]!, signal);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(3, items.length) }, () => worker()));
+  return signal.aborted ? items : output.map((item, index) => item || items[index]!);
+}
+
 async function loadDetails(provider: StreamingProviderId, title: StreamingTitle, signal: AbortSignal): Promise<StreamingTitleDetails> {
   if (provider === "yummyanime") return getYummyAnimeTitle(title.externalId, signal);
   if (provider === "animego") return animeGo.getTitle(title.externalId, signal);
@@ -141,22 +182,9 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
           setResults(result.items);
           return;
         }
-        try {
-          const posterCandidates = await anixArt.search({
-            query: normalizedQuery,
-            page: 1,
-            signal: controller.signal,
-          });
-          if (controller.signal.aborted) return;
-          setResults(result.items.map((item) =>
-            applyStreamingPosterFallback(item, posterCandidates.items),
-          ));
-        } catch (reason) {
-          if (!controller.signal.aborted) {
-            console.warn("Не удалось получить резервные постеры из каталога AnixART:", reason);
-            setResults(result.items);
-          }
-        }
+        const posterResults = await findAnixArtPosters(result.items, controller.signal);
+        if (controller.signal.aborted) return;
+        setResults(posterResults);
       })
       .catch((reason: unknown) => {
         if (reason instanceof Error && reason.name === "AbortError") return;
