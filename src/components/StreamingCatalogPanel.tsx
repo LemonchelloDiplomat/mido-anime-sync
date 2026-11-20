@@ -375,7 +375,9 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
               onLoad={() => setPlayerLoaded(true)}
               onError={() => setPlayerError("Встроенный плеер не загрузился. Попробуй открыть его отдельно.")} />
           )}
-          <p>{activePlayer.kind === "video" ? "Видео передаётся локальным сервером. Если воспроизведение не начинается, проверь доступность источника CVH." : "Если встроенный просмотр не запускается, попробуй открыть сам плеер отдельно. Некоторые источники ограничивают воспроизведение внутри других сайтов."}</p>
+          {playerError && <p className="catalog-error" role="alert">{playerError}</p>}
+          {!playerLoaded && !playerError && <p role="status">{t(locale, "playerConnecting")}</p>}
+          <p>{activePlayer.kind === "video" ? "Видео передаётся локальным сервером. Если источник не отвечает, открой тайтл на сайте сервиса." : "Некоторые сайты запрещают встраивание плеера. В таком случае открой его отдельно."}</p>
           {activePlayer.kind === "embed" && <a href={activePlayer.url} target="_blank" rel="noreferrer">Открыть плеер отдельно ↗</a>}
         </section>
       </div>}
