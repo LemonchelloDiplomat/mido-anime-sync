@@ -32,6 +32,7 @@ describe("streaming catalogue fallback metadata", () => {
     const result = applyFallbackMetadata(streamingTitle(), [identity("1", 2024, 8.7)]);
     expect(result.posterUrl).toBe("https://images.example/1.jpg");
     expect(result.averageScore).toBe(8.7);
+    expect(result.year).toBe(2024);
     expect(result.posterSource).toBe("AniList");
     expect(result.scoreSource).toBe("AniList");
     expect(result.identity?.externalIds.anilist).toBe("1");
