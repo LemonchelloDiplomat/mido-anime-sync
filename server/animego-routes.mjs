@@ -94,31 +94,49 @@ function safeUrl(value, base = SITE) {
 }
 
 export function parseAnimeGoSearch(html) {
+  // AnimeGO pages contain navigation links to /anime/... alongside actual search cards.
+  // Only inspect the dedicated ani-grid__item containers, never arbitrary page anchors.
+  const divTags = [...String(html || "").matchAll(/<div\\b[^>]*>/gi)];
+  const cardStarts = divTags
+    .filter((match) => /\\bani-grid__item\\b/.test(attr(match[0], "class")))
+    .map((match) => match.index);
   const results = [];
   const seen = new Set();
-  const anchorPattern = /<a\b([^>]*href\s*=\s*(['"])([^'"]*\/anime\/[^'"]+)\2[^>]*)>([\s\S]*?)<\/a>/gi;
-  let match;
-  while ((match = anchorPattern.exec(html))) {
-    const href = safeUrl(match[3]);
-    if (!href || seen.has(href)) continue;
-    const inner = match[4];
-    const image = inner.match(/<img\b[^>]*>/i)?.[0] || "";
-    const title = stripTags(inner) || attr(image, "alt");
+
+  for (let index = 0; index < cardStarts.length; index += 1) {
+    const card = String(html).slice(cardStarts[index], cardStarts[index + 1] ?? String(html).length);
+    const anchors = [...card.matchAll(/<a\\b[^>]*>/gi)];
+    let selectedAnchor = null;
+    let selectedUrl = null;
+    for (const anchor of anchors) {
+      const href = attr(anchor[0], "href");
+      const candidate = safeUrl(href);
+      if (!candidate) continue;
+      const pathname = new URL(candidate).pathname;
+      if (/^\\/anime\\/[\\p{L}\\p{N}-]+-\\d+\\/?$/u.test(pathname)) {
+        selectedAnchor = anchor[0];
+        selectedUrl = candidate;
+        break;
+      }
+    }
+    if (!selectedAnchor || !selectedUrl || seen.has(selectedUrl)) continue;
+
+    const image = card.match(/<img\\b[^>]*>/i)?.[0] || "";
+    const title = attr(selectedAnchor, "title") || attr(image, "alt") ||
+      stripTags(card.match(/<a\\b[^>]*>([\\s\\S]*?)<\\/a>/i)?.[1] || "");
     if (!title) continue;
-    const prefix = html.slice(Math.max(0, match.index - 1200), match.index);
-    const imageTags = [...prefix.matchAll(/<img\b[^>]*>/gi)];
-    const imageTag = imageTags.at(-1)?.[0] || image;
-    const poster = safeUrl(attr(imageTag, "data-src") || attr(imageTag, "src"));
-    const slug = new URL(href).pathname.split("/").filter(Boolean).at(-1) || href;
+
+    const poster = safeUrl(attr(image, "data-src") || attr(image, "src"));
+    const slug = new URL(selectedUrl).pathname.split("/").filter(Boolean).at(-1) || selectedUrl;
     results.push({
       provider: "animego",
       externalId: slug,
-      url: href,
+      url: selectedUrl,
       title,
       alternativeTitles: [],
       posterUrl: poster,
     });
-    seen.add(href);
+    seen.add(selectedUrl);
   }
   return results.slice(0, 30);
 }
@@ -230,9 +248,15 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
     if (url.pathname === "/api/animego/search") {
       const query = String(url.searchParams.get("q") || "").trim();
       if (query.length < 2 || query.length > 120) return sendJson(response, 400, { error: "Поисковый запрос должен содержать от 2 до 120 символов." });
-      const page = await requestAnimeGoImpl(SITE + "/search/anime?" + new URLSearchParams({ q: query }), { headers });
+      const searchQuery = new URLSearchParams({ q: query }).toString();
+      let page = await requestAnimeGoImpl(SITE + "/search/anime?" + searchQuery, { headers });
+      // AnimeGO mirrors have used both routes. Retry the alternate public search route on 404.
+      if (page.status === 404) {
+        page = await requestAnimeGoImpl(SITE + "/search/all?" + searchQuery, { headers });
+      }
       if (!page.ok) throw new Error("AnimeGO: HTTP " + page.status);
-      return sendJson(response, 200, { items: parseAnimeGoSearch(await page.text()), page: 1, hasNextPage: false });
+      const items = parseAnimeGoSearch(await page.text());
+      return sendJson(response, 200, { items, page: 1, hasNextPage: false });
     }
     const episodeMatch = url.pathname.match(/^\/api\/animego\/episode\/(\d+)$/);
     if (episodeMatch) {
