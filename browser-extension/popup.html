@@ -9,8 +9,8 @@
     h1 { margin: 0 0 8px; font-size: 17px; }
     p { margin: 6px 0 12px; color: #626975; }
     label { display: block; margin: 10px 0 4px; font-weight: 600; }
-    input { box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid #c8cdd5; border-radius: 7px; }
-    button { width: 100%; margin-top: 12px; padding: 9px; border: 0; border-radius: 7px; background: #272b33; color: white; font-weight: 600; cursor: pointer; }
+    input { display: block; box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid #c8cdd5; border-radius: 7px; }
+    button { display: block; width: 100%; margin-top: 12px; padding: 9px; border: 0; border-radius: 7px; background: #272b33; color: white; font-weight: 600; cursor: pointer; }
     button.secondary { background: #e9edf2; color: #252a32; }
     #status { min-height: 38px; margin-top: 10px; white-space: pre-wrap; }
     .muted { font-size: 12px; }
@@ -26,7 +26,7 @@
 </head>
 <body>
   <h1>mido-anime-sync v0.5</h1>
-  <p>После 90% просмотра на поддерживаемом плеере поля заполнятся автоматически. Проверь аниме и номер серии перед передачей. Ничего не отправляется без твоего нажатия.</p>
+  <p>После 90% просмотра событие появится в блоке «Ожидают передачи». Нажми «Проверить данные», проверь аниме и номер серии. Ничего не отправляется без твоего подтверждения.</p>
   <section id="pending-section" aria-labelledby="pending-heading">
     <h2 id="pending-heading">Ожидают передачи <span id="pending-count">(0)</span></h2>
     <div id="pending-list"><div id="pending-empty">Нет сохранённых событий.</div></div>
