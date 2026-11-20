@@ -8,9 +8,7 @@ function status(message) {
   statusElement.textContent = message;
 }
 
-async function loadQueuedEvent() {
-  const { pendingWatchEvents = [] } = await chrome.storage.local.get({ pendingWatchEvents: [] });
-  const latest = Array.isArray(pendingWatchEvents) ? pendingWatchEvents[pendingWatchEvents.length - 1] : null;
+function showQueuedEvent(latest) {
   if (!latest) return;
   detected = latest;
   pendingEventId = latest.eventId || null;
@@ -19,7 +17,22 @@ async function loadQueuedEvent() {
   status("Сайт автоматически обнаружил почти завершённую серию. Проверь данные и нажми «Передать в локальную библиотеку».");
 }
 
+async function loadQueuedEvent() {
+  const { pendingWatchEvents = [] } = await chrome.storage.local.get({ pendingWatchEvents: [] });
+  const latest = Array.isArray(pendingWatchEvents) ? pendingWatchEvents[pendingWatchEvents.length - 1] : null;
+  showQueuedEvent(latest);
+}
+
 void loadQueuedEvent();
+
+// Keep an already-open popup in sync with events detected by the background
+// worker. This also replaces an old scan error with the current success state.
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local" || !changes.pendingWatchEvents) return;
+  const queue = changes.pendingWatchEvents.newValue;
+  const latest = Array.isArray(queue) ? queue[queue.length - 1] : null;
+  if (latest) showQueuedEvent(latest);
+});
 
 // Opening the toolbar popup acknowledges the red notification without
 // removing the pending watch event from the delivery queue.
@@ -33,7 +46,15 @@ document.getElementById("scan").addEventListener("click", async () => {
     return;
   }
   try {
-    detected = await chrome.tabs.sendMessage(tab.id, { type: "MIDAHOSHI_DETECT_WATCH_EVENT" });
+    // A missing or stalled content-script listener must not leave the popup
+    // stuck forever on "Считываем страницу…".
+    detected = await Promise.race([
+      chrome.tabs.sendMessage(tab.id, { type: "MIDAHOSHI_DETECT_WATCH_EVENT" }),
+      new Promise((_, reject) => window.setTimeout(
+        () => reject(new Error("watch scan timed out")),
+        5000,
+      )),
+    ]);
     pendingEventId = null;
     titleInput.value = detected.title || detected.pageTitle || "";
     episodeInput.value = detected.episode || "";
@@ -49,8 +70,10 @@ document.getElementById("scan").addEventListener("click", async () => {
           ? "Найден видеоплеер и предполагаемый номер серии. Проверь данные перед отправкой."
           : "Плеер найден, но номер серии нужно ввести вручную.";
     status(note);
-  } catch {
-    status("Эта страница не поддерживается. Открой AnimeGO, YummyAnime или веб-страницу Anixart.");
+  } catch (error) {
+    status(error?.message === "watch scan timed out"
+      ? "Скрипт страницы не ответил за 5 секунд. Перезагрузи вкладку и проверь, что расширение включено для этого сайта."
+      : "Эта страница не поддерживается. Открой AnimeGO, YummyAnime или веб-страницу Anixart.");
   }
 });
 
