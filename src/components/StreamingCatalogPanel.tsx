@@ -67,6 +67,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
   const [expandedEpisode, setExpandedEpisode] = useState<string | null>(null);
   const [episodeTracks, setEpisodeTracks] = useState<Record<string, StreamingVoice[]>>({});
   const [episodeTracksLoading, setEpisodeTracksLoading] = useState<Record<string, boolean>>({});
+  const [episodeTracksError, setEpisodeTracksError] = useState<Record<string, string>>({});
   const [activePlayer, setActivePlayer] = useState<{ name: string; url: string; kind: "embed" | "video" } | null>(null);
   const [loading, setLoading] = useState(false);
   const [detailsLoading, setDetailsLoading] = useState(false);
@@ -227,11 +228,18 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
     setExpandedEpisode(episodeKey);
     if (provider !== "animego" || hasPreloadedTracks || episodeTracks[episodeKey] || episodeTracksLoading[episodeKey]) return;
     setEpisodeTracksLoading((current) => ({ ...current, [episodeKey]: true }));
+    setEpisodeTracksError((current) => ({ ...current, [episodeKey]: "" }));
+    const timeout = AbortSignal.timeout(12000);
     try {
-      const tracks = await animeGo.getEpisodeVoices(episodeId);
+      const tracks = await animeGo.getEpisodeVoices(episodeId, timeout);
       setEpisodeTracks((current) => ({ ...current, [episodeKey]: tracks }));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не удалось загрузить озвучки AnimeGO.");
+      setEpisodeTracksError((current) => ({
+        ...current,
+        [episodeKey]: timeout.aborted
+          ? "AnimeGO не вернул озвучки за 12 секунд. Попробуй ещё раз или открой тайтл на сайте."
+          : reason instanceof Error ? reason.message : "Не удалось загрузить озвучки AnimeGO.",
+      }));
     } finally {
       setEpisodeTracksLoading((current) => ({ ...current, [episodeKey]: false }));
     }
@@ -342,7 +350,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
                           </button>
                           {isExpanded && <div className="streaming-episode-voices">
                             <strong>{t(locale, "voices")}</strong>
-                            {tracksLoading ? <p>{t(locale, "loadingVoices")}</p> : tracks.length ? <ul>{tracks.map((track) => <li key={track.externalId}>
+                            {tracksLoading ? <p>{t(locale, "loadingVoices")}</p> : episodeTracksError[episodeKey] ? <p className="catalog-error" role="alert">{episodeTracksError[episodeKey]}</p> : tracks.length ? <ul>{tracks.map((track) => <li key={track.externalId}>
                               <span className="streaming-voice-info"><strong>{track.name}</strong><small>{provider === "anixart" ? (track.playerName || "Тип озвучки не указан") : (track.playerName || "Плеер не указан") + " · ID " + track.externalId}</small></span>
                               {track.playerUrl ? <button type="button" className="secondary streaming-play-button" onClick={() => { setPlayerError(""); setPlayerLoaded(false); setActivePlayer({ name: "Серия " + episode.number + " · " + track.name, url: track.playerUrl!, kind: provider === "anixart" ? "video" : "embed" }); }}>{t(locale, "watch")}</button> : <a href={details.url} target="_blank" rel="noreferrer">{t(locale, "openOnProvider")}</a>}
                             </li>)}</ul> : <p>{t(locale, "noVoices")}</p>}
