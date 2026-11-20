@@ -4,6 +4,7 @@ import {
   parseAnimeGoDetail,
   parseAnimeGoPlayer,
   parseAnimeGoSearch,
+  parseAnimeGoVoices,
 } from "../server/animego-routes.mjs";
 
 function responseCapture(): { status: number; body: string; writeHead(status: number): void; end(body?: string): void; json(): any } {
@@ -59,21 +60,29 @@ describe("AnimeGO public catalog adapter", () => {
     expect(title.identity.genres).toEqual(["Action", "Drama"]);
   });
 
-  it("parses episode and dubbing labels without extracting player URLs", () => {
-    const parsed = parseAnimeGoPlayer({
+  it("parses episode IDs and provider-specific player embeds", () => {
+    const payload = {
       data: {
-        content: `
+        content: \`
           <div class="player-video-bar__item" data-episode-number="1" data-episode-title="First" data-episode="555"></div>
-          <div class="player-video-bar__item" data-episode-number="2" data-episode-title="Second" data-episode="556"></div>
-          <button data-translation="22"><span>Studio Example</span></button>
-          <button data-player="https://player.example/embed?token=secret">Play</button>
-        `,
+          <div class="player-video-bar__item" data-episode="556" data-episode-number="2" data-episode-title="Second"></div>
+          <button data-player="//kodikplayer.com/seria/123/hash/720p" data-translation-title="Studio Example" data-provider-title="Kodik" data-ptranslation="22">Play</button>
+          <button data-player="https://aniboom.one/embed/abc?episode=1" data-translation-title="Dub Two (ошибка)" data-provider-title="AniBoom" data-ptranslation="23">Play</button>
+          <button data-translation-title="Not a player" data-provider-title="Unknown">Skip</button>
+        \`,
       },
-    }, "https://animego.org/anime/sample-title-1234");
+    };
+    const parsed = parseAnimeGoPlayer(payload, "https://animego.org/anime/sample-title-1234");
     expect(parsed.episodes.map((episode) => episode.number)).toEqual([1, 2]);
-    expect(parsed.voices).toEqual([{ externalId: "22", name: "Studio Example" }]);
-    expect(JSON.stringify(parsed)).not.toContain("player.example");
-    expect(JSON.stringify(parsed)).not.toContain("secret");
+    expect(parsed.episodes.map((episode) => episode.externalId)).toEqual(["555", "556"]);
+    expect(parsed.voices).toHaveLength(2);
+    expect(parsed.voices[0]).toMatchObject({
+      name: "Studio Example",
+      playerName: "Kodik",
+      playerUrl: "https://kodikplayer.com/seria/123/hash/720p",
+    });
+    expect(parsed.voices[1]).toMatchObject({ name: "Dub Two", playerName: "AniBoom" });
+    expect(parseAnimeGoVoices(payload)).toEqual(parsed.voices);
   });
 
   it("proxies catalog search through the local server and declares account sync unsupported", async () => {
@@ -108,4 +117,38 @@ describe("AnimeGO public catalog adapter", () => {
       watchProgressRead: "browser-extension",
     });
   });
+  it("loads player embeds for an individual episode through the local proxy", async () => {
+    const payload = {
+      data: {
+        content: '<button data-player="https://kodikplayer.com/seria/123/hash/720p" data-translation-title="Studio" data-provider-title="Kodik" data-ptranslation="7">Play</button>',
+      },
+    };
+    const fetcher = vi.fn(async (_url: string, options?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      async json() { return payload; },
+      async text() { return ""; },
+      options,
+    }));
+    vi.stubGlobal("fetch", fetcher);
+    const deps = { sendJson(res: ReturnType<typeof responseCapture>, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } };
+    const response = responseCapture();
+    await handleAnimeGoRequest(
+      { method: "GET" },
+      response,
+      new URL("http://127.0.0.1/api/animego/episode/555"),
+      deps,
+    );
+    expect(response.status).toBe(200);
+    expect(response.json().voices[0]).toMatchObject({
+      name: "Studio",
+      playerName: "Kodik",
+      playerUrl: "https://kodikplayer.com/seria/123/hash/720p",
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://animego.org/player/videos/555",
+      expect.objectContaining({ headers: expect.objectContaining({ "X-Requested-With": "XMLHttpRequest" }) }),
+    );
+  });
+
 });
