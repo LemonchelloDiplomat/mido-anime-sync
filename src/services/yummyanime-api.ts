@@ -66,7 +66,8 @@ export function fetchYummyAnimeLists(): Promise<{ profile: unknown; lists: unkno
 
 export async function fetchYummyAnimeHistory(limit = 100, offset = 0): Promise<import("../core/types.js").AnimeSnapshotV4> {
   const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
-  const payload = await request<{ entries: unknown[] }>("/api/yummyanime/history?" + params);\n  return parseYummyWatchHistory({ response: payload.entries });
+  const payload = await request<{ entries: unknown[] }>("/api/yummyanime/history?" + params);
+  return parseYummyWatchHistory({ response: payload.entries });
 }
 
 export function updateYummyAnimeList(animeId: string, listId: 0 | 1 | 2 | 3 | 5): Promise<{ ok: boolean }> {
