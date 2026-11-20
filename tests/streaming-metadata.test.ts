@@ -52,4 +52,21 @@ describe("streaming catalogue fallback metadata", () => {
     expect(result.posterUrl).toBe("https://provider.example/poster.jpg");
     expect(result.averageScore).toBe(7.4);
   });
+
+  it("prefers an exact AniList poster for AnimeGO while preserving the provider rating", () => {
+    const item = { ...streamingTitle(), posterUrl: "https://animego.example/broken.jpg", averageScore: 7.4, scoreSource: "AnimeGO" };
+    const result = applyFallbackMetadata(item, [identity("1", 2024, 9.1)], { preferPoster: true });
+    expect(result.posterUrl).toBe("https://images.example/1.jpg");
+    expect(result.posterSource).toBe("AniList");
+    expect(result.averageScore).toBe(7.4);
+    expect(result.scoreSource).toBe("AnimeGO");
+  });
+
+  it("matches Russian and English aliases without accepting partial title matches", () => {
+    const russianItem = { ...streamingTitle(), title: "Примерное аниме", alternativeTitles: ["Example Anime"] };
+    const result = applyFallbackMetadata(russianItem, [identity("1", 2024, 8.7)]);
+    expect(result.posterUrl).toBe("https://images.example/1.jpg");
+    const unrelated = { ...streamingTitle(), title: "Example Anime: Another Story", alternativeTitles: [] };
+    expect(applyFallbackMetadata(unrelated, [identity("1", 2024, 8.7)]).posterUrl).toBeNull();
+  });
 });
