@@ -219,6 +219,37 @@ describe("AnixART public website catalog adapter", () => {
     expect(JSON.stringify(response.json())).not.toContain("not-returned");
   });
 
+  it("loads a one-row AnixART film playlist through the title details route", async () => {
+    const filmHtml = detailHtml
+      .replace('https://anixart.site/7004-magicheskaja-bitva-2.html', 'https://anixart.site/7360-put-naruto.html')
+      .replace('Магическая битва 2', 'Путь Наруто')
+      .replace('<video-player id="myPlayer" data-title-id="51009" data-publisher-id="1103"></video-player>', '<div id="cdn-player" data-title-id="7360" data-publisher-id="1103"></div>');
+    const fetcher = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
+      const target = String(input);
+      if (target.includes("plapi.cdnvideohub.com")) {
+        return new Response(JSON.stringify({ items: [
+          { voiceStudio: "AniLane", voiceType: "Озвучка", vkId: "7360001" },
+        ] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(filmHtml, { status: 200 });
+    });
+    const response = responseCapture();
+    await handleAnixArtRequest(
+      { method: "GET" }, response,
+      new URL("http://127.0.0.1/api/anixart/anime/7360-put-naruto.html"),
+      { fetch: fetcher, sendJson(res: ReturnType<typeof responseCapture>, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } },
+    );
+    expect(response.status).toBe(200);
+    expect(response.json()).toMatchObject({
+      title: "Путь Наруто",
+      episodeCount: 1,
+      seasons: [{ number: 1, episodes: [{ title: "Фильм", voiceTracks: [
+        { name: "AniLane", playerUrl: "/api/anixart/stream/7360001" },
+      ] }] }],
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it("proxies public site search and explicitly reports unsupported account capabilities", async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL) => ({
       ok: true,
