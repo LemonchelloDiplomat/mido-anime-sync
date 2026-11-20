@@ -44,6 +44,7 @@ function getQueueEventKey(event) {
     event.service || "",
     normalizeQueueTitle(event.title),
     Number(event.episode) || "",
+    Number(event.season) || "",
     normalizeQueueSourceKey(event.sourceUrl),
   ].join("|");
 }
@@ -153,7 +154,13 @@ async function renderPendingEvents() {
 
     const meta = document.createElement("div");
     meta.className = "pending-meta";
-    meta.textContent = `Серия ${event.episode || "?"} · ${event.service || "источник"}`;
+    const seasonLabel = Number.isSafeInteger(event.season) && event.season > 0
+      ? `Сезон ${event.season} · `
+      : "";
+    const voiceLabel = typeof event.voice === "string" && event.voice.trim()
+      ? ` · ${event.voice.trim()}`
+      : "";
+    meta.textContent = `${seasonLabel}Серия ${event.episode || "?"} · ${event.service || "источник"}${voiceLabel}`;
 
     const selectButton = document.createElement("button");
     selectButton.className = "secondary";
