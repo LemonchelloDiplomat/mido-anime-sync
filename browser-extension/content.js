@@ -478,24 +478,6 @@
       });
     }
 
-    if (isCvhBridgeFrame) {
-      window.addEventListener("message", (event) => {
-        if (event.source !== window.parent || !isAllowedWatchSourceUrl(event.origin) ||
-            event.data?.type !== "MIDAHOSHI_PARENT_METADATA") return;
-        const metadata = event.data.metadata;
-        if (!metadata || typeof metadata.title !== "string" || metadata.title.trim().length < 2 ||
-            !Number.isSafeInteger(metadata.episode) || metadata.episode < 1 ||
-            !isAllowedWatchSourceUrl(metadata.sourceUrl) || new URL(metadata.sourceUrl).origin !== event.origin) return;
-        parentMetadata = {
-          title: metadata.title.trim(),
-          episode: metadata.episode,
-          sourceUrl: new URL(metadata.sourceUrl).origin + new URL(metadata.sourceUrl).pathname,
-          service: metadata.service === "yummyanime" ? "yummyanime" : "animego",
-        };
-        syncParentMetadataToFrames();
-      });
-    }
-
     if (isCvhFrame) {
       window.addEventListener("message", (event) => {
         if (event.source === window.parent ||
@@ -519,6 +501,24 @@
       const frame = queryAllDeep("iframe")
         .find((candidate) => candidate.contentWindow === event.source);
       if (frame) sendParentMetadataToFrame(frame);
+    });
+  }
+
+  if (isCvhBridgeFrame) {
+    window.addEventListener("message", (event) => {
+      if (event.source !== window.parent || !isAllowedWatchSourceUrl(event.origin) ||
+          event.data?.type !== "MIDAHOSHI_PARENT_METADATA") return;
+      const metadata = event.data.metadata;
+      if (!metadata || typeof metadata.title !== "string" || metadata.title.trim().length < 2 ||
+          !Number.isSafeInteger(metadata.episode) || metadata.episode < 1 ||
+          !isAllowedWatchSourceUrl(metadata.sourceUrl) || new URL(metadata.sourceUrl).origin !== event.origin) return;
+      parentMetadata = {
+        title: metadata.title.trim(),
+        episode: metadata.episode,
+        sourceUrl: new URL(metadata.sourceUrl).origin + new URL(metadata.sourceUrl).pathname,
+        service: metadata.service === "yummyanime" ? "yummyanime" : "animego",
+      };
+      syncParentMetadataToFrames();
     });
   }
 
