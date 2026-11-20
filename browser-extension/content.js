@@ -3,6 +3,7 @@
   const isAniBoomFrame = host === "aniboom.one";
   const isCvhFrame = host === "animego.me" && location.pathname.startsWith("/cdn-iframe/");
   const isCvhPlayerFrame = host === "player.cdnvideohub.com";
+  const isCvhBridgeFrame = host.includes("yummy") && location.pathname.toLowerCase() === "/iframecvh.html";
   const isCvhTrackingFrame = isCvhFrame || isCvhPlayerFrame;
   const isKodikFrame = host === "kodikplayer.com";
   const isAnimeGoPlayerFrame = isAniBoomFrame || isCvhTrackingFrame || isKodikFrame;
@@ -144,6 +145,20 @@
   }
 
   function detect(videoOverride) {
+    if (isCvhBridgeFrame && parentMetadata) {
+      return {
+        service: parentMetadata.service || "yummyanime",
+        title: parentMetadata.title,
+        episode: parentMetadata.episode,
+        sourceUrl: parentMetadata.sourceUrl,
+        currentTimeSeconds: null,
+        durationSeconds: null,
+        hasVideoElement: false,
+        manualOnly: true,
+        pageTitle: document.title,
+      };
+    }
+
     if (isCvhTrackingFrame && parentMetadata) {
       return {
         service: parentMetadata.service || "animego",
@@ -283,8 +298,9 @@
     // The CVH iframe URL itself is the stable provider signal.
     const isCvhTarget = targetHost === "animego.me" && frameUrl.pathname.startsWith("/cdn-iframe/");
     const isCvhPlayerTarget = targetHost === "player.cdnvideohub.com";
+    const isCvhBridgeTarget = targetHost.includes("yummy") && frameUrl.pathname.toLowerCase() === "/iframecvh.html";
     const isKodikTarget = targetHost === "kodikplayer.com";
-    if (!isAniBoomTarget && !isCvhTarget && !isCvhPlayerTarget && !isKodikTarget) return;
+    if (!isAniBoomTarget && !isCvhTarget && !isCvhPlayerTarget && !isCvhBridgeTarget && !isKodikTarget) return;
     if ((isAniBoomTarget || isCvhTarget) && service !== "animego") return;
 
     const detected = detect();
@@ -295,11 +311,18 @@
     const kodikEpisode = service === "yummyanime" && isKodikTarget
       ? Number(frameUrl.searchParams.get("episode"))
       : null;
+    // YummyAnime places the selected episode in iframeCVH.html?episode=N.
+    // The catalog page may not expose that selection in its own DOM.
+    const cvhEpisode = service === "yummyanime" && isCvhBridgeTarget
+      ? Number(frameUrl.searchParams.get("episode"))
+      : null;
     const episode = Number.isSafeInteger(detected.episode) && detected.episode > 0
       ? detected.episode
       : Number.isSafeInteger(kodikEpisode) && kodikEpisode > 0
         ? kodikEpisode
-        : null;
+        : Number.isSafeInteger(cvhEpisode) && cvhEpisode > 0
+          ? cvhEpisode
+          : null;
     if (!detected.title || episode === null) return;
     frame.contentWindow.postMessage({
       type: "MIDAHOSHI_PARENT_METADATA",
@@ -357,13 +380,24 @@
         !Number.isSafeInteger(metadata.episode) ||
         metadata.episode < 1 ||
         !isAllowedWatchSourceUrl(metadata.sourceUrl) ||
-        new URL(metadata.sourceUrl).origin !== event.origin ||
+        (!isCvhPlayerFrame && new URL(metadata.sourceUrl).origin !== event.origin) ||
         ((isKodikFrame || isCvhPlayerFrame) &&
           metadata.service !== undefined &&
           metadata.service !== "animego" &&
           metadata.service !== "yummyanime")
       ) return;
       const sourceUrl = new URL(metadata.sourceUrl);
+      const trustedCvhBridge = isCvhPlayerFrame &&
+        event.origin.toLowerCase().includes("yummyani.me") &&
+        (() => {
+          try {
+            const referrer = new URL(document.referrer);
+            return referrer.origin === event.origin && referrer.pathname.toLowerCase() === "/iframecvh.html";
+          } catch {
+            return false;
+          }
+        })();
+      if (sourceUrl.origin !== event.origin && !trustedCvhBridge) return;
       const nextMetadata = {
         title: metadata.title.trim(),
         episode: metadata.episode,
@@ -418,6 +452,24 @@
             !Number.isFinite(sample.readyState)) return;
         latestCvhSample = sample;
         maybeSendCvhSample();
+      });
+    }
+
+    if (isCvhBridgeFrame) {
+      window.addEventListener("message", (event) => {
+        if (event.source !== window.parent || !isAllowedWatchSourceUrl(event.origin) ||
+            event.data?.type !== "MIDAHOSHI_PARENT_METADATA") return;
+        const metadata = event.data.metadata;
+        if (!metadata || typeof metadata.title !== "string" || metadata.title.trim().length < 2 ||
+            !Number.isSafeInteger(metadata.episode) || metadata.episode < 1 ||
+            !isAllowedWatchSourceUrl(metadata.sourceUrl) || new URL(metadata.sourceUrl).origin !== event.origin) return;
+        parentMetadata = {
+          title: metadata.title.trim(),
+          episode: metadata.episode,
+          sourceUrl: new URL(metadata.sourceUrl).origin + new URL(metadata.sourceUrl).pathname,
+          service: metadata.service === "yummyanime" ? "yummyanime" : "animego",
+        };
+        syncParentMetadataToFrames();
       });
     }
 
