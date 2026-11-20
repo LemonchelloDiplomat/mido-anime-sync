@@ -51,7 +51,8 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
   const [provider, setProvider] = useState<StreamingProviderId>("yummyanime");
   const [results, setResults] = useState<StreamingTitle[]>([]);
   const [selected, setSelected] = useState<StreamingTitle | null>(null);
-  const [details, setDetails] = useState<StreamingTitleDetails | null>(null);\n  const [anixArtCatalog, setAnixArtCatalog] = useState<AnixArtPlayerCatalog | null>(null);
+  const [details, setDetails] = useState<StreamingTitleDetails | null>(null);
+  const [anixArtCatalog, setAnixArtCatalog] = useState<AnixArtPlayerCatalog | null>(null);
   const [expandedEpisode, setExpandedEpisode] = useState<string | null>(null);
   const [episodeTracks, setEpisodeTracks] = useState<Record<string, StreamingVoice[]>>({});
   const [episodeTracksLoading, setEpisodeTracksLoading] = useState<Record<string, boolean>>({});
