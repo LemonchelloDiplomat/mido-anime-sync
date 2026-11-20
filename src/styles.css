@@ -2034,3 +2034,16 @@ button:disabled {
 .streaming-account-actions button:disabled, .streaming-login-form button:disabled { opacity: .5; cursor: not-allowed; }
 .streaming-account-message { margin: .65rem 0 0; color: var(--muted, #b0b0bb); font-size: .82rem; }
 @media (max-width: 760px) { .streaming-login-form { grid-template-columns: 1fr; } }
+
+
+/* YummyAnime embedded episode player */
+.streaming-voice-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.streaming-voice-info small { color: var(--muted, #888); font-size: 0.78rem; }
+.streaming-play-button { flex: 0 0 auto; }
+.streaming-episode-voices li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.streaming-player-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: rgb(0 0 0 / 78%); }
+.streaming-player-dialog { width: min(1100px, 100%); max-height: 100%; overflow: auto; padding: 16px; border: 1px solid var(--border, #444); border-radius: 14px; background: var(--panel, #171717); box-shadow: 0 20px 80px rgb(0 0 0 / 45%); }
+.streaming-player-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.streaming-player-dialog iframe { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: 8px; background: #000; }
+.streaming-player-dialog p { margin: 10px 0 0; color: var(--muted, #888); font-size: 0.85rem; }
+@media (max-width: 640px) { .streaming-player-backdrop { padding: 8px; } .streaming-player-dialog { padding: 10px; } }
