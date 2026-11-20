@@ -43,6 +43,7 @@ export function reconcileStreamingAccountSnapshot(
   for (const incoming of snapshot.anime) {
     const targetId = remappedIds.get(incoming.id) ?? incoming.id;
     const existing = localById.get(targetId);
+    const genres = existing?.genres?.length ? existing.genres : incoming.genres;
     const merged: AnimeIdentity = existing ? {
       ...incoming,
       ...existing,
@@ -55,7 +56,7 @@ export function reconcileStreamingAccountSnapshot(
       externalIds: { ...incoming.externalIds, ...existing.externalIds },
       year: existing.year ?? incoming.year ?? null,
       episodes: existing.episodes ?? incoming.episodes ?? null,
-      genres: existing.genres?.length ? existing.genres : incoming.genres,
+      ...(genres ? { genres } : {}),
       posterUrl: existing.posterUrl ?? incoming.posterUrl ?? null,
       averageScore: existing.averageScore ?? incoming.averageScore ?? null,
     } : { ...incoming, id: targetId };
