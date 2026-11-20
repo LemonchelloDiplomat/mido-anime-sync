@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { toMyAnimeListScore } from "./mal-score.mjs";
 import { handleMalDelete } from "./mal-delete-route.mjs";
+import { handleYummyAnimeRequest } from "./yummyanime-routes.mjs";
 
 const ROOT = process.cwd();
 const DATA_DIR = path.join(ROOT, ".local-data");
@@ -285,6 +286,10 @@ async function anilistRequest(query, variables, token) {
 async function handleRequest(request, response) {
   const url = new URL(request.url || "/", "http://" + (request.headers.host || "127.0.0.1"));
   const method = request.method || "GET";
+
+  if (url.pathname.startsWith("/api/yummyanime/")) {
+    return handleYummyAnimeRequest(request, response, url, { sendJson, readJson, readTokens, writeTokens });
+  }
 
   if (method === "GET" && url.pathname === "/api/health") {
     return sendJson(response, 200, { ok: true, mode: "local", apiVersion: 1 });
