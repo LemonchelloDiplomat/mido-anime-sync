@@ -6,14 +6,14 @@ The app includes the public desktop website at https://anixart.site/ in Streamin
 
 - Public website search.
 - Public title cards and details (title, poster, synopsis, year, genres where present).
-- Public dubbing/voice-team labels and total episode count.
+- Public dubbing/voice-team labels. Episode totals are taken only from the structured player catalog, not guessed from incidental page text.
 - Full season/episode/voice catalog captured from the desktop website player after the user opens a title and the player state becomes available.
-- Local interface display of seasons, episodes, voice names and voice types.
+- Local interface display of seasons and expandable episode rows with voice names/types. Voice lists stay collapsed until an episode is opened.
 - Current season, episode and selected voice indicator.
 - Opening the original website page.
 - Watch progress events through the browser extension.
 
-The public HTML alone does not provide a complete season/episode manifest. The browser extension reads the structured `video-player.state.seasons` object from the page player, strips player/video identifiers and URLs, and forwards only season numbers, episode numbers, voice names/types and current selection to the local server. The local interface polls this short-lived catalog cache while an AnixART title is selected.
+The public HTML alone does not provide a reliable total episode count or a complete season/episode manifest. The title card therefore does not invent an episode total before the player catalog arrives. Once available, the interface displays the total number of episodes in that captured player catalog. The browser extension reads the structured `video-player.state.seasons` object from the page player, strips player/video identifiers and URLs, and forwards only season numbers, episode numbers, voice names/types and current selection to the local server. The local interface polls this short-lived catalog cache while an AnixART title is selected.
 
 ## Account limitations
 
