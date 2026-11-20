@@ -3,6 +3,10 @@
   "name": "mido-anime-sync Bridge",
   "version": "0.1.0",
   "description": "Передаёт подтверждённый прогресс просмотра в локальную библиотеку mido-anime-sync.",
+  "icons": {
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "permissions": [
     "activeTab",
     "tabs",
