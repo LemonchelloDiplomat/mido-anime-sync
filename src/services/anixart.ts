@@ -46,7 +46,7 @@ export class AnixArtCatalogProvider implements StreamingCatalogProvider {
   readonly capabilities = {
     catalogSearch: true,
     titleDetails: true,
-    seasonsAndEpisodes: false,
+    seasonsAndEpisodes: true,
     voiceTracks: true,
   };
 
