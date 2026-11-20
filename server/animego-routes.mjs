@@ -7,7 +7,7 @@ const DNS_CACHE_TTL_MS = 5 * 60 * 1000;
 let cachedAddress = null;
 let cachedAddressUntil = 0;
 
-function resolve4Async(resolver, hostname) {
+export function resolve4Async(resolver, hostname) {
   return new Promise((resolve, reject) => {
     resolver.resolve4(hostname, (error, addresses) => {
       if (error) reject(error);
