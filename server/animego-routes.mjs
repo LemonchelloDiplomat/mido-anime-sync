@@ -72,8 +72,12 @@ function requestAnimeGo(url, { headers = {} } = {}) {
         });
       });
     });
-    req.setTimeout(15000, () => req.destroy(new Error("AnimeGO не ответил за 15 секунд. Попробуй ещё раз.")));
-    req.on("error", reject);
+    const totalTimeout = setTimeout(() => req.destroy(new Error("AnimeGO не ответил за 15 секунд. Попробуй ещё раз.")), 15000);
+    req.on("close", () => clearTimeout(totalTimeout));
+    req.on("error", (error) => {
+      clearTimeout(totalTimeout);
+      reject(error);
+    });
   }));
 }
 
