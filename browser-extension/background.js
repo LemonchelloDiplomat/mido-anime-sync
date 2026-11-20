@@ -230,7 +230,31 @@ chrome.tabs?.onUpdated?.addListener((tabId, changeInfo, tab) => {
   }
 });
 
-chrome.runtime.onMessage.addListener((message) => {
+chrome.runtime.onMessage.addListener((message, sender) => {
+  if (message?.type === "MIDAHOSHI_ANIXART_CATALOG") {
+    void (async () => {
+      try {
+        const senderUrl = new URL(sender?.url || "");
+        if (senderUrl.protocol !== "https:" ||
+            !(senderUrl.hostname === "anixart.site" || senderUrl.hostname.endsWith(".anixart.site"))) return;
+        const catalog = message.catalog;
+        if (!catalog || typeof catalog.slug !== "string" ||
+            !/^\\d+-[\\p{L}\\p{N}-]+\\.html$/u.test(catalog.slug) ||
+            !Array.isArray(catalog.seasons)) return;
+        await fetch("http://127.0.0.1:3001/api/anixart/player-catalog", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(catalog),
+          credentials: "omit",
+          cache: "no-store",
+        });
+      } catch {
+        // The local app may be closed. The next player sample will retry.
+      }
+    })();
+    return;
+  }
+
   if (message?.type === "MIDAHOSHI_DISMISS_ALERT") {
     void enqueueToolbarMutation(async () => {
       const state = await getToolbarState();
