@@ -117,6 +117,24 @@
     return null;
   }
 
+  function findYummyCvhEpisode() {
+    if (service !== "yummyanime") return null;
+    for (const frame of queryAllDeep("iframe")) {
+      try {
+        const frameUrl = new URL(frame.src, location.href);
+        const hostname = frameUrl.hostname.toLowerCase();
+        const isYummyHost = hostname === "yummyani.me" || hostname.endsWith(".yummyani.me") ||
+          hostname === "yummy-ani.me" || hostname.endsWith(".yummy-ani.me");
+        if (!isYummyHost || frameUrl.pathname.toLowerCase() !== "/iframecvh.html") continue;
+        const episode = Number(frameUrl.searchParams.get("episode"));
+        if (Number.isSafeInteger(episode) && episode > 0) return episode;
+      } catch {
+        // Ignore malformed or unrelated iframe URLs.
+      }
+    }
+    return null;
+  }
+
   function findAnimeGoActiveEpisode() {
     const activeItem = document.querySelector(".player-video-bar__item.active");
     const rawNumber = activeItem?.getAttribute("data-episode-number") || "";
@@ -244,7 +262,8 @@
       ...Array.from(document.querySelectorAll("h1,h2,h3")).slice(0, 8).map((el) => el.textContent || ""),
       location.pathname,
     ];
-    let episode = activeAnimeGoEpisode || (activeYummyEpisode ? Number(activeYummyEpisode) : null);
+    const activeCvhEpisode = findYummyCvhEpisode();
+    let episode = activeAnimeGoEpisode || activeCvhEpisode || (activeYummyEpisode ? Number(activeYummyEpisode) : null);
     if (!episode) {
       for (const candidate of episodeCandidates) {
         episode = findEpisode(candidate);
