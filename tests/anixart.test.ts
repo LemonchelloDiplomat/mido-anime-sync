@@ -109,12 +109,15 @@ describe("AnixART public website catalog adapter", () => {
       { season: 1, episode: 1, voiceStudio: "AniBoom", voiceType: "Дубляж", vkId: "not-returned" },
       { season: 1, episode: 2, voiceStudio: "AniBoom", voiceType: "Дубляж", vkId: "not-returned-2" },
     ] };
-    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
       const target = String(input);
       if (target.includes("plapi.cdnvideohub.com")) {
-        return { ok: true, status: 200, async json() { return playlist; }, async text() { return ""; } };
+        return new Response(JSON.stringify(playlist), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
       }
-      return { ok: true, status: 200, async text() { return detailHtml; } };
+      return new Response(detailHtml, { status: 200 });
     });
     const deps = {
       fetch: fetcher,
