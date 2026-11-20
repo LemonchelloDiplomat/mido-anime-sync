@@ -6,6 +6,10 @@ const backgroundScript = await readFile(
   new URL("../browser-extension/background.js", import.meta.url),
   "utf8",
 );
+const bridgeScript = await readFile(
+  new URL("../browser-extension/bridge.js", import.meta.url),
+  "utf8",
+);
 
 type HarnessOptions = {
   storage?: Record<string, unknown>;
@@ -263,5 +267,65 @@ describe("browser extension pending watch queue", () => {
     }
 
     expect(harness.storage.pendingWatchEvents).toEqual([]);
+  });
+});
+
+
+describe("local application acknowledgement bridge", () => {
+  it("acknowledges only same-window, same-origin application confirmations", () => {
+    const listeners: Record<string, (event: any) => void> = {};
+    const sentMessages: any[] = [];
+    const appWindow = {
+      location: { origin: "http://127.0.0.1:5173" },
+      addEventListener(type: string, listener: (event: any) => void) {
+        listeners[type] = listener;
+      },
+    };
+
+    vm.runInNewContext(bridgeScript, {
+      window: appWindow,
+      chrome: {
+        runtime: {
+          sendMessage(message: unknown) {
+            sentMessages.push(message);
+          },
+        },
+      },
+    });
+
+    const dispatch = (event: any) => listeners.message?.(event);
+    dispatch({
+      source: {},
+      origin: "http://127.0.0.1:5173",
+      data: { source: "mido-anime-app", type: "ACK_WATCH_EVENT", eventId: "forged" },
+    });
+    dispatch({
+      source: appWindow,
+      origin: "https://untrusted.example",
+      data: { source: "mido-anime-app", type: "ACK_WATCH_EVENT", eventId: "wrong-origin" },
+    });
+    dispatch({
+      source: appWindow,
+      origin: "http://127.0.0.1:5173",
+      data: { source: "other-app", type: "ACK_WATCH_EVENT", eventId: "wrong-source" },
+    });
+    dispatch({
+      source: appWindow,
+      origin: "http://127.0.0.1:5173",
+      data: { source: "mido-anime-app", type: "ACK_WATCH_EVENT", eventId: 42 },
+    });
+
+    // If the local app is unavailable, no valid ACK arrives and the event
+    // remains pending. Only this exact confirmation crosses the bridge.
+    expect(sentMessages).toEqual([]);
+    dispatch({
+      source: appWindow,
+      origin: "http://127.0.0.1:5173",
+      data: { source: "mido-anime-app", type: "ACK_WATCH_EVENT", eventId: "confirmed-event" },
+    });
+
+    expect(sentMessages).toEqual([
+      { type: "MIDAHOSHI_APP_ACK", eventId: "confirmed-event" },
+    ]);
   });
 });
