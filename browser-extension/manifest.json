@@ -29,7 +29,11 @@
       "matches": [
         "*://*.anime-go.org/*",
         "*://*.animego.online/*",
+        "*://animego.me/*",
         "*://*.animego.me/*",
+        "*://yummyani.me/*",
+        "*://old.yummyani.me/*",
+        "*://ru.yummyani.me/*",
         "*://*.yummyani.me/*",
         "*://*.yummy-ani.me/*",
         "*://*.anixart-app.com/*",
