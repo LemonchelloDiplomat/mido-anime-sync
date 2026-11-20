@@ -5,8 +5,12 @@ let toolbarMutationQueue = Promise.resolve();
 
 function enqueueToolbarMutation(operation) {
   const next = toolbarMutationQueue.then(operation, operation);
-  toolbarMutationQueue = next.catch(() => {});
-  return next;
+  // A failed storage/API operation must not poison the queue or create an
+  // unhandled rejection from a fire-and-forget Chrome event listener.
+  toolbarMutationQueue = next.catch((error) => {
+    console.warn("mido-anime-sync background operation failed", error);
+  });
+  return toolbarMutationQueue;
 }
 
 function allowedSourceUrl(service, rawUrl) {
@@ -239,10 +243,14 @@ chrome.runtime.onMessage.addListener((message) => {
 
   if (message?.type === "MIDAHOSHI_APP_ACK" && typeof message.eventId === "string") {
     void (async () => {
-      const stored = await chrome.storage.local.get({ [QUEUE_KEY]: [] });
-      const queue = Array.isArray(stored[QUEUE_KEY]) ? stored[QUEUE_KEY] : [];
-      const nextQueue = queue.filter((item) => item.eventId !== message.eventId);
-      await chrome.storage.local.set({ [QUEUE_KEY]: nextQueue });
+      await enqueueToolbarMutation(async () => {
+        const stored = await chrome.storage.local.get({ [QUEUE_KEY]: [] });
+        const queue = Array.isArray(stored[QUEUE_KEY]) ? stored[QUEUE_KEY] : [];
+        const nextQueue = queue.filter((item) => item.eventId !== message.eventId);
+        if (nextQueue.length !== queue.length) {
+          await chrome.storage.local.set({ [QUEUE_KEY]: nextQueue });
+        }
+      });
     })();
     return;
   }
@@ -282,7 +290,11 @@ chrome.runtime.onMessage.addListener((message) => {
       currentTimeSeconds: currentTime,
       durationSeconds: duration,
     });
-    await chrome.storage.local.set({ [QUEUE_KEY]: queue.slice(-20) });
+    // Pending events are user-confirmed work waiting for delivery. Never
+    // silently discard older events just because the queue grows past a UI
+    // convenience limit; Chrome storage quota errors are handled by the
+    // serialized operation wrapper and leave the previous queue intact.
+    await chrome.storage.local.set({ [QUEUE_KEY]: queue });
 
     await saveToolbarState({
       title: event.title.trim(),
