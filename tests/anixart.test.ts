@@ -3,6 +3,7 @@ import {
   handleAnixArtRequest,
   parseAnixArtDetail,
   parseAnixArtSearch,
+  parseAnixArtPlayerPlaylist,
 } from "../server/anixart-routes.mjs";
 
 function responseCapture(): { status: number; body: string; writeHead(status: number): void; end(body?: string): void; json(): any } {
@@ -82,54 +83,63 @@ describe("AnixART public website catalog adapter", () => {
     expect(JSON.stringify(title)).not.toContain("token");
   });
 
-  it("accepts and serves a sanitized player catalog from the browser extension", async () => {
-    const catalog = {
-      slug: "7004-magicheskaja-bitva-2.html",
-      title: "Магическая битва 2",
-      seasons: [{
-        number: 2,
-        episodes: [{
-          number: 1,
-          title: "1",
-          voices: [
-            { name: "AniBoom", type: "Дубляж" },
-            { name: "Субтитры", type: null },
-            { name: "Субтитры", type: null },
-          ],
-        }],
-      }],
-      current: { season: 2, episode: 1, voice: "AniBoom" },
-      privateField: "must-not-be-stored",
-    };
+  it("maps the public CVH playlist into seasons, episodes, and voice variants", () => {
+    const parsed = parseAnixArtPlayerPlaylist({
+      items: [
+        { season: 2, episode: 1, name: "Первая серия", voiceStudio: "AniBoom", voiceType: "Дубляж", vkId: "private-id" },
+        { season: 2, episode: 1, voiceStudio: "Субтитры", voiceType: "Субтитры", vkId: "private-id-2" },
+        { season: 1, episode: 3, voiceStudio: "AniLibria", voiceType: "Многоголосый", vkId: "private-id-3" },
+      ],
+    }, "https://anixart.site/7004-magicheskaja-bitva-2.html");
+    expect(parsed).toMatchObject({
+      episodeCount: 2,
+      seasons: [
+        { number: 1, episodes: [{ number: 3, voiceTracks: [{ name: "AniLibria", playerName: "Многоголосый" }] }] },
+        { number: 2, episodes: [{ number: 1, title: "Первая серия", voiceTracks: [
+          { name: "AniBoom", playerName: "Дубляж" },
+          { name: "Субтитры", playerName: "Субтитры" },
+        ] }] },
+      ],
+    });
+    expect(JSON.stringify(parsed)).not.toContain("private-id");
+  });
+
+  it("loads the AnixART CVH playlist directly from the local server route", async () => {
+    const playlist = { items: [
+      { season: 1, episode: 1, voiceStudio: "AniBoom", voiceType: "Дубляж", vkId: "not-returned" },
+      { season: 1, episode: 2, voiceStudio: "AniBoom", voiceType: "Дубляж", vkId: "not-returned-2" },
+    ] };
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const target = String(input);
+      if (target.includes("plapi.cdnvideohub.com")) {
+        return { ok: true, status: 200, async json() { return playlist; }, async text() { return ""; } };
+      }
+      return { ok: true, status: 200, async text() { return detailHtml; } };
+    });
     const deps = {
+      fetch: fetcher,
       sendJson(res: ReturnType<typeof responseCapture>, status: number, body: unknown) {
         res.writeHead(status);
         res.end(JSON.stringify(body));
       },
-      async readJson() { return catalog; },
     };
-    const postResponse = responseCapture();
-    await handleAnixArtRequest(
-      { method: "POST" },
-      postResponse,
-      new URL("http://127.0.0.1/api/anixart/player-catalog"),
-      deps,
-    );
-    expect(postResponse.status).toBe(200);
-
-    const getResponse = responseCapture();
+    const response = responseCapture();
     await handleAnixArtRequest(
       { method: "GET" },
-      getResponse,
-      new URL("http://127.0.0.1/api/anixart/player-catalog?slug=7004-magicheskaja-bitva-2.html"),
+      response,
+      new URL("http://127.0.0.1/api/anixart/anime/7004-magicheskaja-bitva-2.html"),
       deps,
     );
-    expect(getResponse.json().catalog).toMatchObject({
-      slug: catalog.slug,
-      seasons: [{ number: 2, episodes: [{ number: 1, title: "1", voices: [{ name: "AniBoom", type: "Дубляж" }, { name: "Студия не указана", type: "Субтитры" }] }] }],
-      current: catalog.current,
+    expect(response.status).toBe(200);
+    expect(response.json()).toMatchObject({
+      episodeCount: 2,
+      seasons: [{ number: 1, episodes: [{ number: 1 }, { number: 2 }] }],
     });
-    expect(JSON.stringify(getResponse.json())).not.toContain("must-not-be-stored");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(String(fetcher.mock.calls[1]?.[0])).toContain("pub=1103");
+    expect(String(fetcher.mock.calls[1]?.[0])).toContain("aggr=mali");
+    expect(String(fetcher.mock.calls[1]?.[0])).toContain("id=51009");
+    expect(JSON.stringify(response.json())).not.toContain("not-returned");
   });
 
   it("proxies public site search and explicitly reports unsupported account capabilities", async () => {
@@ -161,7 +171,7 @@ describe("AnixART public website catalog adapter", () => {
     expect(statusResponse.json()).toMatchObject({
       catalogSearch: true,
       fullSeasonEpisodeManifest: true,
-      playerCatalogBridge: true,
+      playerCatalogSource: "server-cvh-api",
       accountConnection: false,
       listImport: false,
       watchProgressRead: "browser-extension",
