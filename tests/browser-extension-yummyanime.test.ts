@@ -102,9 +102,13 @@ describe("YummyAnime browser tracking", () => {
     const cvhWindow = { postMessage(data: unknown, origin: string) {
       forwarded.push({ player: "cvh", data, origin });
     }};
+    const cvhWrapperWindow = { postMessage(data: unknown, origin: string) {
+      forwarded.push({ player: "cvh-wrapper", data, origin });
+    }};
     const frames = [
       { src: "https://kodikplayer.com/seria/123/hash/720p", contentWindow: kodikWindow },
       { src: "https://player.cdnvideohub.com/s2/v2.43.56/frame/", contentWindow: cvhWindow },
+      { src: "https://animego.me/cdn-iframe/123/example/1/7", contentWindow: cvhWrapperWindow },
     ];
     const title = {
       textContent: "О моём перерождении в меч 2",
@@ -138,11 +142,24 @@ describe("YummyAnime browser tracking", () => {
       chrome: { runtime: { onMessage: { addListener() {} }, sendMessage() {} } },
     });
 
-    expect(forwarded).toHaveLength(2);
+    expect(forwarded).toHaveLength(3);
     expect(forwarded).toEqual(expect.arrayContaining([
       expect.objectContaining({
         player: "kodik",
         origin: "https://kodikplayer.com",
+        data: {
+          type: "MIDAHOSHI_PARENT_METADATA",
+          metadata: {
+            title: "О моём перерождении в меч 2",
+            episode: 7,
+            sourceUrl: "https://ru.yummyani.me/catalog/item/example",
+            service: "yummyanime",
+          },
+        },
+      }),
+      expect.objectContaining({
+        player: "cvh-wrapper",
+        origin: "https://animego.me",
         data: {
           type: "MIDAHOSHI_PARENT_METADATA",
           metadata: {
