@@ -204,3 +204,84 @@ describe("AnimeGO browser episode detection", () => {
   });
 
 });
+
+
+describe("YummyAnime domain and title fallback regression", () => {
+  it.each(["old.yummyani.me", "ru.yummyani.me"])(
+    "detects YummyAnime on %s and ignores a placeholder title",
+    (hostname) => {
+      const listeners: { current: MessageListener | null } = { current: null };
+      const placeholder = { textContent: "...", getAttribute() { return null; } };
+      const ogTitle = {
+        textContent: "",
+        getAttribute(name: string) {
+          return name === "content" ? "Санка Рэа | YummyAnime" : null;
+        },
+      };
+      class FakeMutationObserver {
+        observe() {}
+        disconnect() {}
+      }
+      class FakeHTMLSelectElement {}
+      const context = {
+        location: {
+          hostname,
+          origin: `https://${hostname}`,
+          pathname: "/catalog/sanka-reya/episode-4",
+          href: `https://${hostname}/catalog/sanka-reya/episode-4`,
+        },
+        document: {
+          title: "Смотреть аниме онлайн | YummyAnime",
+          documentElement: {},
+          querySelector(selector: string) {
+            if (selector === ".watch__title") return placeholder;
+            if (selector === "meta[property='og:title']") return ogTitle;
+            return null;
+          },
+          querySelectorAll() { return []; },
+        },
+        HTMLSelectElement: FakeHTMLSelectElement,
+        MutationObserver: FakeMutationObserver,
+        getComputedStyle() { return { display: "block", visibility: "visible" }; },
+        chrome: {
+          runtime: {
+            onMessage: {
+              addListener(listener: MessageListener) { listeners.current = listener; },
+            },
+          },
+        },
+        window: { addEventListener() {} },
+        URL,
+        Date,
+      };
+      vm.runInNewContext(contentScript, context);
+      let detected: any;
+      listeners.current?.(
+        { type: "MIDAHOSHI_DETECT_WATCH_EVENT" },
+        {},
+        (value) => { detected = value; },
+      );
+      expect(detected).toMatchObject({
+        service: "yummyanime",
+        title: "Санка Рэа",
+        episode: 4,
+      });
+    },
+  );
+});
+
+
+describe("streaming extension host permissions", () => {
+  it("explicitly matches the AnimeGO apex and both YummyAnime legacy/current subdomains", async () => {
+    const manifest = JSON.parse(await readFile(
+      new URL("../browser-extension/manifest.json", import.meta.url),
+      "utf8",
+    ));
+    const matches = manifest.content_scripts[0].matches as string[];
+    expect(matches).toEqual(expect.arrayContaining([
+      "*://animego.me/*",
+      "*://old.yummyani.me/*",
+      "*://ru.yummyani.me/*",
+    ]));
+  });
+});
