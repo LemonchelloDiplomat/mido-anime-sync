@@ -22,7 +22,8 @@ const common = {
 };
 
 function runPageDetection(hostname: string) {
-  const listeners: Record<string, (message: any, sender: any, respond: (value: any) => void) => void> = {};
+  type RuntimeMessageListener = (message: any, sender: any, respond: (value: any) => void) => void;
+  const listeners: { message?: RuntimeMessageListener } = {};
   let currentEpisode = 7;
   const title = {
     textContent: "О моём перерождении в меч 2",
