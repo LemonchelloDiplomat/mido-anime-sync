@@ -44,6 +44,7 @@ function getQueueEventKey(event) {
     event.service || "",
     normalizeQueueTitle(event.title),
     Number(event.episode) || "",
+    Number(event.season) || "",
     normalizeQueueSourceKey(event.sourceUrl),
   ].join("|");
 }
@@ -153,7 +154,13 @@ async function renderPendingEvents() {
 
     const meta = document.createElement("div");
     meta.className = "pending-meta";
-    meta.textContent = `Серия ${event.episode || "?"} · ${event.service || "источник"}`;
+    const seasonLabel = Number.isSafeInteger(event.season) && event.season > 0
+      ? `Сезон ${event.season} · `
+      : "";
+    const voiceLabel = typeof event.voice === "string" && event.voice.trim()
+      ? ` · ${event.voice.trim()}`
+      : "";
+    meta.textContent = `${seasonLabel}Серия ${event.episode || "?"} · ${event.service || "источник"}${voiceLabel}`;
 
     const selectButton = document.createElement("button");
     selectButton.className = "secondary";
@@ -283,9 +290,14 @@ document.getElementById("scan").addEventListener("click", async () => {
     const hasAnimeGoMetadata = detected.service === "animego" &&
       typeof detected.title === "string" && detected.title.trim().length > 2 &&
       Number.isSafeInteger(detected.episode) && detected.episode > 0;
-    const note = hasAnimeGoMetadata && detected.manualOnly
-      ? "Название и серия найдены на AnimeGO. Видео находится во встроенном плеере. Продолжай просмотр: событие появится автоматически после 90%."
-      : detected.manualOnly
+    const hasAnixartMetadata = detected.service === "anixart" &&
+      Number.isSafeInteger(detected.episode) && detected.episode > 0 &&
+      typeof detected.voice === "string" && detected.voice.length > 0;
+    const note = hasAnixartMetadata && !detected.manualOnly
+      ? `AnixART: сезон ${detected.season || "?"}, серия ${detected.episode}, озвучка ${detected.voice}. Событие появится автоматически после 90% просмотра.`
+      : hasAnimeGoMetadata && detected.manualOnly
+        ? "Название и серия найдены на AnimeGO. Видео находится во встроенном плеере. Продолжай просмотр: событие появится автоматически после 90%."
+        : detected.manualOnly
         ? "Плеер или номер серии не обнаружен. Проверь название и введи номер вручную."
         : detected.episode
           ? "Найден видеоплеер и предполагаемый номер серии. Проверь данные перед отправкой."
@@ -312,7 +324,7 @@ document.getElementById("send").addEventListener("click", async () => {
     const host = new URL(tab.url).hostname.toLowerCase();
     const service = host.includes("yummyani.me") || host.includes("yummy-ani.me")
       ? "yummyanime"
-      : (host.includes("anixart-app.com") || host.includes("anixartapp.com"))
+      : (host === "anixart.site" || host.endsWith(".anixart.site") || host.includes("anixart-app.com") || host.includes("anixartapp.com"))
         ? "anixart"
         : host === "animego.me" || host.endsWith(".animego.me") || host.includes("anime-go.org") || host.includes("animego.online")
           ? "animego"
@@ -336,6 +348,8 @@ document.getElementById("send").addEventListener("click", async () => {
     observedAt: detected.observedAt || new Date().toISOString(),
     currentTimeSeconds: detected.currentTimeSeconds ?? null,
     durationSeconds: detected.durationSeconds ?? null,
+    ...(detected.season !== undefined ? { season: detected.season } : {}),
+    ...(detected.voice !== undefined ? { voice: detected.voice } : {}),
   };
   const { appUrl = "http://127.0.0.1:5173" } = await chrome.storage.local.get({ appUrl: "http://127.0.0.1:5173" });
   let destination;

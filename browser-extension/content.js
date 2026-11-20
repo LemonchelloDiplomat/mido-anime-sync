@@ -12,6 +12,10 @@
     : "animego";
   let parentMetadata = null;
   let latestCvhSample = null;
+  let latestAnixartSample = null;
+  let previousAnixartTime = null;
+  let anixartEpisodeKey = null;
+  let anixartAwaitingEpisodeStart = false;
   let previousCvhTime = null;
   let cvhMetadataKey = null;
   let cvhAwaitingEpisodeStart = false;
@@ -24,6 +28,7 @@
   const sentAniBoomKeys = new Set();
   const sentCvhKeys = new Set();
   const sentKodikKeys = new Set();
+  const sentAnixartKeys = new Set();
 
   function isAllowedAnimeGoUrl(rawUrl) {
     try {
@@ -70,7 +75,7 @@
 
   function publishCurrentWatchContext() {
     if (isAnimeGoPlayerFrame) return;
-    if (service !== "animego" && service !== "yummyanime") return;
+    if (service !== "animego" && service !== "yummyanime" && service !== "anixart") return;
 
     const current = detect();
     const title = typeof current.title === "string" ? current.title.trim() : "";
@@ -263,7 +268,10 @@
       location.pathname,
     ];
     const activeCvhEpisode = findYummyCvhEpisode();
-    let episode = activeAnimeGoEpisode || activeCvhEpisode || (activeYummyEpisode ? Number(activeYummyEpisode) : null);
+    const activeAnixartEpisode = service === "anixart" && latestAnixartSample
+      ? latestAnixartSample.episode
+      : null;
+    let episode = activeAnixartEpisode || activeAnimeGoEpisode || activeCvhEpisode || (activeYummyEpisode ? Number(activeYummyEpisode) : null);
     if (!episode) {
       for (const candidate of episodeCandidates) {
         episode = findEpisode(candidate);
@@ -271,21 +279,30 @@
       }
     }
 
-    const video = videoOverride || findMainVideo();
-    const currentTimeSeconds = video && Number.isFinite(video.currentTime) ? Math.floor(video.currentTime) : null;
-    const durationSeconds = video && Number.isFinite(video.duration) && video.duration > 0
-      ? Math.floor(video.duration)
-      : null;
+    const anixartSample = service === "anixart" ? latestAnixartSample : null;
+    const video = anixartSample ? null : (videoOverride || findMainVideo());
+    const currentTimeSeconds = anixartSample
+      ? Math.floor(anixartSample.currentTime)
+      : video && Number.isFinite(video.currentTime) ? Math.floor(video.currentTime) : null;
+    const durationSeconds = anixartSample
+      ? Math.floor(anixartSample.duration)
+      : video && Number.isFinite(video.duration) && video.duration > 0
+        ? Math.floor(video.duration)
+        : null;
 
     return {
       service,
       title,
       episode,
+      ...(anixartSample?.season ? { season: anixartSample.season } : {}),
+      ...(anixartSample?.voice ? { voice: anixartSample.voice } : {}),
       sourceUrl: location.origin + location.pathname,
       currentTimeSeconds,
       durationSeconds,
-      hasVideoElement: Boolean(video),
-      manualOnly: service === "anixart" || !video || durationSeconds == null,
+      hasVideoElement: Boolean(anixartSample || video),
+      manualOnly: service === "anixart"
+        ? !anixartSample || !Number.isSafeInteger(episode) || durationSeconds == null
+        : !video || durationSeconds == null,
       pageTitle: document.title,
     };
   }
@@ -522,6 +539,86 @@
     });
   }
 
+  function maybeSendAnixartSample(sample) {
+    if (service !== "anixart") return;
+
+    const episode = Number(sample.episode);
+    const season = Number(sample.season);
+    const currentTime = Number(sample.currentTime);
+    const duration = Number(sample.duration);
+    const playing = sample.playing === true;
+    if (!Number.isSafeInteger(episode) || episode < 1 ||
+        !Number.isFinite(currentTime) || currentTime < 0 ||
+        !Number.isFinite(duration) || duration <= 0) return;
+
+    const voice = typeof sample.voice === "string" ? sample.voice.trim().slice(0, 100) : null;
+    const episodeKey = [Number.isSafeInteger(season) && season > 0 ? season : "", episode].join("|");
+    if (anixartEpisodeKey !== episodeKey) {
+      if (anixartEpisodeKey !== null) {
+        previousAnixartTime = null;
+        anixartAwaitingEpisodeStart = true;
+      }
+      anixartEpisodeKey = episodeKey;
+    }
+
+    latestAnixartSample = {
+      season: Number.isSafeInteger(season) && season > 0 ? season : null,
+      episode,
+      voice,
+      currentTime,
+      duration,
+      playing,
+    };
+    publishCurrentWatchContext();
+
+    if (!playing) {
+      previousAnixartTime = null;
+      return;
+    }
+
+    const previousTime = previousAnixartTime;
+    previousAnixartTime = currentTime;
+
+    if (anixartAwaitingEpisodeStart) {
+      const timelineReset = currentTime <= Math.min(10, duration * 0.02) ||
+        (previousTime !== null && currentTime < previousTime - 5);
+      if (timelineReset) {
+        anixartAwaitingEpisodeStart = false;
+        previousAnixartTime = currentTime;
+      }
+      return;
+    }
+
+    const delta = previousTime === null ? 0 : currentTime - previousTime;
+    // The background validates the integer-second values below. Check that
+    // same ratio here before marking the episode as sent, otherwise flooring
+    // fractional timestamps can turn a valid 90% sample into <90% and the
+    // one-shot event would be rejected without another attempt.
+    const currentTimeSeconds = Math.floor(currentTime);
+    const durationSeconds = Math.floor(duration);
+    if (delta < 0.15 || delta > 5 || durationSeconds <= 0 ||
+        currentTimeSeconds / durationSeconds < 0.9) return;
+
+    const detected = detect();
+    if (!detected.title || !Number.isSafeInteger(detected.episode) || detected.episode < 1) return;
+    const eventKey = [detected.sourceUrl, detected.season || "", detected.episode].join("|");
+    if (sentAnixartKeys.has(eventKey)) return;
+    sentAnixartKeys.add(eventKey);
+
+    chrome.runtime.sendMessage({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: {
+        ...detected,
+        currentTimeSeconds: Math.floor(currentTime),
+        durationSeconds: Math.floor(duration),
+        hasVideoElement: true,
+        manualOnly: false,
+        eventId: crypto.randomUUID(),
+        observedAt: new Date().toISOString(),
+      },
+    });
+  }
+
   function maybeSendCvhSample() {
     if (!isCvhPlayerFrame || !parentMetadata || !latestCvhSample) return;
     const { currentTime, duration, paused, readyState } = latestCvhSample;
@@ -725,6 +822,14 @@
     }
     const mainVideo = findMainVideo();
     if (mainVideo) attachVideo(mainVideo);
+  }
+
+  if (service === "anixart") {
+    window.addEventListener("message", (event) => {
+      if (event.source !== window || event.origin !== location.origin ||
+          event.data?.type !== "MIDAHOSHI_ANIXART_STATE") return;
+      maybeSendAnixartSample(event.data.state || {});
+    });
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

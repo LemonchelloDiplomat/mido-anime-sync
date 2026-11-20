@@ -10,6 +10,8 @@ export interface WatchEvent {
   observedAt: string;
   currentTimeSeconds?: number | null;
   durationSeconds?: number | null;
+  season?: number | null;
+  voice?: string | null;
 }
 
 export function isWatchSource(value: unknown): value is WatchSource {
@@ -31,7 +33,7 @@ export function validateWatchEvent(value: unknown): WatchEvent {
     : event.service === "yummyanime"
       ? ["yummyani.me", "yummy-ani.me"].some((domain) => host === domain || host.endsWith("." + domain))
       : event.service === "anixart"
-        ? host === "anixart-app.com" || host.endsWith(".anixart-app.com") || host === "anixartapp.com" || host.endsWith(".anixartapp.com")
+        ? host === "anixart-app.com" || host.endsWith(".anixart-app.com") || host === "anixartapp.com" || host.endsWith(".anixartapp.com") || host === "anixart.site" || host.endsWith(".anixart.site")
         : false;
   if (
 
@@ -61,6 +63,15 @@ export function validateWatchEvent(value: unknown): WatchEvent {
   };
   const currentTimeSeconds = optionalNumber("currentTimeSeconds");
   const durationSeconds = optionalNumber("durationSeconds");
+  const season = optionalNumber("season");
+  if (season !== undefined && season !== null && (!Number.isSafeInteger(season) || season < 1)) {
+    throw new Error("Некорректное значение season в событии просмотра.");
+  }
+  const voice = event.voice === undefined ? undefined
+    : event.voice === null ? null
+      : typeof event.voice === "string" && event.voice.trim().length > 0 && event.voice.length <= 100
+        ? event.voice.trim()
+        : (() => { throw new Error("Некорректное значение voice в событии просмотра."); })();
 
   // Keep only the page path. Query strings and fragments may contain
   // account/session-specific values that are irrelevant to watch progress.
@@ -75,6 +86,8 @@ export function validateWatchEvent(value: unknown): WatchEvent {
     observedAt: new Date(event.observedAt).toISOString(),
     ...(currentTimeSeconds !== undefined ? { currentTimeSeconds } : {}),
     ...(durationSeconds !== undefined ? { durationSeconds } : {}),
+    ...(season !== undefined ? { season } : {}),
+    ...(voice !== undefined ? { voice } : {}),
   };
 }
 
@@ -140,6 +153,8 @@ export function createWatchSourceEntry(
         lastWatchedAt: event.observedAt,
         ...(event.currentTimeSeconds !== undefined ? { lastPositionSeconds: event.currentTimeSeconds } : {}),
         ...(event.durationSeconds !== undefined ? { lastDurationSeconds: event.durationSeconds } : {}),
+        ...(event.season !== undefined ? { lastSeason: event.season } : {}),
+        ...(event.voice !== undefined ? { lastVoice: event.voice } : {}),
       } : {}),
     },
   };
