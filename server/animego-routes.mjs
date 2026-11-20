@@ -277,6 +277,44 @@ export function parseAnimeGoSearch(html) {
   return results.slice(0, 30);
 }
 
+
+export function parseAnimeGoPagePoster(html, pageUrl = SITE) {
+  const source = String(html || "");
+  const metaTags = [...source.matchAll(/<meta\\b[^>]*>/gi)].map((match) => match[0]);
+  const candidates = [];
+  for (const tag of metaTags) {
+    const key = (attr(tag, "property") || attr(tag, "name") || attr(tag, "itemprop") || "").toLowerCase();
+    if (["og:image", "og:image:url", "twitter:image", "twitter:image:src", "image"].includes(key)) {
+      const value = attr(tag, "content");
+      if (value) candidates.push(value);
+    }
+  }
+  const imageLinks = [...source.matchAll(/<link\\b[^>]*>/gi)].map((match) => match[0]);
+  for (const tag of imageLinks) {
+    if (/\\bimage_src\\b/i.test(attr(tag, "rel"))) {
+      const value = attr(tag, "href");
+      if (value) candidates.push(value);
+    }
+  }
+  for (const match of source.matchAll(/<script\\b[^>]*type\\s*=\\s*(['"])application\\/ld\\+json\\1[^>]*>([\\s\\S]*?)<\\/script>/gi)) {
+    try {
+      const parsed = JSON.parse(match[2]);
+      const entries = Array.isArray(parsed) ? parsed : [parsed];
+      for (const entry of entries) {
+        const image = entry?.image;
+        if (typeof image === "string") candidates.push(image);
+        else if (Array.isArray(image)) candidates.push(...image.filter((value) => typeof value === "string"));
+        else if (image && typeof image === "object" && typeof image.url === "string") candidates.push(image.url);
+      }
+    } catch {}
+  }
+  for (const candidate of candidates) {
+    const resolved = safeUrl(candidate, pageUrl);
+    if (resolved && new URL(resolved).protocol === "https:") return resolved;
+  }
+  return null;
+}
+
 export function parseAnimeGoDetail(html, url) {
   const canonicalTag = html.match(/<link\b[^>]*rel\s*=\s*(['"])canonical\1[^>]*>/i)?.[0] || "";
   const ogTitleTag = html.match(/<meta\b[^>]*property\s*=\s*(['"])og:title\1[^>]*>/i)?.[0] || "";
@@ -294,7 +332,7 @@ export function parseAnimeGoDetail(html, url) {
   const rating = Number(jsonLd.aggregateRating?.ratingValue);
   const slug = new URL(canonical).pathname.split("/").filter(Boolean).at(-1) || canonical;
   const id = slug.match(/-(\d+)$/)?.[1] || slug;
-  const poster = safeUrl(attr(ogImageTag, "content"));
+  const poster = parseAnimeGoPagePoster(html, url) || safeUrl(attr(ogImageTag, "content"));
   return {
     provider: "animego",
     externalId: id,
@@ -454,6 +492,22 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
       });
       response.end(bytes);
       return true;
+    }
+    if (url.pathname === "/api/animego/poster-meta") {
+      const rawPageUrl = String(url.searchParams.get("url") || "");
+      let pageUrl;
+      try { pageUrl = new URL(rawPageUrl); } catch {
+        return sendJson(response, 400, { error: "Некорректный адрес страницы AnimeGO." });
+      }
+      if (pageUrl.protocol !== "https:" || pageUrl.hostname !== "animego.me" ||
+          !/^\\/anime\\/[\\p{L}\\p{N}-]+-\\d+\\/?$/u.test(pageUrl.pathname)) {
+        return sendJson(response, 400, { error: "Разрешены только публичные страницы тайтлов AnimeGO." });
+      }
+      const page = await requestAnimeGoImpl(pageUrl.toString(), { headers });
+      if (!page.ok) throw new Error("Страница AnimeGO: HTTP " + page.status);
+      const posterUrl = parseAnimeGoPagePoster(await page.text(), pageUrl.toString());
+      if (!posterUrl) return sendJson(response, 404, { error: "На странице AnimeGO не найдено изображение постера." });
+      return sendJson(response, 200, { posterUrl, source: "AnimeGO page metadata" });
     }
     if (url.pathname === "/api/animego/search") {
       const query = String(url.searchParams.get("q") || "").trim();
