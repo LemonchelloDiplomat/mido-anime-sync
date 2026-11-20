@@ -1941,6 +1941,23 @@ button:disabled {
   width: 100%;
   max-width: 640px;
 }
+.watch-event-no-match,
+.watch-event-match-help {
+  margin: 0;
+  max-width: 720px;
+  color: #e0d8f5;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.watch-event-no-match {
+  padding: 11px 13px;
+  border: 1px solid #6b4b91;
+  border-radius: 8px;
+  background: #292036;
+}
+.watch-event-add-button {
+  justify-self: start;
+}
 .watch-event-meta {
   display: flex;
   flex-wrap: wrap;
