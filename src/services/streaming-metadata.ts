@@ -23,7 +23,6 @@ export function applyFallbackMetadata(
   candidates: AnimeIdentity[],
   options: { preferPoster?: boolean } = {},
 ): StreamingTitle {
-  if (item.posterUrl && item.averageScore != null && !options.preferPoster) return item;
   const itemTitles = [item.title, ...(item.alternativeTitles || [])].map(normalizeTitle).filter(Boolean);
   if (!itemTitles.length) return item;
   let matches = candidates.filter((candidate) =>
@@ -35,8 +34,10 @@ export function applyFallbackMetadata(
   }
   if (matches.length !== 1) return item;
   const match = matches[0]!;
+  const matchedPoster = match.posterUrl || null;
   return {
     ...item,
+    fallbackPosterUrl: matchedPoster && matchedPoster !== item.posterUrl ? matchedPoster : item.fallbackPosterUrl || null,
     // AnimeGO's CDN URLs are frequently unavailable to embedded clients.
     // Prefer a verified AniList cover for this provider, but only after an exact title match.
     posterUrl: options.preferPoster ? (match.posterUrl || item.posterUrl || null) : (item.posterUrl || match.posterUrl || null),
