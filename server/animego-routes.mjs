@@ -110,9 +110,11 @@ export function parseAnimeGoVoices(payload) {
   let match;
   while ((match = buttonPattern.exec(content))) {
     const tag = match[0];
-    const embed = safeUrl(attr(tag, "data-player"));
+    const rawEmbed = attr(tag, "data-player").trim();
     const name = decodeHtml(attr(tag, "data-translation-title")).replace(/\s*\(ошибка\)\s*$/i, "").trim();
-    if (!embed || !name) continue;
+    if (!rawEmbed || !name) continue;
+    const embed = safeUrl(rawEmbed);
+    if (!embed) continue;
     const playerName = decodeHtml(attr(tag, "data-provider-title")).trim() || "Неизвестный плеер";
     const translationId = attr(tag, "data-ptranslation");
     voices.push({
