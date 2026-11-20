@@ -7,6 +7,15 @@ const DNS_CACHE_TTL_MS = 5 * 60 * 1000;
 let cachedAddress = null;
 let cachedAddressUntil = 0;
 
+function resolve4Async(resolver, hostname) {
+  return new Promise((resolve, reject) => {
+    resolver.resolve4(hostname, (error, addresses) => {
+      if (error) reject(error);
+      else resolve(addresses);
+    });
+  });
+}
+
 async function resolveAnimeGoAddress() {
   if (cachedAddress && Date.now() < cachedAddressUntil) return cachedAddress;
   let lastError;
@@ -14,7 +23,7 @@ async function resolveAnimeGoAddress() {
     const resolver = new Resolver();
     resolver.setServers([server]);
     try {
-      const [address] = await resolver.resolve4("animego.me");
+      const [address] = await resolve4Async(resolver, "animego.me");
       if (!address) throw new Error("Публичный DNS не вернул IPv4-адрес AnimeGO.");
       cachedAddress = address;
       cachedAddressUntil = Date.now() + DNS_CACHE_TTL_MS;
