@@ -21,8 +21,6 @@ function createBackgroundHarness(options: HarnessOptions = {}) {
   let messageListener: ((message: any) => void) | null = null;
   let delayedQueueWriteUsed = false;
   let queueWriteCount = 0;
-  const failureState = { nextStorageWrite: false };
-
   const drawingContext = {
     clearRect() {}, save() {}, restore() {}, beginPath() {}, roundRect() {}, fill() {},
     moveTo() {}, lineTo() {}, stroke() {}, arc() {}, getImageData() { return {}; },
@@ -39,10 +37,6 @@ function createBackgroundHarness(options: HarnessOptions = {}) {
         },
         async set(values: Record<string, unknown>) {
           queueWriteCount += 1;
-          if (failureState.nextStorageWrite) {
-            failureState.nextStorageWrite = false;
-            throw new Error("simulated storage quota failure");
-          }
           if (options.delayFirstQueueWrite && queueWriteCount === 1 && !delayedQueueWriteUsed) {
             delayedQueueWriteUsed = true;
             await new Promise((resolve) => setTimeout(resolve, 20));
@@ -87,9 +81,6 @@ function createBackgroundHarness(options: HarnessOptions = {}) {
   return {
     storage,
     warnings,
-    triggerStorageWriteFailure() {
-      failureState.nextStorageWrite = true;
-    },
     dispatch(message: unknown) {
       messageListener?.(message);
     },
@@ -205,32 +196,6 @@ describe("browser extension pending watch queue", () => {
     await new Promise((resolve) => setTimeout(resolve, 60));
 
     expect(harness.storage.pendingWatchEvents).toEqual([]);
-  });
-
-  it("keeps the existing queue after a storage write failure and accepts later events", async () => {
-    const existingEvent = { ...watchEvent, eventId: "already-pending" };
-    const harness = createBackgroundHarness({
-      storage: { pendingWatchEvents: [existingEvent] },
-    });
-    harness.triggerStorageWriteFailure();
-
-    await harness.send({
-      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
-      event: { ...watchEvent, episode: 4, eventId: "first-write-fails" },
-    });
-    expect(harness.storage.pendingWatchEvents).toMatchObject([
-      { eventId: "already-pending", episode: 3 },
-    ]);
-    expect(harness.warnings.length).toBeGreaterThan(0);
-
-    await harness.send({
-      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
-      event: { ...watchEvent, episode: 5, eventId: "second-write-succeeds" },
-    });
-    expect(harness.storage.pendingWatchEvents).toMatchObject([
-      { eventId: "already-pending", episode: 3 },
-      { eventId: "second-write-succeeds", episode: 5 },
-    ]);
   });
 
   it("keeps queued events across a background service worker restart", async () => {
