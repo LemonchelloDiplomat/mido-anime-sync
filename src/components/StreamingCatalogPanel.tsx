@@ -74,6 +74,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
   const [detailsError, setDetailsError] = useState("");
   const [detailsAttempt, setDetailsAttempt] = useState(0);
   const [failedPosters, setFailedPosters] = useState<Record<string, boolean>>({});
+  const [posterFallbacks, setPosterFallbacks] = useState<Record<string, string>>({});
   const [playerError, setPlayerError] = useState("");
   const [playerLoaded, setPlayerLoaded] = useState(false);
   const [error, setError] = useState("");
@@ -84,6 +85,22 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountMessage, setAccountMessage] = useState("");
   const [catalogSort, setCatalogSort] = useState<"year-desc" | "year-asc" | "score" | "title">("year-desc");
+
+  useEffect(() => {
+    if (provider !== "animego") return;
+    const missingPosters = results.filter((item) => !item.posterUrl && !posterFallbacks[provider + ":" + item.externalId]);
+    for (const item of missingPosters) {
+      const key = provider + ":" + item.externalId;
+      void fetch("/api/animego/poster-meta?url=" + encodeURIComponent(item.url), {
+        headers: { Accept: "application/json" },
+      }).then(async (response) => {
+        if (!response.ok) throw new Error("AnimeGO page metadata unavailable");
+        const payload = await response.json() as { posterUrl?: string };
+        if (!payload.posterUrl) throw new Error("AnimeGO page metadata has no poster");
+        setPosterFallbacks((current) => ({ ...current, [key]: payload.posterUrl! }));
+      }).catch(() => setFailedPosters((current) => ({ ...current, [key]: true })));
+    }
+  }, [provider, results, posterFallbacks]);
 
   const normalizedQuery = useMemo(() => normalizeCatalogQuery(query), [query]);
   const sortedResults = useMemo(() => [...results].sort((a, b) => {
@@ -338,14 +355,27 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
               return (
               <button type="button" className={selected?.externalId === item.externalId ? "streaming-result selected" : "streaming-result"} key={item.externalId} onClick={() => setSelected(item)}>
                 <span className="streaming-result-poster">
-                  {item.posterUrl && !failedPosters[posterKey]
+                  {(item.posterUrl || posterFallbacks[posterKey]) && !failedPosters[posterKey]
                     ? <img
                         src={provider === "animego"
-                          ? "/api/animego/poster?url=" + encodeURIComponent(item.posterUrl) + "&referer=" + encodeURIComponent(item.url)
+                          ? "/api/animego/poster?url=" + encodeURIComponent(posterFallbacks[posterKey] || item.posterUrl || "") + "&referer=" + encodeURIComponent(item.url)
                           : item.posterUrl}
                         alt=""
                         loading="lazy"
-                        onError={() => setFailedPosters((current) => ({ ...current, [posterKey]: true }))}
+                        onError={() => {
+                          if (provider === "animego" && !posterFallbacks[posterKey]) {
+                            void fetch("/api/animego/poster-meta?url=" + encodeURIComponent(item.url), {
+                              headers: { Accept: "application/json" },
+                            }).then(async (response) => {
+                              if (!response.ok) throw new Error("AnimeGO page metadata unavailable");
+                              const payload = await response.json() as { posterUrl?: string };
+                              if (!payload.posterUrl) throw new Error("AnimeGO page metadata has no poster");
+                              setPosterFallbacks((current) => ({ ...current, [posterKey]: payload.posterUrl! }));
+                            }).catch(() => setFailedPosters((current) => ({ ...current, [posterKey]: true })));
+                          } else {
+                            setFailedPosters((current) => ({ ...current, [posterKey]: true }));
+                          }
+                        }}
                       />
                     : <span className="streaming-poster-placeholder" title={t(locale, "noPoster")}>✦</span>}
                   {item.averageScore != null && <b className={`streaming-score ${item.averageScore >= 8 ? "excellent" : item.averageScore >= 7 ? "good" : item.averageScore >= 5 ? "average" : "poor"}`} title={`Оценка: ${item.scoreSource || providerLabels[provider]}`}>{item.averageScore.toFixed(1)}</b>}
