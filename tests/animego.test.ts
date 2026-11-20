@@ -5,6 +5,7 @@ import {
   parseAnimeGoPlayer,
   parseAnimeGoSearch,
   parseAnimeGoVoices,
+  resolve4Async,
 } from "../server/animego-routes.mjs";
 
 function responseCapture(): { status: number; body: string; writeHead(status: number): void; end(body?: string): void; json(): any } {
@@ -31,6 +32,28 @@ const detailHtml = `
 <meta name="description" content="A sample synopsis">
 <h1>Sample Anime</h1>
 <script type="application/ld+json">{"datePublished":"2024-01-01","alternateName":"Sample JP","genre":["Action","Drama"],"numberOfEpisodes":12,"aggregateRating":{"ratingValue":8.2}}</script>`;
+
+describe("AnimeGO DNS adapter", () => {
+  it("wraps Node Resolver.resolve4 callback in a promise", async () => {
+    const resolver = {
+      resolve4: vi.fn((_hostname: string, callback: (error: Error | null, addresses?: string[]) => void) => {
+        callback(null, ["185.178.208.182"]);
+      }),
+    };
+    await expect(resolve4Async(resolver as any, "animego.me")).resolves.toEqual(["185.178.208.182"]);
+    expect(resolver.resolve4).toHaveBeenCalledWith("animego.me", expect.any(Function));
+  });
+
+  it("propagates DNS resolver errors", async () => {
+    const failure = new Error("DNS unavailable");
+    const resolver = {
+      resolve4: vi.fn((_hostname: string, callback: (error: Error | null, addresses?: string[]) => void) => {
+        callback(failure);
+      }),
+    };
+    await expect(resolve4Async(resolver as any, "animego.me")).rejects.toBe(failure);
+  });
+});
 
 describe("AnimeGO public catalog adapter", () => {
   it("parses public search cards and canonical page slugs", () => {
