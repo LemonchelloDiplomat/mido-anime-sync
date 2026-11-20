@@ -253,6 +253,68 @@ export function parseYummyAccountSnapshot(
   };
 }
 
+export function parseYummyWatchHistory(
+  payload: unknown,
+  exportedAt = new Date().toISOString(),
+): AnimeSnapshotV4 {
+  const grouped = new Map<string, { anime: AnimeIdentity; progress: number; updatedAt: string; videoIds: string[]; time: number; duration: number }>();
+  for (const row of parseRows(payload)) {
+    const raw = record(row);
+    if (!raw) continue;
+    const id = number(raw.anime_id ?? raw.animeId);
+    const title = text(raw.title ?? raw.anime_title);
+    const episode = episodeNumber(raw.episode ?? raw.number);
+    if (!id || !title || !episode) continue;
+    const key = String(id);
+    const poster = posterUrl(raw.poster);
+    const timestamp = number(raw.date ?? raw.updated_at);
+    const updatedAt = timestamp ? new Date(timestamp * 1000).toISOString() : exportedAt;
+    const anime: AnimeIdentity = {
+      id: "yummyanime:" + key,
+      titles: { romaji: title, synonyms: [] },
+      externalIds: { yummyanime: key },
+      posterUrl: poster,
+      episodes: null,
+    };
+    const existing = grouped.get(key);
+    const videoId = String(number(raw.video_id ?? raw.videoId) || "");
+    const time = Math.max(0, number(raw.end_time ?? raw.time) || 0);
+    const duration = Math.max(0, number(raw.duration) || 0);
+    if (!existing) {
+      grouped.set(key, { anime, progress: episode, updatedAt, videoIds: videoId ? [videoId] : [], time, duration });
+    } else {
+      existing.progress = Math.max(existing.progress, episode);
+      if (Date.parse(updatedAt) > Date.parse(existing.updatedAt)) {
+        existing.updatedAt = updatedAt;
+        existing.time = time;
+        existing.duration = duration;
+      }
+      if (videoId && !existing.videoIds.includes(videoId)) existing.videoIds.push(videoId);
+      if (!existing.anime.posterUrl && poster) existing.anime.posterUrl = poster;
+    }
+  }
+  const anime = [...grouped.values()].map((item) => item.anime);
+  const entries: AnimeListEntry[] = [...grouped.entries()].map(([id, item]) => ({
+    animeId: "yummyanime:" + id,
+    status: "WATCHING",
+    progress: item.progress,
+    score: null,
+    favorite: false,
+    updatedAt: item.updatedAt,
+    source: "yummyanime",
+    sourceMetadata: { videoIds: item.videoIds, lastPositionSeconds: item.time, lastDurationSeconds: item.duration },
+  }));
+  return {
+    schemaVersion: 4,
+    exportedAt,
+    anime,
+    entries,
+    sourceEntries: structuredClone(entries),
+    conflictResolutions: [],
+    animeRelations: [],
+  };
+}
+
 export class YummyAnimeCatalogProvider implements StreamingCatalogProvider {
   readonly id = "yummyanime" as const;
   readonly name = "YummyAnime";
