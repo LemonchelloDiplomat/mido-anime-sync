@@ -180,6 +180,37 @@ describe("AnixART site playback integration", () => {
     expect(events[1].event).toMatchObject({ episode: 6, season: 2, voice: "AniBoom" });
   });
 
+  it("waits until floored seconds also satisfy the 90% threshold", () => {
+    const harness = createAnixartContentHarness();
+    const send = (currentTime: number) => harness.dispatch({
+      season: 7,
+      episode: 7,
+      voice: "AnimeVost",
+      currentTime,
+      duration: 1505.2472108843504,
+      playing: true,
+    });
+
+    // The raw ratio is already above 90%, but flooring both values would
+    // produce 1354 / 1505, which the background correctly rejects.
+    send(1353.8);
+    send(1354.8);
+    expect(harness.sentMessages.filter(message => message.type === "MIDAHOSHI_AUTO_WATCH_EVENT")).toHaveLength(0);
+
+    // The next real playback sample crosses 90% using the exact integer
+    // values that are forwarded to the background.
+    send(1355.8);
+    const events = harness.sentMessages.filter(message => message.type === "MIDAHOSHI_AUTO_WATCH_EVENT");
+    expect(events).toHaveLength(1);
+    expect(events[0].event).toMatchObject({
+      episode: 7,
+      season: 7,
+      voice: "AnimeVost",
+      currentTimeSeconds: 1355,
+      durationSeconds: 1505,
+    });
+  });
+
   it("ignores messages that do not come from the page itself and same origin", () => {
     const harness = createAnixartContentHarness();
     const sample = {
