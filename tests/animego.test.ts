@@ -217,7 +217,7 @@ describe("AnimeGO public catalog adapter", () => {
     const response = {
       status: 0,
       headers: {} as Record<string, string>,
-      body: Buffer.alloc(0),
+      body: new Uint8Array(),
       writeHead(status: number, headers: Record<string, string> = {}) { this.status = status; this.headers = headers; },
       end(body: Buffer | string = "") { this.body = Buffer.isBuffer(body) ? body : Buffer.from(body); },
     };
