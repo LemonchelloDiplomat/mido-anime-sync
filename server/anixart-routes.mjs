@@ -82,7 +82,7 @@ function titleSlug(url) {
 
 function posterFromMarkup(markup) {
   const source = String(markup || "");
-  const tags = [...source.matchAll(/<[a-z][\\w:-]*\\b[^>]*>/gi)].map((match) => match[0]);
+  const tags = [...source.matchAll(/<[a-z][\w:-]*\b[^>]*>/gi)].map((match) => match[0]);
   const candidates = [];
   for (const tag of tags) {
     for (const name of ["data-original", "data-original-src", "data-lazy-src", "data-src", "data-poster", "data-image", "data-bg", "src"]) {
@@ -91,11 +91,11 @@ function posterFromMarkup(markup) {
     }
     const srcset = attr(tag, "data-srcset") || attr(tag, "srcset");
     if (srcset) {
-      const options = srcset.split(",").map((item) => item.trim().split(/\\s+/)[0]).filter(Boolean);
+      const options = srcset.split(",").map((item) => item.trim().split(/\s+/)[0]).filter(Boolean);
       candidates.push(...options.reverse());
     }
     const style = attr(tag, "style");
-    const background = style.match(/url\\((['"]?)(.*?)\\1\\)/i)?.[2];
+    const background = style.match(/url\((['"]?)(.*?)\1\)/i)?.[2];
     if (background) candidates.push(background);
   }
   for (const value of candidates) {
