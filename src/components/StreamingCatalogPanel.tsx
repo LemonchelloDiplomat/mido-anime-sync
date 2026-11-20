@@ -85,8 +85,16 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
   const [accountPassword, setAccountPassword] = useState("");
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountMessage, setAccountMessage] = useState("");
+  const [catalogSort, setCatalogSort] = useState<"year-desc" | "year-asc" | "score" | "title">("year-desc");
 
   const normalizedQuery = useMemo(() => normalizeCatalogQuery(query), [query]);
+  const sortedResults = useMemo(() => [...results].sort((a, b) => {
+    if (catalogSort === "score") return (b.averageScore ?? -1) - (a.averageScore ?? -1);
+    if (catalogSort === "title") return a.title.localeCompare(b.title);
+    return catalogSort === "year-asc"
+      ? (a.year ?? 0) - (b.year ?? 0)
+      : (b.year ?? 0) - (a.year ?? 0);
+  }), [results, catalogSort]);
 
   useEffect(() => {
     if (!activePlayer || playerLoaded || playerError) return;
@@ -299,6 +307,16 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
           <option value="anixart">AnixART</option>
         </select>
       </div>
+      <div className="streaming-catalog-toolbar">
+        <label>Сортировка
+          <select value={catalogSort} onChange={(event) => setCatalogSort(event.target.value as typeof catalogSort)}>
+            <option value="year-desc">Сначала новые</option>
+            <option value="year-asc">Сначала старые</option>
+            <option value="score">По рейтингу</option>
+            <option value="title">По названию</option>
+          </select>
+        </label>
+      </div>
       <p className="streaming-provider-note">{providerNotes[provider]}</p>
       {provider === "yummyanime" && (
         <div className="streaming-account-panel">
@@ -322,7 +340,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
       ) : (
         <div className="streaming-catalog-results">
           <div className="streaming-catalog-list">
-            {results.map((item) => (
+            {sortedResults.map((item) => (
               <button type="button" className={selected?.externalId === item.externalId ? "streaming-result selected" : "streaming-result"} key={item.externalId} onClick={() => setSelected(item)}>
                 <span className="streaming-result-poster">
                   {item.posterUrl && !failedPosters[provider + ":" + item.externalId]

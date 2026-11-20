@@ -2065,3 +2065,7 @@ button:disabled {
   .catalog-filters { display: grid; grid-template-columns: 1fr 1fr; }
   .catalog-filters label, .catalog-filters .filter-select { min-width: 0; width: 100%; }
 }
+
+.streaming-catalog-toolbar { display: flex; justify-content: flex-end; margin-top: .8rem; }
+.streaming-catalog-toolbar label { display: flex; align-items: center; gap: .55rem; color: var(--muted, #9696a4); font-size: .78rem; }
+.streaming-catalog-toolbar select { padding: .45rem .65rem; border: 1px solid var(--border, rgba(255,255,255,.15)); border-radius: .55rem; color: inherit; background: var(--input, #191923); }
