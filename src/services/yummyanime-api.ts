@@ -2,8 +2,10 @@ import type { StreamingSearchResult, StreamingTitleDetails } from "./streaming-p
 import { parseYummyDetails, parseYummySearch, parseYummyWatchHistory } from "./yummyanime.js";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const { signal, ...rest } = init ?? {};
   const response = await fetch(path, {
-    ...init,
+    ...rest,
+    ...(signal ? { signal } : {}),
     headers: {
       Accept: "application/json",
       ...(init?.body ? { "Content-Type": "application/json" } : {}),
