@@ -86,7 +86,7 @@ describe("streaming catalogue fallback metadata", () => {
       identity("1", 2023, 8.1),
       identity("2", 2024, 8.7),
     ]);
-    expect(result.fallbackPosterUrl).toBeNull();
+    expect(result.fallbackPosterUrl).toBeUndefined();
   });
 
   it("matches Russian and English aliases without accepting partial title matches", () => {
