@@ -24,6 +24,15 @@ function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function videoData(value: unknown): JsonRecord {
+  const direct = record(value);
+  if (direct) return direct;
+  if (typeof value === "string") {
+    try { return record(JSON.parse(value)) || {}; } catch { return {}; }
+  }
+  return {};
+}
+
 function number(value: unknown): number | null {
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -155,8 +164,11 @@ function parseVideos(payload: unknown, titleUrl: string): { episodes: StreamingE
     if (!id || !episodeNumberValue) continue;
 
     const seasonNumber = number(raw.season) || 1;
-    const data = record(raw.data) || {};
+    const data = videoData(raw.data);
     const voiceName = text(data.dubbing || data.translation || data.voice || data.title || data.player) || "Озвучка не указана";
+    const playerName = text(data.player || data.source || data.service || data.player_id) || null;
+    // Provider URLs are held only in live detail state because they may contain temporary tokens.
+    const playerUrl = safeHttpUrl(raw.iframe_url || raw.url || raw.player_url || raw.link || data.iframe_url || data.url || data.player_url || data.link);
     const videoId = String(id);
     const episodeKey = seasonNumber + ":" + episodeNumberValue;
     let episode = episodeMap.get(episodeKey);
@@ -178,7 +190,7 @@ function parseVideos(payload: unknown, titleUrl: string): { episodes: StreamingE
     // Each API video row represents a concrete voice/player variant for this episode.
     // Keep its ID, but never expose iframe URLs that may contain temporary tokens.
     if (!episode.voiceTracks?.some((track) => track.externalId === videoId)) {
-      episode.voiceTracks?.push({ externalId: videoId, name: voiceName });
+      episode.voiceTracks?.push({ externalId: videoId, name: voiceName, playerUrl, playerName });
     }
 
     const voiceKey = voiceName.toLocaleLowerCase();
