@@ -8,18 +8,228 @@ function status(message) {
   statusElement.textContent = message;
 }
 
-async function loadQueuedEvent() {
-  const { pendingWatchEvents = [] } = await chrome.storage.local.get({ pendingWatchEvents: [] });
-  const latest = Array.isArray(pendingWatchEvents) ? pendingWatchEvents[pendingWatchEvents.length - 1] : null;
-  if (!latest) return;
-  detected = latest;
-  pendingEventId = latest.eventId || null;
-  titleInput.value = latest.title || "";
-  episodeInput.value = latest.episode || "";
-  status("Сайт автоматически обнаружил почти завершённую серию. Проверь данные и нажми «Передать в локальную библиотеку».");
+const pendingList = document.getElementById("pending-list");
+const pendingCount = document.getElementById("pending-count");
+
+function normalizeQueueTitle(value) {
+  return String(value || "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
 }
 
-void loadQueuedEvent();
+function normalizeQueueSource(value) {
+  try {
+    const url = new URL(value);
+    return url.origin + url.pathname;
+  } catch {
+    return String(value || "");
+  }
+}
+
+function normalizeQueueSourceKey(value) {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    if (host === "yummyani.me" || host.endsWith(".yummyani.me")) {
+      url.hostname = "yummyani.me";
+    } else if (host === "yummy-ani.me" || host.endsWith(".yummy-ani.me")) {
+      url.hostname = "yummy-ani.me";
+    }
+    return url.origin + url.pathname;
+  } catch {
+    return normalizeQueueSource(value);
+  }
+}
+
+function getQueueEventKey(event) {
+  return [
+    event.service || "",
+    normalizeQueueTitle(event.title),
+    Number(event.episode) || "",
+    normalizeQueueSourceKey(event.sourceUrl),
+  ].join("|");
+}
+
+function getQueueDuplicateGroups(queue) {
+  const groups = new Map();
+  for (const event of queue) {
+    const key = getQueueEventKey(event);
+    const group = groups.get(key) || [];
+    group.push(event);
+    groups.set(key, group);
+  }
+  return [...groups.values()].filter((group) => group.length > 1);
+}
+
+function getEventProgress(event) {
+  const current = Number(event.currentTimeSeconds);
+  const duration = Number(event.durationSeconds);
+  return Number.isFinite(current) && Number.isFinite(duration) && duration > 0
+    ? current / duration
+    : -1;
+}
+
+function buildDeduplicatedQueue(queue) {
+  const winners = new Map();
+  for (const event of queue) {
+    const key = getQueueEventKey(event);
+    const current = winners.get(key);
+    if (!current || getEventProgress(event) > getEventProgress(current) ||
+        (getEventProgress(event) === getEventProgress(current) &&
+         Date.parse(event.observedAt || "") > Date.parse(current.observedAt || ""))) {
+      winners.set(key, event);
+    }
+  }
+  return queue.filter((event) => winners.get(getQueueEventKey(event)) === event);
+}
+
+function renderQueueDiagnostics(queue) {
+  const summary = document.getElementById("queue-diagnostics-summary");
+  const groupsElement = document.getElementById("queue-diagnostics-groups");
+  const duplicateGroups = getQueueDuplicateGroups(queue);
+  const duplicateRecords = duplicateGroups.reduce((total, group) => total + group.length, 0);
+  summary.textContent = duplicateGroups.length
+    ? `Найдено совпадающих групп: ${duplicateGroups.length}. Записей в них: ${duplicateRecords} из ${queue.length}. Ничего не удалено.`
+    : `Совпадающих записей по названию, серии и источнику не найдено. Всего событий: ${queue.length}.`;
+  groupsElement.replaceChildren();
+
+  for (const group of duplicateGroups) {
+    const section = document.createElement("div");
+    section.className = "pending-warning";
+    const first = group[0];
+    const heading = document.createElement("div");
+    heading.textContent = `${first.title || "Без названия"} · серия ${first.episode || "?"} · ${first.service || "источник"} · ${group.length} записей`;
+    section.append(heading);
+
+    for (const event of group) {
+      const detail = document.createElement("div");
+      detail.className = "pending-time";
+      const date = event.observedAt ? new Date(event.observedAt) : null;
+      const time = date && !Number.isNaN(date.getTime()) ? date.toLocaleString() : "время неизвестно";
+      const id = event.eventId ? String(event.eventId).slice(-8) : "ID отсутствует";
+      const source = normalizeQueueSource(event.sourceUrl) || "адрес источника неизвестен";
+      const current = Number.isFinite(Number(event.currentTimeSeconds))
+        ? `${Math.round(Number(event.currentTimeSeconds))} с`
+        : "позиция неизвестна";
+      const duration = Number.isFinite(Number(event.durationSeconds))
+        ? `${Math.round(Number(event.durationSeconds))} с`
+        : "длительность неизвестна";
+      detail.textContent = `Обнаружено: ${time} · ID: …${id} · Просмотр: ${current} / ${duration} · Источник: ${source}`;
+      section.append(detail);
+    }
+    groupsElement.append(section);
+  }
+}
+
+async function renderPendingEvents() {
+  const {
+    pendingWatchEvents = [],
+    pendingWatchEventsLastBackupKey = null,
+  } = await chrome.storage.local.get({
+    pendingWatchEvents: [],
+    pendingWatchEventsLastBackupKey: null,
+  });
+  const queue = Array.isArray(pendingWatchEvents) ? pendingWatchEvents : [];
+  renderQueueDiagnostics(queue);
+  document.getElementById("cleanup-duplicates").disabled = getQueueDuplicateGroups(queue).length === 0;
+  document.getElementById("restore-queue-backup").disabled = !pendingWatchEventsLastBackupKey;
+  pendingCount.textContent = `(${queue.length})`;
+  pendingList.replaceChildren();
+
+  if (queue.length === 0) {
+    const empty = document.createElement("div");
+    empty.id = "pending-empty";
+    empty.textContent = "Нет сохранённых событий.";
+    pendingList.append(empty);
+    return;
+  }
+
+  for (const event of [...queue].reverse()) {
+    const item = document.createElement("div");
+    item.className = "pending-item";
+
+    const title = document.createElement("div");
+    title.className = "pending-title";
+    title.textContent = event.title || "Без названия";
+
+    const meta = document.createElement("div");
+    meta.className = "pending-meta";
+    meta.textContent = `Серия ${event.episode || "?"} · ${event.service || "источник"}`;
+
+    const selectButton = document.createElement("button");
+    selectButton.className = "secondary";
+    selectButton.type = "button";
+    selectButton.textContent = "Проверить данные";
+    selectButton.addEventListener("click", () => {
+      detected = event;
+      pendingEventId = event.eventId || null;
+      titleInput.value = event.title || "";
+      episodeInput.value = event.episode || "";
+      status("Событие выбрано. Проверь название и серию, затем нажми «Передать в локальную библиотеку».");
+    });
+
+    item.append(title, meta, selectButton);
+    pendingList.append(item);
+  }
+}
+
+void renderPendingEvents();
+
+document.getElementById("cleanup-duplicates").addEventListener("click", async () => {
+  const maintenanceStatus = document.getElementById("queue-maintenance-status");
+  const stored = await chrome.storage.local.get({
+    pendingWatchEvents: [],
+    pendingWatchEventsLastBackupKey: null,
+  });
+  const queue = Array.isArray(stored.pendingWatchEvents) ? stored.pendingWatchEvents : [];
+  const nextQueue = buildDeduplicatedQueue(queue);
+  const removedCount = queue.length - nextQueue.length;
+  if (removedCount <= 0) {
+    maintenanceStatus.textContent = "Повторов для удаления не найдено.";
+    return;
+  }
+
+  const backupKey = `pendingWatchEventsBackup_${Date.now()}`;
+  await chrome.storage.local.set({
+    [backupKey]: queue,
+    pendingWatchEventsLastBackupKey: backupKey,
+    pendingWatchEvents: nextQueue,
+  });
+  detected = null;
+  pendingEventId = null;
+  titleInput.value = "";
+  episodeInput.value = "";
+  status("Очередь очищена. Можно восстановить исходные события из резервной копии.");
+  maintenanceStatus.textContent = `Удалено повторов: ${removedCount}. Осталось событий: ${nextQueue.length}. Резервная копия сохранена.`;
+  await renderPendingEvents();
+});
+
+document.getElementById("restore-queue-backup").addEventListener("click", async () => {
+  const maintenanceStatus = document.getElementById("queue-maintenance-status");
+  const stored = await chrome.storage.local.get({ pendingWatchEventsLastBackupKey: null });
+  const backupKey = stored.pendingWatchEventsLastBackupKey;
+  if (!backupKey) {
+    maintenanceStatus.textContent = "Резервная копия не найдена.";
+    return;
+  }
+  const backup = await chrome.storage.local.get({ [backupKey]: null });
+  if (!Array.isArray(backup[backupKey])) {
+    maintenanceStatus.textContent = "Резервная копия повреждена или отсутствует. Очередь не изменена.";
+    return;
+  }
+  await chrome.storage.local.set({ pendingWatchEvents: backup[backupKey] });
+  detected = null;
+  pendingEventId = null;
+  titleInput.value = "";
+  episodeInput.value = "";
+  status("Исходная очередь восстановлена из резервной копии.");
+  maintenanceStatus.textContent = `Восстановлено событий: ${backup[backupKey].length}.`;
+  await renderPendingEvents();
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "local" && changes.pendingWatchEvents) {
+    void renderPendingEvents();
+  }
+});
 
 // Opening the toolbar popup acknowledges the red notification without
 // removing the pending watch event from the delivery queue.

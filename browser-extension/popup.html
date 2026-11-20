@@ -9,22 +9,48 @@
     h1 { margin: 0 0 8px; font-size: 17px; }
     p { margin: 6px 0 12px; color: #626975; }
     label { display: block; margin: 10px 0 4px; font-weight: 600; }
-    input { box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid #c8cdd5; border-radius: 7px; }
-    button { width: 100%; margin-top: 12px; padding: 9px; border: 0; border-radius: 7px; background: #272b33; color: white; font-weight: 600; cursor: pointer; }
+    input { display: block; box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid #c8cdd5; border-radius: 7px; }
+    button { display: block; width: 100%; margin-top: 12px; padding: 9px; border: 0; border-radius: 7px; background: #272b33; color: white; font-weight: 600; cursor: pointer; }
     button.secondary { background: #e9edf2; color: #252a32; }
     #status { min-height: 38px; margin-top: 10px; white-space: pre-wrap; }
     .muted { font-size: 12px; }
+    #pending-section { margin: 14px 0; padding: 10px; border: 1px solid #d9dee6; border-radius: 9px; }
+    #pending-section h2 { margin: 0 0 8px; font-size: 13px; }
+    #pending-list { display: grid; gap: 8px; }
+    .pending-item { padding: 8px; border-radius: 7px; background: #f3f5f8; }
+    .pending-title { font-weight: 600; overflow-wrap: anywhere; }
+    .pending-meta { margin-top: 2px; color: #626975; font-size: 12px; }
+    .pending-item button { margin-top: 7px; padding: 7px; font-size: 12px; }
+    #pending-empty { color: #626975; font-size: 12px; }
+    #queue-diagnostics { margin: 10px 0; padding: 9px; border-radius: 7px; background: #f7f8fa; }
+    #queue-diagnostics h3 { margin: 0 0 6px; font-size: 12px; }
+    #queue-diagnostics p { margin: 4px 0; font-size: 12px; }
+    .pending-warning { margin-top: 5px; color: #8a4b12; font-size: 11px; }
+    .pending-time { margin-top: 3px; color: #68717e; font-size: 11px; overflow-wrap: anywhere; }
   </style>
 </head>
 <body>
   <h1>mido-anime-sync v0.5</h1>
-  <p>После 90% просмотра на поддерживаемом плеере поля заполнятся автоматически. Проверь аниме и номер серии перед передачей. Ничего не отправляется без твоего нажатия.</p>
+  <p>После 90% просмотра событие появится в блоке «Ожидают передачи». Нажми «Проверить данные», проверь аниме и номер серии. Ничего не отправляется без твоего подтверждения.</p>
+  <section id="pending-section" aria-labelledby="pending-heading">
+    <h2 id="pending-heading">Ожидают передачи <span id="pending-count">(0)</span></h2>
+    <div id="queue-diagnostics" aria-live="polite">
+      <h3>Диагностика очереди</h3>
+      <p id="queue-diagnostics-summary">Проверяем события…</p>
+      <div id="queue-diagnostics-groups"></div>
+      <p class="muted">Очистка оставит по одной записи на аниме и серию, сохранив запись с наибольшим прогрессом. Перед изменением создаётся резервная копия, которую можно восстановить.</p>
+      <button id="cleanup-duplicates" class="secondary" type="button">Создать копию и убрать повторы</button>
+      <button id="restore-queue-backup" class="secondary" type="button" disabled>Восстановить очередь из копии</button>
+      <p id="queue-maintenance-status" class="muted" role="status" aria-live="polite"></p>
+    </div>
+    <div id="pending-list"><div id="pending-empty">Нет сохранённых событий.</div></div>
+  </section>
   <button id="scan" class="secondary">Считать страницу</button>
   <label for="title">Название</label>
   <input id="title" autocomplete="off" placeholder="Название аниме">
   <label for="episode">Номер серии</label>
   <input id="episode" type="number" min="1" step="1" placeholder="Например, 7">
-  <div id="status" class="muted">Открой страницу просмотра AnimeGO или YummyAnime с поддерживаемым видеоплеером. Для Anixart можно ввести серию вручную, но сайт не предоставляет браузерный видеоплеер.</div>
+  <div id="status" class="muted" role="status" aria-live="polite">Ничего не найдено.</div>
   <button id="send">Передать в локальную библиотеку</button>
   <button id="options" class="secondary">Настройки адреса приложения</button>
   <script src="popup.js"></script>
