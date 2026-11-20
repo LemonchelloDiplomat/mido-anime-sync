@@ -199,7 +199,7 @@ export function parseAnixArtPlayerPlaylist(payload, titleUrl) {
       seasonNumber,
       voiceTracks: [],
     };
-    const voiceKey = voiceName.toLocaleLowerCase() + "\\u0000" + String(voiceType || "").toLocaleLowerCase();
+    const voiceKey = voiceName.toLocaleLowerCase() + "\u0000" + String(voiceType || "").toLocaleLowerCase();
     if (!episode.voiceTracks.some((track) => track.externalId === voiceKey)) {
       episode.voiceTracks.push({
         externalId: voiceKey,
@@ -246,10 +246,10 @@ export async function handleAnixArtRequest(request, response, url, deps) {
       return sendJson(response, 200, { items: parseAnixArtSearch(await page.text()), page: 1, hasNextPage: false });
     }
 
-    const match = url.pathname.match(/^\\/api\\/anixart\\/anime\\/([^/]+)$/);
+    const match = url.pathname.match(/^\/api\/anixart\/anime\/([^/]+)$/);
     if (match) {
       const slug = decodeURIComponent(match[1]);
-      if (!/^\\d+-[\\p{L}\\p{N}-]+\\.html$/u.test(slug)) return sendJson(response, 400, { error: "Некорректный AnixART slug." });
+      if (!/^\d+-[\p{L}\p{N}-]+\.html$/u.test(slug)) return sendJson(response, 400, { error: "Некорректный AnixART slug." });
       const titleUrl = SITE + "/" + encodeURIComponent(slug);
       const page = await fetcher(titleUrl, { headers });
       if (!page.ok) throw new Error("AnixART: HTTP " + page.status);
@@ -258,7 +258,7 @@ export async function handleAnixArtRequest(request, response, url, deps) {
       const publisherId = String(detail.sourceMetadata?.publisherId || "");
       const aggregator = String(detail.sourceMetadata?.aggregator || "mali");
       let playerCatalog = { seasons: [], voices: [], episodeCount: null };
-      if (/^\\d+$/.test(playerTitleId) && /^\\d+$/.test(publisherId) && /^[a-z0-9_-]{1,32}$/i.test(aggregator)) {
+      if (/^\d+$/.test(playerTitleId) && /^\d+$/.test(publisherId) && /^[a-z0-9_-]{1,32}$/i.test(aggregator)) {
         const playlistUrl = new URL("https://plapi.cdnvideohub.com/api/v1/player/sv/playlist");
         playlistUrl.search = new URLSearchParams({ pub: publisherId, aggr: aggregator, id: playerTitleId }).toString();
         const playlist = await fetcher(playlistUrl, {
