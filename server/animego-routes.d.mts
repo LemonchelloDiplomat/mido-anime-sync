@@ -3,6 +3,7 @@ import type { StreamingEpisode, StreamingTitle, StreamingTitleDetails, Streaming
 type RouteRequest = { method?: string };
 type RouteResponse = { writeHead(status: number, headers?: Record<string, string>): void; end(body?: string): void };
 type AnimeGoRouteDependencies = { sendJson(response: RouteResponse, status: number, body: unknown): void };
+export function resolve4Async(resolver: { resolve4(hostname: string, callback: (error: NodeJS.ErrnoException | null, addresses?: string[]) => void): void }, hostname: string): Promise<string[]>;
 export function parseAnimeGoSearch(html: string): StreamingTitle[];
 export function parseAnimeGoDetail(html: string, url: string): StreamingTitle & { identity: AnimeIdentity };
 export function parseAnimeGoPlayer(payload: unknown, titleUrl: string): { episodes: StreamingEpisode[]; voices: StreamingVoice[] };
