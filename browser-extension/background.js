@@ -31,6 +31,9 @@ function allowedSourceUrl(service, rawUrl) {
     return host === "yummyani.me" || host.endsWith(".yummyani.me") ||
       host === "yummy-ani.me" || host.endsWith(".yummy-ani.me");
   }
+  if (service === "anixart") {
+    return host === "anixart.site" || host.endsWith(".anixart.site");
+  }
   return false;
 }
 
@@ -189,7 +192,7 @@ function isSupportedWatchUrl(rawUrl) {
     const host = url.hostname.toLowerCase();
     return [
       "anime-go.org", "animego.online", "animego.me",
-      "yummyani.me", "yummy-ani.me",
+      "yummyani.me", "yummy-ani.me", "anixart.site",
     ].some((domain) => host === domain || host.endsWith(`.${domain}`));
   } catch {
     return false;
@@ -262,7 +265,7 @@ chrome.runtime.onMessage.addListener((message) => {
     const duration = Number(event.durationSeconds);
     const currentTime = Number(event.currentTimeSeconds);
     if (
-      !["animego", "yummyanime"].includes(event.service) ||
+      !["animego", "yummyanime", "anixart"].includes(event.service) ||
       typeof event.title !== "string" ||
       event.title.trim().length < 2 ||
       !Number.isSafeInteger(event.episode) ||
@@ -289,6 +292,8 @@ chrome.runtime.onMessage.addListener((message) => {
       observedAt: new Date().toISOString(),
       currentTimeSeconds: currentTime,
       durationSeconds: duration,
+      ...(typeof event.season === "number" && Number.isSafeInteger(event.season) && event.season > 0 ? { season: event.season } : {}),
+      ...(typeof event.voice === "string" && event.voice.trim() ? { voice: event.voice.trim().slice(0, 100) } : {}),
     });
     // Pending events are user-confirmed work waiting for delivery. Never
     // silently discard older events just because the queue grows past a UI
