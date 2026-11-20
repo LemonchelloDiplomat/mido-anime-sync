@@ -121,4 +121,86 @@ describe("AnimeGO browser episode detection", () => {
   it("does not guess an episode when no active episode item exists", () => {
     expect(detectAnimeGoEpisode(null).episode).toBeNull();
   });
+
+  it("detects YummyAnime title, episode, and 90-percent playback progress", () => {
+    const listeners: Record<string, () => void> = {};
+    const sentMessages: any[] = [];
+    const video = {
+      currentTime: 88,
+      duration: 100,
+      currentSrc: "https://cdn.example/yummy-episode.m3u8",
+      src: "",
+      paused: false,
+      getBoundingClientRect() { return { width: 640, height: 360 }; },
+      addEventListener(type: string, listener: () => void) {
+        listeners[type] = listener;
+      },
+    };
+    const titleElement = { textContent: "Санка Рэа", getAttribute() { return null; } };
+    const episodeElement = { textContent: "Серия 4", getAttribute() { return null; } };
+
+    class FakeMutationObserver {
+      observe() {}
+      disconnect() {}
+    }
+    class FakeHTMLSelectElement {}
+
+    vm.runInNewContext(contentScript, {
+      location: {
+        hostname: "yummyani.me",
+        origin: "https://yummyani.me",
+        pathname: "/catalog/sanka-reya/episode-4",
+        href: "https://yummyani.me/catalog/sanka-reya/episode-4",
+      },
+      document: {
+        title: "Санка Рэа",
+        documentElement: {},
+        querySelector(selector: string) {
+          if (selector === "h1") return titleElement;
+          if (selector === ".watch__episode") return episodeElement;
+          return null;
+        },
+        querySelectorAll(selector: string) {
+          return selector === "video" ? [video] : [];
+        },
+      },
+      HTMLSelectElement: FakeHTMLSelectElement,
+      MutationObserver: FakeMutationObserver,
+      getComputedStyle() { return { display: "block", visibility: "visible" }; },
+      chrome: {
+        runtime: {
+          onMessage: { addListener() {} },
+          sendMessage(message: unknown) { sentMessages.push(message); },
+        },
+      },
+      window: { addEventListener() {} },
+      crypto: { randomUUID: () => "yummy-test-event-id" },
+      URL,
+      Date,
+    });
+
+    expect(sentMessages).toContainEqual(expect.objectContaining({
+      type: "MIDAHOSHI_CURRENT_WATCH",
+      title: "Санка Рэа",
+      episode: 4,
+    }));
+
+    video.currentTime = 90;
+    listeners.timeupdate?.();
+    const events = sentMessages.filter((message) => message.type === "MIDAHOSHI_AUTO_WATCH_EVENT");
+    expect(events).toHaveLength(1);
+    expect(events[0].event).toMatchObject({
+      service: "yummyanime",
+      title: "Санка Рэа",
+      episode: 4,
+      sourceUrl: "https://yummyani.me/catalog/sanka-reya/episode-4",
+      currentTimeSeconds: 90,
+      durationSeconds: 100,
+    });
+
+    video.currentTime = 95;
+    listeners.timeupdate?.();
+    expect(sentMessages.filter((message) => message.type === "MIDAHOSHI_AUTO_WATCH_EVENT")).toHaveLength(1);
+  });
+
 });
