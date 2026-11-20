@@ -48,6 +48,22 @@ describe("AnixART public website catalog adapter", () => {
     });
   });
 
+  it("removes AnixART ratings and card metadata from search titles", () => {
+    const html = `
+      <div class="shortstory">
+        <a href="/7360-put-naruto.html">8.5 8.46 Путь Наруто 2022, экшен, фэнтези,</a>
+        <a href="/7361-boruto.html">5.8 6.06 Боруто: Новое поколение Наруто 2017, экшен,</a>
+        <a href="/7362-naruto.html">9.5 7.98 Наруто 2002, экшен,</a>
+        <a href="/7363-naruto-movie.html">10 6.54 Наруто: Найти тёмно-красный четырёхлистный клевер! 2003, сёнен,</a>
+      </div>`;
+    expect(parseAnixArtSearch(html).map((item) => item.title)).toEqual([
+      "Путь Наруто",
+      "Боруто: Новое поколение Наруто",
+      "Наруто",
+      "Наруто: Найти тёмно-красный четырёхлистный клевер!",
+    ]);
+  });
+
   it("parses public title metadata, dubbings and the player identifiers only", () => {
     const title = parseAnixArtDetail(detailHtml, "https://anixart.site/7004-magicheskaja-bitva-2.html");
     expect(title).toMatchObject({
