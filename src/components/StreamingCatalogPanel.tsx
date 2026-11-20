@@ -36,9 +36,19 @@ const providerNotes: Record<StreamingProviderId, string> = {
 };
 
 async function searchProvider(provider: StreamingProviderId, query: string, signal: AbortSignal): Promise<StreamingSearchResult> {
-  if (provider === "yummyanime") return searchYummyAnime(query, 1, signal);
-  if (provider === "animego") return animeGo.search({ query, page: 1, signal });
-  return anixArt.search({ query, page: 1, signal });
+  // A provider that stalls must never leave the catalog in its permanent loading state.
+  const timeout = AbortSignal.timeout(25_000);
+  const requestSignal = AbortSignal.any([signal, timeout]);
+  try {
+    if (provider === "yummyanime") return await searchYummyAnime(query, 1, requestSignal);
+    if (provider === "animego") return await animeGo.search({ query, page: 1, signal: requestSignal });
+    return await anixArt.search({ query, page: 1, signal: requestSignal });
+  } catch (error) {
+    if (timeout.aborted && !signal.aborted) {
+      throw new Error(providerLabels[provider] + ": поиск не ответил за 25 секунд. Проверь соединение с сайтом и попробуй ещё раз.");
+    }
+    throw error;
+  }
 }
 
 async function loadDetails(provider: StreamingProviderId, title: StreamingTitle, signal: AbortSignal): Promise<StreamingTitleDetails> {
