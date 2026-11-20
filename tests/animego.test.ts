@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   handleAnimeGoRequest,
   parseAnimeGoDetail,
+  parseAnimeGoPagePoster,
   parseAnimeGoPlayer,
   parseAnimeGoSearch,
   parseAnimeGoVoices,
