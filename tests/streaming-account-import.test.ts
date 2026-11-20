@@ -49,6 +49,17 @@ describe("streaming account import reconciliation", () => {
     expect(result.sourceEntries[0]?.animeId).toBe("local:1");
   });
 
+  it("reconciles AnimeGO and AnixART snapshots through exact provider IDs", () => {
+    for (const [service, externalId] of [["animego", "naruto-123"], ["anixart", "7360"]] as const) {
+      const incoming = identity(service + ":" + externalId, { [service]: externalId });
+      const local = identity("local:" + service, { [service]: externalId });
+      const result = reconcileStreamingAccountSnapshot(snapshot(incoming), [local]);
+      expect(result.anime).toHaveLength(1);
+      expect(result.anime[0]?.id).toBe(local.id);
+      expect(result.entries[0]?.animeId).toBe(local.id);
+    }
+  });
+
   it("does not merge matching titles when there is no shared external ID", () => {
     const incoming = identity("yummyanime:456", { yummyanime: "456" });
     const local = identity("local:1");
