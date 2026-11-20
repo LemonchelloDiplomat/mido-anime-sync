@@ -97,16 +97,43 @@ export function parseAnimeGoDetail(html, url) {
   };
 }
 
-export function parseAnimeGoPlayer(payload, titleUrl) {
+function playerContent(payload) {
   const content = payload?.data?.content;
   if (typeof content !== "string") throw new Error("AnimeGO вернул список эпизодов в неожиданном формате.");
+  return content;
+}
+
+export function parseAnimeGoVoices(payload) {
+  const content = playerContent(payload);
+  const voices = [];
+  const buttonPattern = /<button\b[^>]*>/gi;
+  let match;
+  while ((match = buttonPattern.exec(content))) {
+    const tag = match[0];
+    const embed = safeUrl(attr(tag, "data-player"));
+    const name = decodeHtml(attr(tag, "data-translation-title")).replace(/\s*\(ошибка\)\s*$/i, "").trim();
+    if (!embed || !name) continue;
+    const playerName = decodeHtml(attr(tag, "data-provider-title")).trim() || "Неизвестный плеер";
+    const translationId = attr(tag, "data-ptranslation");
+    voices.push({
+      externalId: [translationId || name, playerName, voices.length + 1].join(":"),
+      name,
+      playerName,
+      playerUrl: embed,
+    });
+  }
+  return voices;
+}
+
+export function parseAnimeGoPlayer(payload, titleUrl) {
+  const content = playerContent(payload);
   const episodes = [];
   const episodePattern = /<([a-z][\w:-]*)\b([^>]*\bclass\s*=\s*(['"])[^'"]*\bplayer-video-bar__item\b[^'"]*\3[^>]*)>/gi;
   let match;
   while ((match = episodePattern.exec(content))) {
     const number = Number(attr(match[2], "data-episode-number"));
     const id = attr(match[2], "data-episode");
-    if (!Number.isFinite(number) || number <= 0 || !id) continue;
+    if (!Number.isFinite(number) || number <= 0 || !/^\d+$/.test(id)) continue;
     episodes.push({
       externalId: id,
       number,
@@ -115,18 +142,9 @@ export function parseAnimeGoPlayer(payload, titleUrl) {
       seasonNumber: Number(attr(match[2], "data-season")) || 1,
     });
   }
-  const voices = [];
-  const voicePattern = /<button\b([^>]*\bdata-translation\s*=\s*(['"])(.*?)\2[^>]*)>([\s\S]*?)<\/button>/gi;
-  const seen = new Set();
-  while ((match = voicePattern.exec(content))) {
-    const id = attr(match[1], "data-translation");
-    const name = stripTags(match[4]);
-    if (!id || !name || seen.has(id)) continue;
-    voices.push({ externalId: id, name });
-    seen.add(id);
-  }
-  episodes.sort((a, b) => a.number - b.number);
-  return { episodes, voices };
+  episodes.sort((a, b) => a.seasonNumber - b.seasonNumber || a.number - b.number);
+  const uniqueEpisodes = [...new Map(episodes.map((episode) => [episode.externalId, episode])).values()];
+  return { episodes: uniqueEpisodes, voices: parseAnimeGoVoices(payload) };
 }
 
 export async function handleAnimeGoRequest(request, response, url, deps) {
@@ -146,6 +164,15 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
       if (!page.ok) throw new Error("AnimeGO: HTTP " + page.status);
       return sendJson(response, 200, { items: parseAnimeGoSearch(await page.text()), page: 1, hasNextPage: false });
     }
+    const episodeMatch = url.pathname.match(/^\/api\/animego\/episode\/(\d+)$/);
+    if (episodeMatch) {
+      const player = await fetch(SITE + "/player/videos/" + encodeURIComponent(episodeMatch[1]), {
+        headers: { ...headers, Accept: "application/json", "X-Requested-With": "XMLHttpRequest", Referer: SITE + "/" },
+      });
+      if (!player.ok) throw new Error("AnimeGO player: HTTP " + player.status);
+      const voices = parseAnimeGoVoices(await player.json());
+      return sendJson(response, 200, { voices });
+    }
     const match = url.pathname.match(/^\/api\/animego\/anime\/([^/]+)$/);
     if (match) {
       const slug = decodeURIComponent(match[1]);
@@ -153,7 +180,9 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
       const page = await fetch(SITE + "/anime/" + encodeURIComponent(slug), { headers });
       if (!page.ok) throw new Error("AnimeGO: HTTP " + page.status);
       const detail = parseAnimeGoDetail(await page.text(), SITE + "/anime/" + encodeURIComponent(slug));
-      const player = await fetch(SITE + "/player/" + encodeURIComponent(detail.externalId), { headers: { ...headers, Accept: "application/json" } });
+      const player = await fetch(SITE + "/player/" + encodeURIComponent(detail.externalId), {
+        headers: { ...headers, Accept: "application/json", "X-Requested-With": "XMLHttpRequest", Referer: SITE + "/" },
+      });
       let parsed = { episodes: [], voices: [] };
       if (player.ok) parsed = parseAnimeGoPlayer(await player.json(), detail.url);
       return sendJson(response, 200, {
