@@ -51,6 +51,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
   const [results, setResults] = useState<StreamingTitle[]>([]);
   const [selected, setSelected] = useState<StreamingTitle | null>(null);
   const [details, setDetails] = useState<StreamingTitleDetails | null>(null);
+  const [expandedEpisode, setExpandedEpisode] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -74,6 +75,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
       setResults([]);
       setSelected(null);
       setDetails(null);
+      setExpandedEpisode(null);
       setError("");
       setLoading(false);
       return;
@@ -83,6 +85,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
     setError("");
     setSelected(null);
     setDetails(null);
+    setExpandedEpisode(null);
     void searchProvider(provider, normalizedQuery, controller.signal)
       .then((result) => setResults(result.items))
       .catch((reason: unknown) => {
@@ -103,6 +106,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
     }
     const controller = new AbortController();
     setDetailsLoading(true);
+    setExpandedEpisode(null);
     void loadDetails(provider, selected, controller.signal)
       .then(setDetails)
       .catch((reason: unknown) => {
@@ -241,8 +245,32 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
                 <h3>{details.title}</h3>
                 {details.description && <p>{details.description}</p>}
                 <p className="streaming-detail-meta">{details.year || "Год не указан"}{details.episodeCount ? " · " + details.episodeCount + " эп." : ""}</p>
-                {details.voices.length > 0 && <div><strong>Озвучки</strong><p>{details.voices.map((voice) => voice.name).join(" · ")}</p></div>}
-                {details.seasons.length > 0 && <div className="streaming-season-list"><strong>Серии</strong>{details.seasons.map((season) => <div key={season.number}><b>{season.title || "Сезон " + season.number}</b><p>{season.episodes.map((episode) => episode.number + (episode.title ? " · " + episode.title : "")).join("  /  ")}</p></div>)}</div>}
+                {details.seasons.length > 0 && <div className="streaming-season-list">
+                  <strong>Серии</strong>
+                  {details.seasons.map((season) => <section className="streaming-season" key={season.number}>
+                    <h4>{season.title || "Сезон " + season.number}</h4>
+                    <div className="streaming-episode-list">
+                      {season.episodes.map((episode) => {
+                        const episodeKey = season.number + ":" + episode.number;
+                        const isExpanded = expandedEpisode === episodeKey;
+                        const tracks = episode.voiceTracks || [];
+                        return <article className={"streaming-episode" + (isExpanded ? " expanded" : "")} key={episodeKey}>
+                          <button type="button" className="streaming-episode-toggle" aria-expanded={isExpanded} onClick={() => setExpandedEpisode(isExpanded ? null : episodeKey)}>
+                            <span><strong>Серия {episode.number}</strong>{episode.title ? <small>{episode.title}</small> : null}</span>
+                            <span className="streaming-episode-summary">{tracks.length ? tracks.length + " озвуч." : "Озвучки не указаны"} <span aria-hidden="true">{isExpanded ? "−" : "+"}</span></span>
+                          </button>
+                          {isExpanded && <div className="streaming-episode-voices">
+                            <strong>Варианты озвучки</strong>
+                            {tracks.length ? <ul>{tracks.map((track) => <li key={track.externalId}>
+                              <span>{track.name}</span><small>ID видео: {track.externalId}</small>
+                            </li>)}</ul> : <p>Для этой серии API не вернул список озвучек.</p>}
+                            <p className="streaming-limitation">Прямой адрес плеера не предоставлен API в безопасном виде. Открой страницу тайтла на сайте, чтобы выбрать эту серию и озвучку.</p>
+                          </div>}
+                        </article>;
+                      })}
+                    </div>
+                  </section>)}
+                </div>}
                 {details.seasons.length === 0 && provider === "anixart" && <p className="streaming-limitation">Сайт не отдаёт полный список сезонов и серий в публичной карточке. При просмотре расширение определяет выбранную серию.</p>}
                 <div className="streaming-detail-actions">
                   <a href={details.url} target="_blank" rel="noreferrer">Открыть на сайте ↗</a>

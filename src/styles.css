@@ -1994,8 +1994,23 @@ button:disabled {
 .streaming-catalog-detail { min-width: 0; padding: 1rem; border-radius: .8rem; background: rgba(255,255,255,.035); }
 .streaming-catalog-detail h3 { margin: 0 0 .65rem; font-size: 1.05rem; }
 .streaming-catalog-detail p { color: var(--muted, #b0b0bb); font-size: .86rem; line-height: 1.55; }
-.streaming-season-list { margin-top: .8rem; }
-.streaming-season-list p { margin: .35rem 0; }
+.streaming-season-list { display: grid; gap: .8rem; margin-top: .8rem; }
+.streaming-season { display: grid; gap: .45rem; }
+.streaming-season h4 { margin: .2rem 0; color: var(--muted, #aaa); font-size: .82rem; font-weight: 600; }
+.streaming-episode-list { display: grid; gap: .4rem; }
+.streaming-episode { overflow: hidden; border: 1px solid var(--border, rgba(255,255,255,.12)); border-radius: .65rem; background: rgba(255,255,255,.025); }
+.streaming-episode.expanded { border-color: var(--accent, #8b6cf6); }
+.streaming-episode-toggle { display: flex; align-items: center; justify-content: space-between; gap: .75rem; width: 100%; padding: .7rem .8rem; border: 0; color: inherit; background: transparent; text-align: left; }
+.streaming-episode-toggle > span:first-child { display: grid; gap: .2rem; }
+.streaming-episode-toggle small, .streaming-episode-summary { color: var(--muted, #9696a4); font-size: .75rem; }
+.streaming-episode-summary { display: flex; align-items: center; gap: .65rem; white-space: nowrap; }
+.streaming-episode-summary span { color: var(--accent, #b49aff); font-size: 1rem; }
+.streaming-episode-voices { display: grid; gap: .55rem; padding: .2rem .8rem .8rem; border-top: 1px solid var(--border, rgba(255,255,255,.1)); }
+.streaming-episode-voices > strong { margin-top: .65rem; font-size: .8rem; }
+.streaming-episode-voices ul { display: grid; gap: .35rem; margin: 0; padding: 0; list-style: none; }
+.streaming-episode-voices li { display: flex; align-items: center; justify-content: space-between; gap: .7rem; padding: .5rem .6rem; border-radius: .45rem; background: rgba(255,255,255,.04); font-size: .8rem; }
+.streaming-episode-voices li small { color: var(--muted, #9696a4); font-size: .68rem; }
+.streaming-episode-voices p { margin: 0; }
 .streaming-limitation { padding: .7rem; border-left: 2px solid var(--accent, #8b6cf6); background: rgba(139,108,246,.07); }
 .streaming-detail-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; margin-top: 1rem; }
 .streaming-detail-actions a, .streaming-detail-actions button { padding: .65rem .85rem; border: 1px solid var(--border, rgba(255,255,255,.15)); border-radius: .65rem; color: inherit; background: rgba(255,255,255,.04); text-decoration: none; font: inherit; cursor: pointer; }

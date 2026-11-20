@@ -144,34 +144,62 @@ function episodeNumber(value: unknown): number | null {
 
 function parseVideos(payload: unknown, titleUrl: string): { episodes: StreamingEpisode[]; voices: StreamingVoice[] } {
   const rows = parseRows(payload);
-  const episodes: StreamingEpisode[] = [];
+  const episodeMap = new Map<string, StreamingEpisode>();
   const voiceMap = new Map<string, StreamingVoice>();
+
   for (const value of rows) {
     const raw = record(value);
     if (!raw) continue;
     const id = number(raw.video_id ?? raw.id);
-    const episode = episodeNumber(raw.number ?? raw.index);
+    const episodeNumberValue = episodeNumber(raw.number ?? raw.index);
+    if (!id || !episodeNumberValue) continue;
+
+    const seasonNumber = number(raw.season) || 1;
     const data = record(raw.data) || {};
-    const voice = text(data.dubbing || data.translation || data.voice || data.title);
-    if (!id || !episode) continue;
-    // Deliberately retain only public episode metadata. iframe/player URLs can
-    // contain short-lived tokens and are not needed to open the title page.
-    episodes.push({
-      externalId: String(id),
-      number: episode,
-      title: text(raw.title) || null,
-      url: titleUrl,
-      seasonNumber: number(raw.season) || 1,
-    });
-    if (voice) {
-      const key = voice.toLocaleLowerCase();
-      const existing = voiceMap.get(key);
-      if (existing) existing.episodeIds?.push(String(id));
-      else voiceMap.set(key, { externalId: key, name: voice, episodeIds: [String(id)] });
+    const voiceName = text(data.dubbing || data.translation || data.voice || data.title || data.player) || "Озвучка не указана";
+    const videoId = String(id);
+    const episodeKey = seasonNumber + ":" + episodeNumberValue;
+    let episode = episodeMap.get(episodeKey);
+
+    if (!episode) {
+      episode = {
+        externalId: videoId,
+        number: episodeNumberValue,
+        title: text(raw.title) || null,
+        url: titleUrl,
+        seasonNumber,
+        voiceTracks: [],
+      };
+      episodeMap.set(episodeKey, episode);
+    } else if (!episode.title && text(raw.title)) {
+      episode.title = text(raw.title);
+    }
+
+    // Each API video row represents a concrete voice/player variant for this episode.
+    // Keep its ID, but never expose iframe URLs that may contain temporary tokens.
+    if (!episode.voiceTracks?.some((track) => track.externalId === videoId)) {
+      episode.voiceTracks?.push({ externalId: videoId, name: voiceName });
+    }
+
+    const voiceKey = voiceName.toLocaleLowerCase();
+    const aggregate = voiceMap.get(voiceKey);
+    if (aggregate) {
+      if (!aggregate.episodeIds?.includes(videoId)) aggregate.episodeIds?.push(videoId);
+    } else {
+      voiceMap.set(voiceKey, { externalId: voiceKey, name: voiceName, episodeIds: [videoId] });
     }
   }
-  episodes.sort((a, b) => a.number - b.number || a.externalId.localeCompare(b.externalId));
-  return { episodes, voices: [...voiceMap.values()].sort((a, b) => a.name.localeCompare(b.name)) };
+
+  const episodes = [...episodeMap.values()].sort((a, b) =>
+    (a.seasonNumber || 1) - (b.seasonNumber || 1) || a.number - b.number
+  );
+  for (const episode of episodes) {
+    episode.voiceTracks?.sort((a, b) => a.name.localeCompare(b.name) || a.externalId.localeCompare(b.externalId));
+  }
+  return {
+    episodes,
+    voices: [...voiceMap.values()].sort((a, b) => a.name.localeCompare(b.name)),
+  };
 }
 
 export function parseYummySearch(payload: unknown, page = 1): StreamingSearchResult {
