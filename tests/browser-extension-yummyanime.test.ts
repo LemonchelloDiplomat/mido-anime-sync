@@ -186,6 +186,147 @@ describe("YummyAnime browser tracking", () => {
     ]));
   });
 
+  it("detects the legacy YummyAnime episode from the iframeCVH URL and forwards metadata to its wrapper", () => {
+    const forwarded: any[] = [];
+    const wrapperWindow = {
+      postMessage(data: unknown, origin: string) {
+        forwarded.push({ data, origin });
+      },
+    };
+    const wrapperFrame = {
+      src: "https://ru.yummyani.me/iframeCVH.html?anime_id=11499&episode=4",
+      contentWindow: wrapperWindow,
+    };
+    const title = {
+      textContent: "Санка Рэа",
+      getAttribute() { return null; },
+    };
+    const document = {
+      title: "Санка Рэа | YummyAnime",
+      documentElement: {},
+      querySelector(selector: string) {
+        return selector === "h1" ? title : null;
+      },
+      querySelectorAll(selector: string) {
+        if (selector === "iframe") return [wrapperFrame];
+        return [];
+      },
+    };
+
+    vm.runInNewContext(contentScript, {
+      ...common,
+      location: {
+        hostname: "old.yummyani.me",
+        origin: "https://old.yummyani.me",
+        pathname: "/catalog/item/sanka-rea-tv",
+        href: "https://old.yummyani.me/catalog/item/sanka-rea-tv",
+      },
+      document,
+      window: { addEventListener() {} },
+      chrome: { runtime: { onMessage: { addListener(listener: RuntimeMessageListener) {
+        listener({ type: "MIDAHOSHI_DETECT_WATCH_EVENT" }, {}, () => {});
+      } }, sendMessage() {} } },
+    });
+
+    expect(forwarded).toHaveLength(1);
+    expect(forwarded[0]).toMatchObject({
+      origin: "https://ru.yummyani.me",
+      data: {
+        type: "MIDAHOSHI_PARENT_METADATA",
+        metadata: {
+          title: "Санка Рэа",
+          episode: 4,
+          service: "yummyanime",
+          sourceUrl: "https://old.yummyani.me/catalog/item/sanka-rea-tv",
+        },
+      },
+    });
+  });
+
+  it("relays legacy YummyAnime metadata through iframeCVH Shadow DOM to the CVH player", () => {
+    const messages: any[] = [];
+    const parentWindow = { postMessage(data: unknown, origin: string) {
+      messages.push({ target: "parent", data, origin });
+    }};
+    const cvhWindow = { postMessage(data: unknown, origin: string) {
+      messages.push({ target: "cvh", data, origin });
+    }};
+    const cvhFrame = {
+      src: "https://player.cdnvideohub.com/s2/v2.43.56/frame/",
+      contentWindow: cvhWindow,
+    };
+    const shadowRoot = {
+      querySelectorAll(selector: string) {
+        if (selector === "iframe") return [cvhFrame];
+        if (selector === "*") return [];
+        return [];
+      },
+    };
+    const playerElement = { shadowRoot };
+    const document = {
+      title: "YummyAnime CVH wrapper",
+      documentElement: {},
+      querySelectorAll(selector: string) {
+        if (selector === "*") return [playerElement];
+        if (selector === "iframe") return [];
+        return [];
+      },
+      querySelector() { return null; },
+    };
+    const listeners: Record<string, ((event: any) => void)[]> = {};
+    const window = {
+      parent: parentWindow,
+      addEventListener(type: string, listener: (event: any) => void) {
+        (listeners[type] ||= []).push(listener);
+      },
+      setInterval() { return 1; },
+      clearInterval() {},
+    };
+
+    vm.runInNewContext(contentScript, {
+      ...common,
+      location: {
+        hostname: "ru.yummyani.me",
+        origin: "https://ru.yummyani.me",
+        pathname: "/iframeCVH.html",
+        href: "https://ru.yummyani.me/iframeCVH.html?episode=4",
+      },
+      document,
+      window,
+      chrome: { runtime: { onMessage: { addListener() {} }, sendMessage() {} } },
+    });
+
+    const dispatch = (event: any) => {
+      for (const listener of listeners.message || []) listener(event);
+    };
+    const metadata = {
+      title: "Санка Рэа",
+      episode: 4,
+      service: "yummyanime",
+      sourceUrl: "https://old.yummyani.me/catalog/item/sanka-rea-tv",
+    };
+    dispatch({
+      source: parentWindow,
+      origin: "https://old.yummyani.me",
+      data: { type: "MIDAHOSHI_PARENT_METADATA", metadata },
+    });
+
+    expect(messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        target: "cvh",
+        origin: "https://player.cdnvideohub.com",
+        data: { type: "MIDAHOSHI_PARENT_METADATA", metadata },
+      }),
+    ]));
+
+    dispatch({
+      source: cvhWindow,
+      origin: "https://player.cdnvideohub.com",
+      data: { type: "MIDAHOSHI_REQUEST_PARENT_METADATA" },
+    });
+    expect(messages.filter((message) => message.target === "cvh")).toHaveLength(2);
+  });
+
   it("does not reuse a native video's previous episode position after switching episodes", () => {
     const messages: any[] = [];
     const videoListeners: Record<string, () => void> = {};
