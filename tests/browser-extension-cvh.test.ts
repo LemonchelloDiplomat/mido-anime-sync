@@ -377,7 +377,12 @@ describe("YummyAnime CVH iframe tracking", () => {
   it("accepts YummyAnime as the CVH parent and reports automatic progress as YummyAnime", () => {
     const listeners: Record<string, ((event: any) => void)[]> = {};
     const sentEvents: any[] = [];
-    const parentWindow = { postMessage() {} };
+    const parentMessages: any[] = [];
+    const parentWindow = {
+      postMessage(message: unknown, targetOrigin: string) {
+        parentMessages.push({ message, targetOrigin });
+      },
+    };
     const window = {
       parent: parentWindow,
       addEventListener(type: string, listener: (event: any) => void) {
@@ -429,7 +434,7 @@ describe("YummyAnime CVH iframe tracking", () => {
         metadata: {
           title: "Санка Рэа",
           episode: 5,
-          sourceUrl: `https://${hostname}/catalog/item/sanka-rea-tv`,
+          sourceUrl: "https://ru.yummyani.me/catalog/item/sanka-rea-tv",
           service: "yummyanime",
         },
       },
