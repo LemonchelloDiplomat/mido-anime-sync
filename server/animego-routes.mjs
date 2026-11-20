@@ -96,16 +96,16 @@ function safeUrl(value, base = SITE) {
 export function parseAnimeGoSearch(html) {
   // AnimeGO pages contain navigation links to /anime/... alongside actual search cards.
   // Only inspect the dedicated ani-grid__item containers, never arbitrary page anchors.
-  const divTags = [...String(html || "").matchAll(/<div\\b[^>]*>/gi)];
+  const divTags = [...String(html || "").matchAll(/<div\b[^>]*>/gi)];
   const cardStarts = divTags
-    .filter((match) => /\\bani-grid__item\\b/.test(attr(match[0], "class")))
+    .filter((match) => /\bani-grid__item\b/.test(attr(match[0], "class")))
     .map((match) => match.index);
   const results = [];
   const seen = new Set();
 
   for (let index = 0; index < cardStarts.length; index += 1) {
     const card = String(html).slice(cardStarts[index], cardStarts[index + 1] ?? String(html).length);
-    const anchors = [...card.matchAll(/<a\\b[^>]*>/gi)];
+    const anchors = [...card.matchAll(/<a\b[^>]*>/gi)];
     let selectedAnchor = null;
     let selectedUrl = null;
     for (const anchor of anchors) {
@@ -113,7 +113,7 @@ export function parseAnimeGoSearch(html) {
       const candidate = safeUrl(href);
       if (!candidate) continue;
       const pathname = new URL(candidate).pathname;
-      if (/^\\/anime\\/[\\p{L}\\p{N}-]+-\\d+\\/?$/u.test(pathname)) {
+      if (/^\/anime\/[\p{L}\p{N}-]+-\d+\/?$/u.test(pathname)) {
         selectedAnchor = anchor[0];
         selectedUrl = candidate;
         break;
@@ -121,9 +121,9 @@ export function parseAnimeGoSearch(html) {
     }
     if (!selectedAnchor || !selectedUrl || seen.has(selectedUrl)) continue;
 
-    const image = card.match(/<img\\b[^>]*>/i)?.[0] || "";
+    const image = card.match(/<img\b[^>]*>/i)?.[0] || "";
     const title = attr(selectedAnchor, "title") || attr(image, "alt") ||
-      stripTags(card.match(/<a\\b[^>]*>([\\s\\S]*?)<\\/a>/i)?.[1] || "");
+      stripTags(card.match(/<a\b[^>]*>([\s\S]*?)<\/a>/i)?.[1] || "");
     if (!title) continue;
 
     const poster = safeUrl(attr(image, "data-src") || attr(image, "src"));
