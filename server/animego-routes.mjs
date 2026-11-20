@@ -1,4 +1,62 @@
-const SITE = "https://animego.org";
+import { Resolver } from "node:dns";
+import { get as httpsGet } from "node:https";
+
+const SITE = "https://animego.me";
+const DNS_SERVERS = ["1.1.1.1", "8.8.8.8"];
+const DNS_CACHE_TTL_MS = 5 * 60 * 1000;
+let cachedAddress = null;
+let cachedAddressUntil = 0;
+
+async function resolveAnimeGoAddress() {
+  if (cachedAddress && Date.now() < cachedAddressUntil) return cachedAddress;
+  let lastError;
+  for (const server of DNS_SERVERS) {
+    const resolver = new Resolver();
+    resolver.setServers([server]);
+    try {
+      const [address] = await resolver.resolve4("animego.me");
+      if (!address) throw new Error("Публичный DNS не вернул IPv4-адрес AnimeGO.");
+      cachedAddress = address;
+      cachedAddressUntil = Date.now() + DNS_CACHE_TTL_MS;
+      return address;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw new Error("Не удалось разрешить animego.me через публичные DNS-серверы: " +
+    (lastError instanceof Error ? lastError.message : String(lastError)));
+}
+
+function requestAnimeGo(url, { headers = {} } = {}) {
+  const target = new URL(url);
+  if (target.protocol !== "https:" || target.hostname !== "animego.me") {
+    return Promise.reject(new Error("AnimeGO request заблокирован: недопустимый адрес."));
+  }
+  return resolveAnimeGoAddress().then((address) => new Promise((resolve, reject) => {
+    const req = httpsGet(target, {
+      headers,
+      lookup(_hostname, options, callback) {
+        if (options?.all) callback(null, [{ address, family: 4 }]);
+        else callback(null, address, 4);
+      },
+    }, (response) => {
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => { body += chunk; });
+      response.on("end", () => {
+        const status = response.statusCode || 0;
+        resolve({
+          ok: status >= 200 && status < 300,
+          status,
+          text: async () => body,
+          json: async () => JSON.parse(body),
+        });
+      });
+    });
+    req.setTimeout(20000, () => req.destroy(new Error("Превышено время ожидания ответа AnimeGO.")));
+    req.on("error", reject);
+  }));
+}
 
 function decodeHtml(value) {
   return String(value || "")
@@ -162,13 +220,13 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
     if (url.pathname === "/api/animego/search") {
       const query = String(url.searchParams.get("q") || "").trim();
       if (query.length < 2 || query.length > 120) return sendJson(response, 400, { error: "Поисковый запрос должен содержать от 2 до 120 символов." });
-      const page = await fetch(SITE + "/search/anime?" + new URLSearchParams({ q: query }), { headers });
+      const page = await requestAnimeGo(SITE + "/search/anime?" + new URLSearchParams({ q: query }), { headers });
       if (!page.ok) throw new Error("AnimeGO: HTTP " + page.status);
       return sendJson(response, 200, { items: parseAnimeGoSearch(await page.text()), page: 1, hasNextPage: false });
     }
     const episodeMatch = url.pathname.match(/^\/api\/animego\/episode\/(\d+)$/);
     if (episodeMatch) {
-      const player = await fetch(SITE + "/player/videos/" + encodeURIComponent(episodeMatch[1]), {
+      const player = await requestAnimeGo(SITE + "/player/videos/" + encodeURIComponent(episodeMatch[1]), {
         headers: { ...headers, Accept: "application/json", "X-Requested-With": "XMLHttpRequest", Referer: SITE + "/" },
       });
       if (!player.ok) throw new Error("AnimeGO player: HTTP " + player.status);
@@ -179,10 +237,10 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
     if (match) {
       const slug = decodeURIComponent(match[1]);
       if (!/^[\p{L}\p{N}-]+$/u.test(slug)) return sendJson(response, 400, { error: "Некорректный AnimeGO slug." });
-      const page = await fetch(SITE + "/anime/" + encodeURIComponent(slug), { headers });
+      const page = await requestAnimeGo(SITE + "/anime/" + encodeURIComponent(slug), { headers });
       if (!page.ok) throw new Error("AnimeGO: HTTP " + page.status);
       const detail = parseAnimeGoDetail(await page.text(), SITE + "/anime/" + encodeURIComponent(slug));
-      const player = await fetch(SITE + "/player/" + encodeURIComponent(detail.externalId), {
+      const player = await requestAnimeGo(SITE + "/player/" + encodeURIComponent(detail.externalId), {
         headers: { ...headers, Accept: "application/json", "X-Requested-With": "XMLHttpRequest", Referer: SITE + "/" },
       });
       let parsed = { episodes: [], voices: [] };
