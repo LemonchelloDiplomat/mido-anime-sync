@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getAppLocale, saveAppLocale, type AppLocale, t } from "./i18n.js";
 import type { ChangeEvent, FormEvent } from "react";
 
 import type {
@@ -186,6 +187,7 @@ function App() {
   const [metadataProgress, setMetadataProgress] = useState<MetadataEnrichmentProgress | null>(null);
   const [metadataEnrichmentError, setMetadataEnrichmentError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [appLocale, setAppLocale] = useState<AppLocale>(() => getAppLocale());
   const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus | null>(null);
   const [integrationStatusLoading, setIntegrationStatusLoading] = useState(false);
   const [integrationStatusError, setIntegrationStatusError] = useState("");
@@ -1994,7 +1996,7 @@ function App() {
 
         <div className="sidebar-bottom">
           <button className="nav-item" type="button" disabled aria-disabled="true" title="Раздел настроек пока не реализован">
-            ⚙ <span>Настройки</span>
+            ⚙ <span>{appLocale === "ru" ? "Настройки" : appLocale === "ja" ? "設定" : "Settings"}</span>
           </button>
           <div className="version">mido-anime-sync v0.5</div>
         </div>
@@ -2091,7 +2093,7 @@ function App() {
               <div className="section-heading">
                 <div>
                   <div className="eyebrow">ACCOUNT CONNECTIONS</div>
-                  <h2>Подключение аккаунтов</h2>
+                  <h2>{appLocale === "ru" ? "Подключение аккаунтов" : appLocale === "ja" ? "アカウント接続" : "Account connections"}</h2>
                   <p>Авторизация проходит на официальных сайтах. Пароли от аккаунтов приложение не запрашивает.</p>
                 </div>
                 <button className="secondary-button" onClick={() => {
@@ -2911,7 +2913,7 @@ function App() {
                   })}
               </div>
             )}
-            <StreamingCatalogPanel query={searchQuery} onImport={addCatalogAnime} onImportSnapshot={importYummyAnimeSnapshot} />
+            <StreamingCatalogPanel query={searchQuery} onImport={addCatalogAnime} onImportSnapshot={importYummyAnimeSnapshot} locale={appLocale} />
           </div>
         </div>
       )}
