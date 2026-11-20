@@ -147,14 +147,14 @@ function posterFromCard(card) {
 
 function ratingFromCard(card) {
   const source = String(card || "");
-  const tags = [...source.matchAll(/<[a-z][\\w:-]*\\b[^>]*>/gi)];
+  const tags = [...source.matchAll(/<[a-z][\w:-]*\b[^>]*>/gi)];
   for (const match of tags) {
     const tag = match[0];
     const className = attr(tag, "class");
     if (!/(?:rating|score|rate)/i.test(className)) continue;
     const raw = attr(tag, "data-rating") || attr(tag, "data-score") || attr(tag, "content") || attr(tag, "title");
     const text = raw || stripTags(source.slice(match.index, match.index + 240));
-    const number = Number(String(text).match(/\\d{1,2}(?:[.,]\\d{1,2})?/)?.[0]?.replace(",", "."));
+    const number = Number(String(text).match(/\d{1,2}(?:[.,]\d{1,2})?/)?.[0]?.replace(",", "."));
     if (Number.isFinite(number) && number >= 0 && number <= 10) return number;
   }
   return null;
