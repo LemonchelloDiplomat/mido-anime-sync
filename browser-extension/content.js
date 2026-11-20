@@ -320,7 +320,7 @@
     // YummyAnime may embed CVH through AnimeGO's /cdn-iframe/ wrapper.
     // That wrapper is a CVH transport, not an AnimeGO watch source.
 
-    const detected = detect();
+    const detected = isYummyCvhWrapperFrame && parentMetadata ? parentMetadata : detect();
     if (!detected.title || !Number.isSafeInteger(detected.episode) || detected.episode < 1) return;
     frame.contentWindow.postMessage({
       type: "MIDAHOSHI_PARENT_METADATA",
