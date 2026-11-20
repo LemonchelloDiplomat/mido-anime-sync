@@ -552,7 +552,7 @@
         !Number.isFinite(duration) || duration <= 0) return;
 
     const voice = typeof sample.voice === "string" ? sample.voice.trim().slice(0, 100) : null;
-    const episodeKey = [Number.isSafeInteger(season) && season > 0 ? season : "", episode, voice || ""].join("|");
+    const episodeKey = [Number.isSafeInteger(season) && season > 0 ? season : "", episode].join("|");
     if (anixartEpisodeKey !== episodeKey) {
       if (anixartEpisodeKey !== null) {
         previousAnixartTime = null;
