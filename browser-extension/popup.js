@@ -64,7 +64,14 @@ function renderQueueDiagnostics(queue) {
       const date = event.observedAt ? new Date(event.observedAt) : null;
       const time = date && !Number.isNaN(date.getTime()) ? date.toLocaleString() : "время неизвестно";
       const id = event.eventId ? String(event.eventId).slice(-8) : "ID отсутствует";
-      detail.textContent = `Обнаружено: ${time} · ID: …${id}`;
+      const source = normalizeQueueSource(event.sourceUrl) || "адрес источника неизвестен";
+      const current = Number.isFinite(Number(event.currentTimeSeconds))
+        ? `${Math.round(Number(event.currentTimeSeconds))} с`
+        : "позиция неизвестна";
+      const duration = Number.isFinite(Number(event.durationSeconds))
+        ? `${Math.round(Number(event.durationSeconds))} с`
+        : "длительность неизвестна";
+      detail.textContent = `Обнаружено: ${time} · ID: …${id} · Просмотр: ${current} / ${duration} · Источник: ${source}`;
       section.append(detail);
     }
     groupsElement.append(section);
