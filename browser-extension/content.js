@@ -291,7 +291,9 @@
     const isCvhPlayerTarget = targetHost === "player.cdnvideohub.com";
     const isKodikTarget = targetHost === "kodikplayer.com";
     if (!isAniBoomTarget && !isCvhTarget && !isCvhPlayerTarget && !isKodikTarget) return;
-    if ((isAniBoomTarget || isCvhTarget) && service !== "animego") return;
+    if (isAniBoomTarget && service !== "animego") return;
+    // YummyAnime may embed CVH through AnimeGO's /cdn-iframe/ wrapper.
+    // That wrapper is a CVH transport, not an AnimeGO watch source.
 
     const detected = detect();
     if (!detected.title || !Number.isSafeInteger(detected.episode) || detected.episode < 1) return;
