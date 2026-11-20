@@ -110,6 +110,25 @@ describe("AnimeGO public catalog adapter", () => {
     ]);
   });
 
+  it("extracts poster URLs from unquoted lazy attributes and non-image background wrappers", () => {
+    const html = `
+      <div class="ani-grid__item">
+        <a href="/anime/unquoted-lazy-2001"><div class="ani-grid__item-picture"><img data-src=https://img.cdngos.com/posters/unquoted.jpg alt="Unquoted"></div></a>
+      </div>
+      <div class="ani-grid__item">
+        <a href="/anime/background-data-2002"><div class="poster" data-bg="https://img.cdngos.com/posters/background.jpg"></div></a>
+      </div>
+      <div class="ani-grid__item">
+        <a href="/anime/style-background-2003"><div class="poster" style="background-image:url(https://img.cdngos.com/posters/style.jpg)"></div></a>
+      </div>
+    `;
+    expect(parseAnimeGoSearch(html).map((item) => item.posterUrl)).toEqual([
+      "https://img.cdngos.com/posters/unquoted.jpg",
+      "https://img.cdngos.com/posters/background.jpg",
+      "https://img.cdngos.com/posters/style.jpg",
+    ]);
+  });
+
   it("ranks the matching romanized title above unrelated AnimeGO results", async () => {
     const relevantHtml = '<div class="ani-grid__item"><a title="Shunkashuutou Daikousha: Haru no Mai" href="/anime/shunkashuutou-daikousha-haru-no-mai-9001"><img alt="Agents of the Four Seasons: Dance of Spring" src="/spring.jpg"></a></div><div class="ani-grid__item"><a title="K-On!" href="/anime/k-on-9002"><img alt="K-On!" src="/kon.jpg"></a></div>';
     const fetcher = vi.fn(async () => ({ ok: true, status: 200, async text() { return relevantHtml; } }));
