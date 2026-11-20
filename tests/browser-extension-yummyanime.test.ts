@@ -62,7 +62,7 @@ function runPageDetection(hostname: string) {
     chrome: {
       runtime: {
         onMessage: {
-          addListener(listener: typeof listeners.message) {
+          addListener(listener: RuntimeMessageListener) {
             listeners.message = listener;
           },
         },
