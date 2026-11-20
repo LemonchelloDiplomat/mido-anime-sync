@@ -228,7 +228,7 @@ export async function searchAniListAnimeBatch(
   signal?: AbortSignal,
 ): Promise<AnimeIdentity[]> {
   const searches = [...new Set(rawQueries.map((value) => value.trim()).filter((value) => value.length >= 2))]
-    .slice(0, 9);
+    .slice(0, 21);
   if (!searches.length) return [];
 
   const variableDefinitions = searches.map((_, index) => `$search${index}: String!`).join(", ");
