@@ -44,7 +44,7 @@ describe("YummyAnime adapter", () => {
     expect(result.hasNextPage).toBe(false);
   });
 
-  it("maps episode and dubbing metadata without retaining iframe URLs", () => {
+  it("maps episode variants and retains player URLs only in live catalog details", () => {
     const details = parseYummyDetails({
       response: {
         anime_id: 10001,
@@ -74,15 +74,15 @@ describe("YummyAnime adapter", () => {
     });
     expect(details.seasons[0]?.episodes.map((episode) => episode.number)).toEqual([1, 2]);
     expect(details.seasons[0]?.episodes[0]?.voiceTracks).toEqual([
-      { externalId: "50001", name: "Studio Example" },
-      { externalId: "50002", name: "Subtitles Team" },
+      { externalId: "50001", name: "Studio Example", playerUrl: "https://player.example/embed?token=temporary", playerName: "Kodik" },
+      { externalId: "50002", name: "Subtitles Team", playerUrl: null, playerName: "Sibnet" },
     ]);
     expect(details.seasons[0]?.episodes[1]?.voiceTracks).toEqual([
       { externalId: "50003", name: "Subtitles Team" },
     ]);
     expect(details.voices.map((voice) => voice.name)).toEqual(["Studio Example", "Subtitles Team"]);
-    expect(JSON.stringify(details)).not.toContain("temporary");
-    expect(JSON.stringify(details)).not.toContain("iframe");
+    expect(details.seasons[0]?.episodes[1]?.voiceTracks?.[0]?.playerUrl).toBeNull();
+    expect(details.seasons[0]?.episodes[0]?.voiceTracks?.[0]?.playerUrl).toContain("player.example");
   });
 
   it("imports a YummyAnime list into its own source entries without touching other services", () => {
