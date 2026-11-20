@@ -296,7 +296,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
               <>
                 <h3>{details.title}</h3>
                 {details.description && <p>{details.description}</p>}
-                <p className="streaming-detail-meta">{details.year || "Год не указан"}{details.episodeCount ? " · " + details.episodeCount + " эп." : ""}</p>
+                <p className="streaming-detail-meta">{details.year || "Год не указан"}{provider !== "anixart" && details.episodeCount ? " · " + details.episodeCount + " эп." : provider === "anixart" && anixArtCatalog ? " · " + anixArtCatalog.seasons.reduce((total, season) => total + season.episodes.length, 0) + " эп. в каталоге плеера" : ""}</p>
                 {details.seasons.length > 0 && <div className="streaming-season-list">
                   <strong>Серии</strong>
                   {details.seasons.map((season) => <section className="streaming-season" key={season.number}>
@@ -336,21 +336,26 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
                             <h4>Сезон {season.number}</h4>
                             <div className="streaming-episode-list">
                               {season.episodes.map((episode) => {
+                                const episodeKey = "anixart:" + selected.externalId + ":" + season.number + ":" + episode.number;
+                                const isExpanded = expandedEpisode === episodeKey;
                                 const isCurrent = anixArtCatalog.current.season === season.number && anixArtCatalog.current.episode === episode.number;
                                 return (
-                                  <article className="streaming-episode" key={season.number + ":" + episode.number}>
-                                    <div className="streaming-episode-toggle">
+                                  <article className={"streaming-episode" + (isExpanded ? " expanded" : "")} key={episodeKey}>
+                                    <button type="button" className="streaming-episode-toggle" aria-expanded={isExpanded} onClick={() => setExpandedEpisode(isExpanded ? null : episodeKey)}>
                                       <span><strong>Серия {episode.number}{isCurrent ? " · Сейчас на сайте" : ""}</strong></span>
-                                      <span className="streaming-episode-summary">{episode.voices.length} озвуч.</span>
-                                    </div>
-                                    {episode.voices.length > 0 && (
+                                      <span className="streaming-episode-summary">{episode.voices.length} озвуч. <span aria-hidden="true">{isExpanded ? "−" : "+"}</span></span>
+                                    </button>
+                                    {isExpanded && (
                                       <div className="streaming-episode-voices">
-                                        <ul>{episode.voices.map((voice) => (
-                                          <li key={voice.name}>
-                                            <span className="streaming-voice-info"><strong>{voice.name}</strong><small>{voice.type || "Тип озвучки не указан"}</small></span>
-                                            {isCurrent && anixArtCatalog.current.voice === voice.name && <small>Выбрана в плеере</small>}
-                                          </li>
-                                        ))}</ul>
+                                        <strong>Варианты озвучки</strong>
+                                        {episode.voices.length > 0 ? (
+                                          <ul>{episode.voices.map((voice, voiceIndex) => (
+                                            <li key={voice.name + ":" + (voice.type || "") + ":" + voiceIndex}>
+                                              <span className="streaming-voice-info"><strong>{voice.name}</strong><small>{voice.type || "Тип озвучки не указан"}</small></span>
+                                              {isCurrent && anixArtCatalog.current.voice === voice.name && <small>Выбрана в плеере</small>}
+                                            </li>
+                                          ))}</ul>
+                                        ) : <p>Для этой серии сайт не предоставил список озвучек.</p>}
                                       </div>
                                     )}
                                   </article>
