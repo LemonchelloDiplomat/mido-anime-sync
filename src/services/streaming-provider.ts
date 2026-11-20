@@ -66,6 +66,8 @@ export interface StreamingTitle {
   title: string;
   alternativeTitles: string[];
   posterUrl?: string | null;
+  /** Verified secondary cover used only when the provider image fails to load. */
+  fallbackPosterUrl?: string | null;
   averageScore?: number | null;
   posterSource?: string | null;
   scoreSource?: string | null;
