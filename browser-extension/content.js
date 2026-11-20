@@ -207,7 +207,7 @@
     const isUsableAnimeTitle = (candidate) => {
       const normalized = String(candidate || "").trim().toLocaleLowerCase();
       if (normalized.length < 2 || /^[.…\-–—_]+$/.test(normalized)) return false;
-      return !/^(?:загрузка|loading|yummyanime|animego|смотреть аниме онлайн)(?:\s*[|·-].*)?$/i.test(normalized);
+      return !/^(?:загрузка|loading|yummyanime|animego|смотреть аниме(?: онлайн)?)(?:\s*[|·\-–—].*)?$/i.test(normalized);
     };
     let title = titleCandidates.find(isUsableAnimeTitle) || "";
     title = title
