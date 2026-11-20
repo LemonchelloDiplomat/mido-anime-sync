@@ -111,6 +111,18 @@ describe("AnimeGO public catalog adapter", () => {
     ]);
   });
 
+  it("reads AnimeGO poster srcsets and release years from the result card", () => {
+    const html = `
+      <div class="ani-grid__item">
+        <a title="Example Anime" href="/anime/example-anime-5001"><picture><source data-lazy-srcset="/small.jpg 320w, /large.jpg 900w"></picture></a>
+        <span>2024</span>
+      </div>`;
+    expect(parseAnimeGoSearch(html)[0]).toMatchObject({
+      posterUrl: "https://animego.me/large.jpg",
+      year: 2024,
+    });
+  });
+
   it("extracts poster URLs from unquoted lazy attributes and non-image background wrappers", () => {
     const html = `
       <div class="ani-grid__item">
