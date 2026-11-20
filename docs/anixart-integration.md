@@ -1,19 +1,19 @@
 # AnixART website integration
 
-The app includes the public desktop website at https://anixart.site/ in Streaming catalogs. This is not an integration with the AnixART Android/iOS application.
+The app integrates the public desktop website at https://anixart.site/. This is not an integration with the AnixART Android/iOS application.
 
 ## Supported capabilities
 
 - Public website search.
 - Public title cards and details (title, poster, synopsis, year, genres where present).
-- Public dubbing/voice-team labels. Episode totals are taken only from the structured player catalog, not guessed from incidental page text.
-- Full season/episode/voice catalog captured from the desktop website player after the user opens a title and the player state becomes available.
-- Local interface display of seasons and expandable episode rows with voice names/types. Voice lists stay collapsed until an episode is opened.
-- Current season, episode and selected voice indicator.
+- Full season, episode, and voice catalog fetched directly by the local server from the public CVH playlist API.
+- Local interface display of seasons and expandable episode rows with voice names and types.
+- Watch-progress events through the existing browser extension. The extension is not required for catalog search, title details, seasons, episodes, or voices.
 - Opening the original website page.
-- Watch progress events through the browser extension.
 
-The public HTML alone does not provide a reliable total episode count or a complete season/episode manifest. The title card therefore does not invent an episode total before the player catalog arrives. Once available, the interface displays the total number of episodes in that captured player catalog. The browser extension reads the structured `video-player.state.seasons` object from the page player, strips player/video identifiers and URLs, and forwards only season numbers, episode numbers, voice names/types and current selection to the local server. The local interface polls this short-lived catalog cache while an AnixART title is selected.
+The local server reads the public player metadata attributes data-title-id, data-publisher-id, and optional data-aggregator from the title page, then requests the corresponding playlist from plapi.cdnvideohub.com. Only season/episode numbers, episode names, voice names, and voice types are returned to the app. CVH video identifiers and transient stream URLs are not persisted or exposed in the catalog response.
+
+The first direct-server implementation retrieves catalog metadata. Selecting an episode or voice and resolving a playable stream into the app's own video player are separate follow-up tasks. Until then, the voice row links to the original AnixART title page for playback.
 
 ## Account limitations
 
@@ -21,17 +21,14 @@ The website itself states that it is not connected to the AnixART mobile applica
 - website login is not treated as mobile-app login;
 - no mobile account import or sync is implemented;
 - no passwords are sent to undocumented app endpoints;
-- no reverse-engineered mobile API is used.
-
-This is intentional. A similarly named website and mobile app are not assumed to share user accounts.
+- no reverse-engineered mobile account API is used.
 
 ## Data safety and stability
 
-- The adapter reads public HTML only.
-- The extension does not extract or forward `cvhId`, `vkId`, video iframe URLs, stream URLs, signed tokens, or cookies.
-- Catalog data is held in local memory for up to 10 minutes and is not persisted to the library.
-- Watch progress comes from the existing browser extension and remains a separate AnixART source entry in the local library.
-- Selecting an episode/voice and in-app playback are not yet implemented; playback selection remains on the AnixART website.
-- Search, title pages and player state are website interfaces, not a stable third-party API contract, and may change without notice.
+- The adapter reads public website HTML and the public CVH playlist endpoint.
+- CVH vkId values and returned video stream URLs are not stored in the local library or exposed to the browser UI.
+- No credentials, cookies, or signed playback URLs are persisted.
+- Watch progress remains a separate AnixART source entry and still uses the existing browser extension.
+- Website markup and the CVH playlist response are not a stable third-party API contract and may change without notice.
 
 Reference: https://anixart.site/7004-magicheskaja-bitva-2.html
