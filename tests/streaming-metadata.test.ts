@@ -1,31 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { AnimeIdentity } from "../src/core/types.js";
 import type { StreamingTitle } from "../src/services/streaming-provider.js";
-import { applyFallbackMetadata, applyStreamingPosterFallback } from "../src/services/streaming-metadata.js";
-
-function identity(id: string, year: number, score: number): AnimeIdentity {
-  return {
-    id: "anilist:" + id,
-    titles: { english: "Example Anime", romaji: "Example Anime", synonyms: ["Example"], native: "例アニメ" },
-    externalIds: { anilist: id },
-    year,
-    posterUrl: "https://images.example/" + id + ".jpg",
-    averageScore: score,
-  };
-}
-
-function streamingTitle(year: number | null = 2024): StreamingTitle {
-  return {
-    provider: "animego",
-    externalId: "example",
-    url: "https://animego.org/anime/example",
-    title: "Example Anime",
-    alternativeTitles: ["Example"],
-    posterUrl: null,
-    averageScore: null,
-    year,
-  };
-}
+import { applyStreamingPosterFallback } from "../src/services/streaming-metadata.js";
 
 describe("independent streaming poster matching", () => {
   const animeGoItem: StreamingTitle = {
