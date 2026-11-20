@@ -145,6 +145,7 @@ export function parseAnixArtDetail(html, requestedUrl) {
   const id = slug.match(/^(\d+)-/)?.[1] || attr(playerTag, "data-title-id");
   const playerId = attr(playerTag, "data-title-id");
   const publisherId = attr(playerTag, "data-publisher-id");
+  const bodyText = stripTags(html);
   const yearMatch = bodyText.match(/(?:Год|Год выпуска)\s*:\s*(20\d{2}|19\d{2})/i);
   const year = yearMatch ? Number(yearMatch[1]) : null;
   const voices = sectionLinks(html, "Озвучка").map((name, index) => ({
