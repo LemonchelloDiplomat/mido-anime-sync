@@ -195,25 +195,27 @@ export function parseAnimeGoSearch(html) {
 
   for (let index = 0; index < cardStarts.length; index += 1) {
     const card = String(html).slice(cardStarts[index], cardStarts[index + 1] ?? String(html).length);
-    const anchors = [...card.matchAll(/<a\b[^>]*>/gi)];
+    const anchors = [...card.matchAll(/<a\\b[^>]*>([\\s\\S]*?)<\\/a>/gi)];
     let selectedAnchor = null;
     let selectedUrl = null;
     for (const anchor of anchors) {
-      const href = attr(anchor[0], "href");
+      const openingTag = anchor[0].slice(0, anchor[0].indexOf(">") + 1);
+      const href = attr(openingTag, "href");
       const candidate = safeUrl(href);
       if (!candidate) continue;
       const pathname = new URL(candidate).pathname;
-      if (/^\/anime\/[\p{L}\p{N}-]+-\d+\/?$/u.test(pathname)) {
-        selectedAnchor = anchor[0];
+      if (/^\\/anime\\/[\\p{L}\\p{N}-]+-\\d+\\/?$/u.test(pathname)) {
+        selectedAnchor = openingTag;
         selectedUrl = candidate;
         break;
       }
     }
     if (!selectedAnchor || !selectedUrl || seen.has(selectedUrl)) continue;
 
-    const image = card.match(/<img\b[^>]*>/i)?.[0] || "";
+    const image = card.match(/<img\\b[^>]*>/i)?.[0] || "";
     const title = attr(selectedAnchor, "title") || attr(image, "alt") ||
-      stripTags(card.match(/<a\b[^>]*>([\s\S]*?)<\/a>/i)?.[1] || "");
+      anchors.map((anchor) => attr(anchor[0].slice(0, anchor[0].indexOf(">") + 1), "title") || stripTags(anchor[1]))
+        .find(Boolean) || "";
     if (!title) continue;
 
     const cardText = stripTags(card);
