@@ -227,9 +227,11 @@ export function parseAnimeGoSearch(html) {
     if (!selectedAnchor || !selectedUrl || seen.has(selectedUrl)) continue;
 
     const image = card.match(/<img\b[^>]*>/i)?.[0] || "";
+    const slug = new URL(selectedUrl).pathname.split("/").filter(Boolean).at(-1) || selectedUrl;
+    const titleFromSlug = slug.replace(/-\d+$/, "").replace(/[-_]+/g, " ").trim();
     const title = attr(selectedAnchor, "title") || attr(image, "alt") ||
       anchors.map((anchor) => attr(anchor[0].slice(0, anchor[0].indexOf(">") + 1), "title") || stripTags(anchor[1]))
-        .find(Boolean) || "";
+        .find(Boolean) || titleFromSlug;
 
     if (!title) continue;
 
