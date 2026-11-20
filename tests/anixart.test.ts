@@ -1,9 +1,11 @@
+import { Writable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   handleAnixArtRequest,
   parseAnixArtDetail,
   parseAnixArtSearch,
   parseAnixArtPlayerPlaylist,
+  selectAnixArtVideoSource,
 } from "../server/anixart-routes.mjs";
 
 function responseCapture(): { status: number; body: string; writeHead(status: number): void; end(body?: string): void; json(): any } {
@@ -86,7 +88,7 @@ describe("AnixART public website catalog adapter", () => {
   it("maps the public CVH playlist into seasons, episodes, and voice variants", () => {
     const parsed = parseAnixArtPlayerPlaylist({
       items: [
-        { season: 2, episode: 1, name: "Первая серия", voiceStudio: "AniBoom", voiceType: "Дубляж", vkId: "private-id" },
+        { season: 2, episode: 1, name: "Первая серия", voiceStudio: "AniBoom", voiceType: "Дубляж", vkId: "12345" },
         { season: 2, episode: 1, voiceStudio: "Субтитры", voiceType: "Субтитры", vkId: "private-id-2" },
         { season: 1, episode: 3, voiceStudio: "AniLibria", voiceType: "Многоголосый", vkId: "private-id-3" },
       ],
@@ -96,12 +98,62 @@ describe("AnixART public website catalog adapter", () => {
       seasons: [
         { number: 1, episodes: [{ number: 3, voiceTracks: [{ name: "AniLibria", playerName: "Многоголосый" }] }] },
         { number: 2, episodes: [{ number: 1, title: "Первая серия", voiceTracks: [
-          { name: "AniBoom", playerName: "Дубляж" },
+          { name: "AniBoom", playerName: "Дубляж", playerUrl: "/api/anixart/stream/12345" },
           { name: "Субтитры", playerName: "Субтитры" },
         ] }] },
       ],
     });
     expect(JSON.stringify(parsed)).not.toContain("private-id");
+  });
+
+  it("selects the highest available MP4 source from CVH video metadata", () => {
+    expect(selectAnixArtVideoSource({
+      sources: {
+        hlsUrl: "https://vd576.okcdn.ru/master.m3u8",
+        mpegHighUrl: "https://vd576.okcdn.ru/720.mp4",
+        mpegFullHdUrl: "https://vd576.okcdn.ru/1080.mp4",
+      },
+    })).toBe("https://vd576.okcdn.ru/1080.mp4");
+    expect(selectAnixArtVideoSource({ sources: { mpegHighUrl: "http://vd576.okcdn.ru/insecure.mp4" } })).toBeNull();
+    expect(selectAnixArtVideoSource({ sources: { mpegHighUrl: "https://evil.example/video.mp4" } })).toBeNull();
+  });
+
+  it("proxies CVH MP4 playback and forwards byte-range requests", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const target = String(input);
+      if (target.includes("/video/12345")) {
+        return new Response(JSON.stringify({ sources: { mpegFullHdUrl: "https://vd576.okcdn.ru/video.mp4" } }), {
+          status: 200, headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("video-bytes", {
+        status: 206,
+        headers: { "Content-Type": "video/mp4", "Content-Range": "bytes 0-10/11", "Content-Length": "11" },
+      });
+    });
+    const chunks: Buffer[] = [];
+    const response = new Writable({
+      write(chunk, _encoding, callback) { chunks.push(Buffer.from(chunk)); callback(); },
+    }) as Writable & { status?: number; headers?: Record<string, string>; writeHead(status: number, headers?: Record<string, string>): void };
+    response.writeHead = (status, headers = {}) => { response.status = status; response.headers = headers; };
+    const finished = new Promise<void>((resolve) => response.on("finish", resolve));
+    await handleAnixArtRequest(
+      { method: "GET", headers: { range: "bytes=0-10" } },
+      response,
+      new URL("http://127.0.0.1/api/anixart/stream/12345"),
+      {
+        fetch: fetcher,
+        sendJson(res: any, status: number, body: unknown) { res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(body)); },
+      },
+    );
+    await finished;
+    expect(response.status).toBe(206);
+    expect(response.headers).toMatchObject({ "Content-Type": "video/mp4", "content-range": "bytes 0-10/11" });
+    expect(Buffer.concat(chunks).toString()).toBe("video-bytes");
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://vd576.okcdn.ru/video.mp4",
+      expect.objectContaining({ headers: expect.objectContaining({ Range: "bytes=0-10", Referer: "https://player.cdnvideohub.com/" }) }),
+    );
   });
 
   it("loads the AnixART CVH playlist directly from the local server route", async () => {
