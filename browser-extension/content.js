@@ -369,7 +369,9 @@
         metadata.episode < 1 ||
         !isAllowedWatchSourceUrl(metadata.sourceUrl) ||
         (new URL(metadata.sourceUrl).origin !== event.origin &&
-          !(isCvhPlayerFrame && event.origin === "https://animego.me" && metadata.service === "yummyanime")) ||
+          !(isCvhPlayerFrame &&
+            (event.origin === "https://animego.me" || event.origin === "https://ru.yummyani.me") &&
+            metadata.service === "yummyanime")) ||
         ((isKodikFrame || isCvhTrackingFrame) && metadata.service != null &&
           metadata.service !== "animego" && metadata.service !== "yummyanime")
       ) return;
@@ -378,7 +380,9 @@
         title: metadata.title.trim(),
         episode: metadata.episode,
         sourceUrl: sourceUrl.origin + sourceUrl.pathname,
-        service: (isKodikFrame || isCvhTrackingFrame) ? metadata.service : "animego",
+        service: (isKodikFrame || isCvhTrackingFrame || isYummyCvhWrapperFrame)
+          ? metadata.service
+          : "animego",
       };
       const nextMetadataKey = [
         nextMetadata.title.trim().toLocaleLowerCase(),
