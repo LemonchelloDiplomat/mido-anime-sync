@@ -144,8 +144,8 @@ describe("AnimeGO public catalog adapter", () => {
   });
 
   it("applies a bounded abort signal to poster CDN requests", async () => {
-    const fetcher = vi.fn(async (_url: string, options: RequestInit) => {
-      expect(options.signal).toBeInstanceOf(AbortSignal);
+    const fetcher = vi.fn(async (_url: RequestInfo | URL, options?: RequestInit) => {
+      expect(options?.signal).toBeInstanceOf(AbortSignal);
       return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), {
         status: 200, headers: { "Content-Type": "image/jpeg" },
       });
@@ -263,7 +263,7 @@ describe("AnimeGO public catalog adapter", () => {
     const response = {
       status: 0,
       headers: {} as Record<string, string>,
-      body: Buffer.alloc(0),
+      body: Buffer<ArrayBufferLike> = Buffer.alloc(0),
       writeHead(status: number, headers: Record<string, string> = {}) { this.status = status; this.headers = headers; },
       end(body: Buffer | string = "") { this.body = Buffer.isBuffer(body) ? body : Buffer.from(body); },
     };
