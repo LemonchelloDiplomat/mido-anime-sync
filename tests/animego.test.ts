@@ -63,13 +63,13 @@ describe("AnimeGO public catalog adapter", () => {
   it("parses episode IDs and provider-specific player embeds", () => {
     const payload = {
       data: {
-        content: \`
+        content: `
           <div class="player-video-bar__item" data-episode-number="1" data-episode-title="First" data-episode="555"></div>
           <div class="player-video-bar__item" data-episode="556" data-episode-number="2" data-episode-title="Second"></div>
           <button data-player="//kodikplayer.com/seria/123/hash/720p" data-translation-title="Studio Example" data-provider-title="Kodik" data-ptranslation="22">Play</button>
           <button data-player="https://aniboom.one/embed/abc?episode=1" data-translation-title="Dub Two (ошибка)" data-provider-title="AniBoom" data-ptranslation="23">Play</button>
           <button data-translation-title="Not a player" data-provider-title="Unknown">Skip</button>
-        \`,
+        `,
       },
     };
     const parsed = parseAnimeGoPlayer(payload, "https://animego.org/anime/sample-title-1234");
