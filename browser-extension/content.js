@@ -829,17 +829,6 @@
       if (event.source !== window || event.origin !== location.origin) return;
       if (event.data?.type === "MIDAHOSHI_ANIXART_STATE") {
         maybeSendAnixartSample(event.data.state || {});
-        return;
-      }
-      if (event.data?.type === "MIDAHOSHI_ANIXART_CATALOG") {
-        const catalog = event.data.catalog;
-        if (!catalog || typeof catalog.slug !== "string" ||
-            !/^\d+-[\p{L}\p{N}-]+\.html$/u.test(catalog.slug) ||
-            !Array.isArray(catalog.seasons)) return;
-        chrome.runtime.sendMessage({
-          type: "MIDAHOSHI_ANIXART_CATALOG",
-          catalog,
-        });
       }
     });
   }
