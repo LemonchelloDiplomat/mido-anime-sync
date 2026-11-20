@@ -34,6 +34,7 @@ describe("streaming catalogue fallback metadata", () => {
     expect(result.averageScore).toBe(8.7);
     expect(result.year).toBe(2024);
     expect(result.posterSource).toBe("AniList");
+    expect(result.fallbackPosterUrl).toBe("https://images.example/1.jpg");
     expect(result.scoreSource).toBe("AniList");
     expect(result.identity?.externalIds.anilist).toBe("1");
   });
@@ -61,6 +62,31 @@ describe("streaming catalogue fallback metadata", () => {
     expect(result.posterSource).toBe("AniList");
     expect(result.averageScore).toBe(7.4);
     expect(result.scoreSource).toBe("AnimeGO");
+  });
+
+
+  it("keeps a verified AniList cover as a secondary fallback for a broken AnixART poster", () => {
+    const item = {
+      ...streamingTitle(),
+      provider: "anixart" as const,
+      posterUrl: "https://anixart.site/uploads/broken-cover.jpg",
+      averageScore: 8.2,
+      scoreSource: "AnixART",
+    };
+    const result = applyFallbackMetadata(item, [identity("1", 2024, 9.1)]);
+    expect(result.posterUrl).toBe("https://anixart.site/uploads/broken-cover.jpg");
+    expect(result.fallbackPosterUrl).toBe("https://images.example/1.jpg");
+    expect(result.averageScore).toBe(8.2);
+    expect(result.scoreSource).toBe("AnixART");
+  });
+
+  it("does not attach a fallback poster when exact-title candidates are ambiguous", () => {
+    const item = { ...streamingTitle(null), posterUrl: "https://provider.example/poster.jpg" };
+    const result = applyFallbackMetadata(item, [
+      identity("1", 2023, 8.1),
+      identity("2", 2024, 8.7),
+    ]);
+    expect(result.fallbackPosterUrl).toBeNull();
   });
 
   it("matches Russian and English aliases without accepting partial title matches", () => {
