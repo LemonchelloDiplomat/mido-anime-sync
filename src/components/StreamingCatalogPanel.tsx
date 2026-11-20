@@ -286,8 +286,8 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
       {activePlayer && <div className="streaming-player-backdrop" role="presentation" onClick={() => setActivePlayer(null)}>
         <section className="streaming-player-dialog" role="dialog" aria-modal="true" aria-label={activePlayer.name} onClick={(event) => event.stopPropagation()}>
           <header><strong>{activePlayer.name}</strong><button type="button" className="secondary" onClick={() => setActivePlayer(null)}>Закрыть</button></header>
-          <iframe key={activePlayer.url} src={activePlayer.url} title={activePlayer.name} sandbox="allow-scripts allow-forms allow-presentation" referrerPolicy="no-referrer" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />
-          <p>Если плеер не загружается, возможно, источник запрещает встраивание. В таком случае открой страницу тайтла на сайте.</p>
+          <iframe key={activePlayer.url} src={activePlayer.url} title={activePlayer.name} referrerPolicy="strict-origin-when-cross-origin" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowFullScreen />
+          <p>Если встроенный просмотр не запускается, попробуй открыть сам плеер отдельно. Некоторые источники ограничивают воспроизведение внутри других сайтов.</p><a href={activePlayer.url} target="_blank" rel="noreferrer">Открыть плеер отдельно ↗</a>
         </section>
       </div>}
     </section>
