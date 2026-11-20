@@ -146,7 +146,7 @@
   function detect(videoOverride) {
     if (isCvhTrackingFrame && parentMetadata) {
       return {
-        service: "animego",
+        service: parentMetadata.service || "animego",
         title: parentMetadata.title,
         episode: parentMetadata.episode,
         sourceUrl: parentMetadata.sourceUrl,
@@ -285,7 +285,7 @@
     const isCvhPlayerTarget = targetHost === "player.cdnvideohub.com";
     const isKodikTarget = targetHost === "kodikplayer.com";
     if (!isAniBoomTarget && !isCvhTarget && !isCvhPlayerTarget && !isKodikTarget) return;
-    if ((isAniBoomTarget || isCvhTarget || isCvhPlayerTarget) && service !== "animego") return;
+    if ((isAniBoomTarget || isCvhTarget) && service !== "animego") return;
 
     const detected = detect();
     // Legacy YummyAnime pages may not expose the selected episode in their
@@ -326,7 +326,16 @@
         // AnimeGO responds instead of losing the one-time startup handshake.
         window.parent.postMessage(
           { type: "MIDAHOSHI_REQUEST_PARENT_METADATA" },
-          isCvhPlayerFrame ? "https://animego.me" : isCvhFrame ? location.origin : "*",
+          isCvhPlayerFrame
+            ? (() => {
+                try {
+                  const referrer = new URL(document.referrer);
+                  return isAllowedWatchSourceUrl(referrer.href) ? referrer.origin : "*";
+                } catch {
+                  return "*";
+                }
+              })()
+            : isCvhFrame ? location.origin : "*",
         );
       } else if (parentMetadataRetryTimer !== null) {
         window.clearInterval(parentMetadataRetryTimer);
@@ -335,7 +344,7 @@
     };
 
     window.addEventListener("message", (event) => {
-      const validParentOrigin = isKodikFrame
+      const validParentOrigin = isKodikFrame || isCvhPlayerFrame
         ? isAllowedWatchSourceUrl(event.origin)
         : isAllowedAnimeGoUrl(event.origin);
       if (event.source !== window.parent || !validParentOrigin) return;
@@ -349,14 +358,17 @@
         metadata.episode < 1 ||
         !isAllowedWatchSourceUrl(metadata.sourceUrl) ||
         new URL(metadata.sourceUrl).origin !== event.origin ||
-        (isKodikFrame && metadata.service !== "animego" && metadata.service !== "yummyanime")
+        ((isKodikFrame || isCvhPlayerFrame) &&
+          metadata.service !== undefined &&
+          metadata.service !== "animego" &&
+          metadata.service !== "yummyanime")
       ) return;
       const sourceUrl = new URL(metadata.sourceUrl);
       const nextMetadata = {
         title: metadata.title.trim(),
         episode: metadata.episode,
         sourceUrl: sourceUrl.origin + sourceUrl.pathname,
-        service: isKodikFrame ? metadata.service : "animego",
+        service: (isKodikFrame || isCvhPlayerFrame) ? (metadata.service || "animego") : "animego",
       };
       const nextMetadataKey = [
         nextMetadata.title.trim().toLocaleLowerCase(),
@@ -426,6 +438,7 @@
     window.addEventListener("message", (event) => {
       if (event.origin !== "https://aniboom.one" &&
           event.origin !== "https://kodikplayer.com" &&
+          event.origin !== "https://player.cdnvideohub.com" &&
           event.origin !== location.origin) return;
       if (event.data?.type !== "MIDAHOSHI_REQUEST_PARENT_METADATA") return;
       const frame = queryAllDeep("iframe")
