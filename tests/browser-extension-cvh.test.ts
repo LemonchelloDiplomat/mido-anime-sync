@@ -118,7 +118,12 @@ describe("AnimeGO CVH iframe tracking", () => {
   it("records a CVH watch event from real playback samples in the nested player frame", () => {
     const listeners: Record<string, ((event: any) => void)[]> = {};
     const sentEvents: any[] = [];
-    const parentWindow = { postMessage() {} };
+    const parentMessages: any[] = [];
+    const parentWindow = {
+      postMessage(message: unknown, targetOrigin: string) {
+        parentMessages.push({ message, targetOrigin });
+      },
+    };
     const window = {
       parent: parentWindow,
       addEventListener(type: string, listener: (event: any) => void) {
@@ -298,7 +303,9 @@ describe("AnimeGO CVH iframe tracking", () => {
 
 
 describe("YummyAnime CVH iframe tracking", () => {
-  it("forwards YummyAnime title and episode metadata to a direct CVH player iframe", () => {
+  it.each(["old.yummyani.me", "ru.yummyani.me"])(
+    "forwards YummyAnime title and episode metadata from %s to a direct CVH player iframe",
+    (hostname) => {
     const listeners: Record<string, ((event: any) => void)[]> = {};
     const forwardedMessages: any[] = [];
     const playerWindow = {
@@ -333,10 +340,10 @@ describe("YummyAnime CVH iframe tracking", () => {
     vm.runInNewContext(contentScript, {
       ...common,
       location: {
-        hostname: "ru.yummyani.me",
-        origin: "https://ru.yummyani.me",
+        hostname,
+        origin: `https://${hostname}`,
         pathname: "/catalog/item/sanka-rea-tv",
-        href: "https://ru.yummyani.me/catalog/item/sanka-rea-tv",
+        href: `https://${hostname}/catalog/item/sanka-rea-tv`,
       },
       document,
       window,
@@ -350,7 +357,7 @@ describe("YummyAnime CVH iframe tracking", () => {
         metadata: {
           title: "Санка Рэа",
           episode: 5,
-          sourceUrl: "https://ru.yummyani.me/catalog/item/sanka-rea-tv",
+          sourceUrl: `https://${hostname}/catalog/item/sanka-rea-tv`,
           service: "yummyanime",
         },
       },
@@ -404,7 +411,10 @@ describe("YummyAnime CVH iframe tracking", () => {
       crypto: { randomUUID: () => "yummy-cvh-test-event-id" },
     });
 
-    expect(parentWindow).toBeDefined();
+    expect(parentMessages).toContainEqual({
+      targetOrigin: "https://ru.yummyani.me",
+      message: { type: "MIDAHOSHI_REQUEST_PARENT_METADATA" },
+    });
     const parentRequests = (listeners.message || []);
     expect(parentRequests).toHaveLength(2);
 
@@ -419,7 +429,7 @@ describe("YummyAnime CVH iframe tracking", () => {
         metadata: {
           title: "Санка Рэа",
           episode: 5,
-          sourceUrl: "https://ru.yummyani.me/catalog/item/sanka-rea-tv",
+          sourceUrl: `https://${hostname}/catalog/item/sanka-rea-tv`,
           service: "yummyanime",
         },
       },
