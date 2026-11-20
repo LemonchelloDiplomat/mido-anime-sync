@@ -223,7 +223,7 @@ describe("YummyAnime browser tracking", () => {
       },
       document,
       window: { addEventListener() {} },
-      chrome: { runtime: { onMessage: { addListener(listener: RuntimeMessageListener) {
+      chrome: { runtime: { onMessage: { addListener(listener: (message: any, sender: any, respond: (value: any) => void) => void) {
         listener({ type: "MIDAHOSHI_DETECT_WATCH_EVENT" }, {}, () => {});
       } }, sendMessage() {} } },
     });
