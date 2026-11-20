@@ -286,7 +286,10 @@ export function parseAnimeGoPagePoster(html, pageUrl = SITE) {
     const key = (attr(tag, "property") || attr(tag, "name") || attr(tag, "itemprop") || "").toLowerCase();
     if (["og:image", "og:image:url", "twitter:image", "twitter:image:src", "image"].includes(key)) {
       const value = attr(tag, "content");
-      if (value) candidates.push(value);
+      if (value) {
+        if (key === "og:image" || key === "og:image:url") candidates.unshift(value);
+        else candidates.push(value);
+      }
     }
   }
   const imageLinks = [...source.matchAll(/<link\b[^>]*>/gi)].map((match) => match[0]);
