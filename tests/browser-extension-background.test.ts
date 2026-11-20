@@ -29,6 +29,19 @@ function createBackgroundHarness(options: HarnessOptions = {}) {
     lineCap: "", lineJoin: "", lineWidth: 1,
   };
 
+  const actionMock = {
+    failNextTitle: false,
+    async setIcon() {},
+    async setBadgeText() {},
+    async setBadgeBackgroundColor() {},
+    async setTitle() {
+      if (actionMock.failNextTitle) {
+        actionMock.failNextTitle = false;
+        throw new Error("simulated toolbar API failure");
+      }
+    },
+  };
+
   const chromeMock = {
     storage: {
       local: {
@@ -45,12 +58,7 @@ function createBackgroundHarness(options: HarnessOptions = {}) {
         },
       },
     },
-    action: {
-      async setIcon() {},
-      async setBadgeText() {},
-      async setBadgeBackgroundColor() {},
-      async setTitle() {},
-    },
+    action: actionMock,
     tabs: {
       onActivated: { addListener() {} },
       onUpdated: { addListener() {} },
@@ -81,6 +89,7 @@ function createBackgroundHarness(options: HarnessOptions = {}) {
   return {
     storage,
     warnings,
+    action: actionMock,
     dispatch(message: unknown) {
       messageListener?.(message);
     },
@@ -196,6 +205,26 @@ describe("browser extension pending watch queue", () => {
     await new Promise((resolve) => setTimeout(resolve, 60));
 
     expect(harness.storage.pendingWatchEvents).toEqual([]);
+  });
+
+  it("recovers after a toolbar API failure without losing queued events", async () => {
+    const harness = createBackgroundHarness();
+    harness.action.failNextTitle = true;
+
+    await harness.send({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: { ...watchEvent, eventId: "toolbar-failure-event" },
+    });
+    expect(harness.storage.pendingWatchEvents).toMatchObject([
+      { eventId: "toolbar-failure-event", episode: 3 },
+    ]);
+    expect(harness.warnings.length).toBeGreaterThan(0);
+
+    await harness.send({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: { ...watchEvent, episode: 4, sourceUrl: "https://yummyani.me/catalog/item-2", eventId: "after-failure-event" },
+    });
+    expect(harness.storage.pendingWatchEvents).toHaveLength(2);
   });
 
   it("keeps queued events across a background service worker restart", async () => {
