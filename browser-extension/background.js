@@ -68,6 +68,7 @@ function isDuplicatePendingEvent(queue, event) {
     item.service === event.service &&
     normalizeTitle(item.title) === title &&
     Number(item.episode) === event.episode &&
+    (Number(item.season) || null) === (Number(event.season) || null) &&
     normalizeSourceUrl(item.sourceUrl) === sourceUrl
   );
 }
