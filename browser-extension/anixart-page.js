@@ -26,7 +26,7 @@
         const sourceVoices = episodeValue?.voices;
         if (sourceVoices && typeof sourceVoices === "object") {
           for (const [voiceName, voiceValue] of Object.entries(sourceVoices).slice(0, 100)) {
-            const name = String(voiceValue?.name ?? voiceName).trim().slice(0, 100);
+            let name = String(voiceValue?.name ?? voiceName).trim().slice(0, 100);
             if (!name) continue;
             const videos = Array.isArray(voiceValue?.videos) ? voiceValue.videos : [];
             const matching = videos.find(video =>
@@ -34,13 +34,16 @@
               Number(video?.episode) === episodeNumber &&
               String(video?.voiceStudio ?? name) === name
             );
-            voices.push({
-              name,
-              type: typeof matching?.voiceType === "string" ? matching.voiceType.slice(0, 60) : null
-            });
+            let type = typeof matching?.voiceType === "string" ? matching.voiceType.trim().slice(0, 60) : "";
+            if (/^субтитры$/i.test(name) && !type) {
+              name = "Студия не указана";
+              type = "Субтитры";
+            }
+            voices.push({ name, type: type || null });
           }
         }
-        episodes.push({ number: episodeNumber, title: String(episodeValue?.visibleName ?? episodeNumber).slice(0, 120), voices });
+        const uniqueVoices = [...new Map(voices.map(voice => [voice.name.toLocaleLowerCase() + "\\u0000" + String(voice.type || "").toLocaleLowerCase(), voice])).values()];
+        episodes.push({ number: episodeNumber, title: String(episodeValue?.visibleName ?? episodeNumber).slice(0, 120), voices: uniqueVoices });
       }
       episodes.sort((a, b) => a.number - b.number);
       seasons.push({ number: seasonNumber, episodes });
