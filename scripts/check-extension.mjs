@@ -15,7 +15,7 @@ assert.ok(manifest.permissions.includes("tabs"));
 assert.ok(!manifest.permissions.includes("cookies"), "Extension must not request cookies access");
 assert.ok(!manifest.host_permissions.some((host) => host.includes("<all_urls>")), "Extension must not request broad host access");
 
-for (const file of ["content.js", "cvh-page.js", "popup.js", "options.js", "background.js", "bridge.js"]) {
+for (const file of ["content.js", "cvh-page.js", "anixart-page.js", "popup.js", "options.js", "background.js", "bridge.js"]) {
   const source = await read("browser-extension/" + file);
   new vm.Script(source, { filename: file });
 }
@@ -40,6 +40,16 @@ assert.ok(
 );
 assert.equal(cvhContentScript.all_frames, true, "Content script must run in embedded player frames");
 
+const anixartPageWorldScript = manifest.content_scripts.find((script) =>
+  script.js.includes("anixart-page.js"),
+);
+assert.ok(anixartPageWorldScript, "AnixART page-world playback sampler must be registered");
+assert.equal(anixartPageWorldScript.world, "MAIN", "AnixART sampler must access the page player API");
+assert.ok(
+  anixartPageWorldScript.matches.includes("https://anixart.site/*"),
+  "AnixART page-world sampler must run on the AnixART website",
+);
+
 const cvhPageWorldScript = manifest.content_scripts.find((script) =>
   script.js.includes("cvh-page.js"),
 );
@@ -52,7 +62,7 @@ assert.ok(
 assert.equal(cvhPageWorldScript.all_frames, true, "CVH sampler must run inside the embedded CVH player iframe");
 
 const matches = manifest.content_scripts.flatMap((script) => script.matches);
-for (const host of ["anime-go.org", "animego.online", "animego.me", "player.cdnvideohub.com", "yummyani.me", "yummy-ani.me", "anixart-app.com", "anixartapp.com"]) {
+for (const host of ["anime-go.org", "animego.online", "animego.me", "player.cdnvideohub.com", "yummyani.me", "yummy-ani.me", "anixart-app.com", "anixartapp.com", "anixart.site"]) {
   assert.ok(matches.some((pattern) => pattern.includes(host)), `Missing host match: ${host}`);
 }
 
