@@ -40,7 +40,7 @@ export function applyFallbackMetadata(
     // For AnimeGO the AniList cover is primary; for AnixART it is the
     // secondary cover shown only after the provider image fails.
     fallbackPosterUrl: options.preferPoster
-      ? (item.fallbackPosterUrl || null)
+      ? (item.posterUrl && item.posterUrl !== matchedPoster ? item.posterUrl : item.fallbackPosterUrl || null)
       : (matchedPoster && matchedPoster !== item.posterUrl ? matchedPoster : item.fallbackPosterUrl || null),
     // AnimeGO's CDN URLs are frequently unavailable to embedded clients.
     // Prefer a verified AniList cover for this provider, but only after an exact title match.
