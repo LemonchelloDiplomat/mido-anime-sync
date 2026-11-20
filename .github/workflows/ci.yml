@@ -9,6 +9,7 @@ on:
       - feat/provider-adapter-architecture
       - feat/streaming-site-bridge
       - feat/streaming-site-bridge-stacked
+      - feat/kodik-watch-tracking
   pull_request:
 
 jobs:
