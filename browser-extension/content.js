@@ -4,7 +4,8 @@
   const isCvhFrame = host === "animego.me" && location.pathname.startsWith("/cdn-iframe/");
   const isCvhPlayerFrame = host === "player.cdnvideohub.com";
   const isCvhTrackingFrame = isCvhFrame || isCvhPlayerFrame;
-  const isAnimeGoPlayerFrame = isAniBoomFrame || isCvhTrackingFrame;
+  const isKodikFrame = host === "kodikplayer.com";
+  const isAnimeGoPlayerFrame = isAniBoomFrame || isCvhTrackingFrame || isKodikFrame;
   const service = isAnimeGoPlayerFrame ? "animego" : host.includes("yummy") ? "yummyanime"
     : host.includes("anixart") ? "anixart"
     : "animego";
@@ -13,7 +14,15 @@
   let previousCvhTime = null;
   let cvhMetadataKey = null;
   let cvhAwaitingEpisodeStart = false;
+  let kodikMetadataKey = null;
+  let kodikAwaitingEpisodeStart = false;
+  let previousKodikTime = null;
+  let aniboomMetadataKey = null;
+  let aniboomAwaitingEpisodeStart = false;
+  let previousAniBoomTime = null;
+  const sentAniBoomKeys = new Set();
   const sentCvhKeys = new Set();
+  const sentKodikKeys = new Set();
 
   function isAllowedAnimeGoUrl(rawUrl) {
     try {
@@ -23,6 +32,19 @@
         (hostname === "anime-go.org" || hostname.endsWith(".anime-go.org") ||
           hostname === "animego.online" || hostname.endsWith(".animego.online") ||
           hostname === "animego.me" || hostname.endsWith(".animego.me"));
+    } catch {
+      return false;
+    }
+  }
+
+  function isAllowedWatchSourceUrl(rawUrl) {
+    try {
+      const url = new URL(rawUrl);
+      const hostname = url.hostname.toLowerCase();
+      return isAllowedAnimeGoUrl(rawUrl) ||
+        ((url.protocol === "https:" || url.protocol === "http:") &&
+          (hostname === "yummyani.me" || hostname.endsWith(".yummyani.me") ||
+            hostname === "yummy-ani.me" || hostname.endsWith(".yummy-ani.me")));
     } catch {
       return false;
     }
@@ -136,6 +158,25 @@
       };
     }
 
+    if (isKodikFrame && parentMetadata) {
+      const video = videoOverride || findMainVideo();
+      const currentTimeSeconds = video && Number.isFinite(video.currentTime) ? Math.floor(video.currentTime) : null;
+      const durationSeconds = video && Number.isFinite(video.duration) && video.duration > 0
+        ? Math.floor(video.duration)
+        : null;
+      return {
+        service: parentMetadata.service || "animego",
+        title: parentMetadata.title,
+        episode: parentMetadata.episode,
+        sourceUrl: parentMetadata.sourceUrl,
+        currentTimeSeconds,
+        durationSeconds,
+        hasVideoElement: Boolean(video),
+        manualOnly: !video || durationSeconds == null,
+        pageTitle: document.title,
+      };
+    }
+
     if (isAniBoomFrame && parentMetadata) {
       const video = videoOverride || findMainVideo();
       const currentTimeSeconds = video && Number.isFinite(video.currentTime) ? Math.floor(video.currentTime) : null;
@@ -216,20 +257,22 @@
   }
 
   function sendParentMetadataToFrame(frame) {
-    if (service !== "animego" || isAniBoomFrame || !frame?.contentWindow) return;
+    if ((service !== "animego" && service !== "yummyanime") || (isAnimeGoPlayerFrame && !isCvhFrame) || !frame?.contentWindow) return;
     let frameUrl;
     try {
       frameUrl = new URL(frame.src, location.href);
     } catch {
       return;
     }
-    const isAniBoomTarget = frameUrl.hostname.toLowerCase() === "aniboom.one";
+    const targetHost = frameUrl.hostname.toLowerCase();
+    const isAniBoomTarget = targetHost === "aniboom.one";
     // AnimeGO does not consistently expose providerSlug on its iframe.
     // The CVH iframe URL itself is the stable provider signal.
-    const isCvhTarget = frameUrl.hostname.toLowerCase() === "animego.me" &&
-      frameUrl.pathname.startsWith("/cdn-iframe/");
-    const isCvhPlayerTarget = frameUrl.hostname.toLowerCase() === "player.cdnvideohub.com";
-    if (!isAniBoomTarget && !isCvhTarget && !isCvhPlayerTarget) return;
+    const isCvhTarget = targetHost === "animego.me" && frameUrl.pathname.startsWith("/cdn-iframe/");
+    const isCvhPlayerTarget = targetHost === "player.cdnvideohub.com";
+    const isKodikTarget = targetHost === "kodikplayer.com";
+    if (!isAniBoomTarget && !isCvhTarget && !isCvhPlayerTarget && !isKodikTarget) return;
+    if ((isAniBoomTarget || isCvhTarget || isCvhPlayerTarget) && service !== "animego") return;
 
     const detected = detect();
     if (!detected.title || !Number.isSafeInteger(detected.episode) || detected.episode < 1) return;
@@ -239,12 +282,13 @@
         title: detected.title,
         episode: detected.episode,
         sourceUrl: detected.sourceUrl,
+        service: detected.service,
       },
     }, frameUrl.origin);
   }
 
   function syncParentMetadataToFrames() {
-    if (service !== "animego" || isAniBoomFrame) return;
+    if ((service !== "animego" && service !== "yummyanime") || (isAnimeGoPlayerFrame && !isCvhFrame)) return;
     queryAllDeep("iframe").forEach(sendParentMetadataToFrame);
   }
 
@@ -266,7 +310,10 @@
     };
 
     window.addEventListener("message", (event) => {
-      if (event.source !== window.parent || !isAllowedAnimeGoUrl(event.origin)) return;
+      const validParentOrigin = isKodikFrame
+        ? isAllowedWatchSourceUrl(event.origin)
+        : isAllowedAnimeGoUrl(event.origin);
+      if (event.source !== window.parent || !validParentOrigin) return;
       if (event.data?.type !== "MIDAHOSHI_PARENT_METADATA") return;
       const metadata = event.data.metadata;
       if (
@@ -275,20 +322,36 @@
         metadata.title.trim().length < 2 ||
         !Number.isSafeInteger(metadata.episode) ||
         metadata.episode < 1 ||
-        !isAllowedAnimeGoUrl(metadata.sourceUrl) ||
-        new URL(metadata.sourceUrl).origin !== event.origin
+        !isAllowedWatchSourceUrl(metadata.sourceUrl) ||
+        new URL(metadata.sourceUrl).origin !== event.origin ||
+        (isKodikFrame && metadata.service !== "animego" && metadata.service !== "yummyanime")
       ) return;
       const sourceUrl = new URL(metadata.sourceUrl);
       const nextMetadata = {
         title: metadata.title.trim(),
         episode: metadata.episode,
         sourceUrl: sourceUrl.origin + sourceUrl.pathname,
+        service: isKodikFrame ? metadata.service : "animego",
       };
       const nextMetadataKey = [
         nextMetadata.title.trim().toLocaleLowerCase(),
         nextMetadata.episode,
         nextMetadata.sourceUrl,
       ].join("|");
+      if (isAniBoomFrame && aniboomMetadataKey !== null && aniboomMetadataKey !== nextMetadataKey) {
+        // AniBoom can briefly keep the previous episode's near-end timestamp
+        // after AnimeGO has already switched the parent episode metadata.
+        previousAniBoomTime = null;
+        aniboomAwaitingEpisodeStart = true;
+      }
+      if (isAniBoomFrame) aniboomMetadataKey = nextMetadataKey;
+      if (isKodikFrame && kodikMetadataKey !== null && kodikMetadataKey !== nextMetadataKey) {
+        // A reused Kodik player may briefly retain the previous episode's
+        // playback position after the parent page changes episode metadata.
+        previousKodikTime = null;
+        kodikAwaitingEpisodeStart = true;
+      }
+      if (isKodikFrame) kodikMetadataKey = nextMetadataKey;
       if (isCvhPlayerFrame && cvhMetadataKey !== null && cvhMetadataKey !== nextMetadataKey) {
         // The CVH player can briefly report the previous episode's near-end
         // timestamp after AnimeGO has already switched the episode metadata.
@@ -337,6 +400,7 @@
   } else {
     window.addEventListener("message", (event) => {
       if (event.origin !== "https://aniboom.one" &&
+          event.origin !== "https://kodikplayer.com" &&
           event.origin !== location.origin) return;
       if (event.data?.type !== "MIDAHOSHI_REQUEST_PARENT_METADATA") return;
       const frame = queryAllDeep("iframe")
@@ -391,6 +455,103 @@
     });
   }
 
+  function maybeSendAniBoomVideo(video) {
+    if (!isAniBoomFrame || !parentMetadata) return;
+    const duration = Number(video.duration);
+    const currentTime = Number(video.currentTime);
+    if (!Number.isFinite(duration) || duration <= 0 ||
+        !Number.isFinite(currentTime) || currentTime < 0 || video.paused === true) {
+      previousAniBoomTime = null;
+      return;
+    }
+
+    const previousTime = previousAniBoomTime;
+    previousAniBoomTime = currentTime;
+    if (aniboomAwaitingEpisodeStart) {
+      // Do not attribute the previous episode's position to the new episode.
+      // Wait until AniBoom visibly resets its timeline before counting playback.
+      const timelineReset = currentTime <= Math.min(10, duration * 0.02) ||
+        (previousTime !== null && currentTime < previousTime - 5);
+      if (timelineReset) {
+        aniboomAwaitingEpisodeStart = false;
+        previousAniBoomTime = currentTime;
+      }
+      return;
+    }
+
+    const delta = previousTime === null ? 0 : currentTime - previousTime;
+    if (delta < 0.15 || delta > 5 || currentTime / duration < 0.9) return;
+
+    const detected = detect(video);
+    if (detected.manualOnly || !detected.title ||
+        !Number.isSafeInteger(detected.episode) || detected.episode < 1) return;
+    const eventKey = [
+      detected.sourceUrl,
+      detected.episode,
+      video.currentSrc || video.src || "",
+    ].join("|");
+    if (sentAniBoomKeys.has(eventKey)) return;
+    sentAniBoomKeys.add(eventKey);
+
+    chrome.runtime.sendMessage({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: {
+        ...detected,
+        currentTimeSeconds: Math.floor(currentTime),
+        durationSeconds: Math.floor(duration),
+        hasVideoElement: true,
+        manualOnly: false,
+        eventId: crypto.randomUUID(),
+        observedAt: new Date().toISOString(),
+      },
+    });
+  }
+
+  function maybeSendKodikVideo(video) {
+    if (!isKodikFrame || !parentMetadata) return;
+    const duration = Number(video.duration);
+    const currentTime = Number(video.currentTime);
+    if (!Number.isFinite(duration) || duration <= 0 ||
+        !Number.isFinite(currentTime) || currentTime < 0 || video.paused === true) {
+      previousKodikTime = null;
+      return;
+    }
+
+    const previousTime = previousKodikTime;
+    previousKodikTime = currentTime;
+    if (kodikAwaitingEpisodeStart) {
+      const timelineReset = currentTime <= Math.min(10, duration * 0.02) ||
+        (previousTime !== null && currentTime < previousTime - 5);
+      if (timelineReset) {
+        kodikAwaitingEpisodeStart = false;
+        previousKodikTime = currentTime;
+      }
+      return;
+    }
+
+    const delta = previousTime === null ? 0 : currentTime - previousTime;
+    if (delta < 0.15 || delta > 5 || currentTime / duration < 0.9) return;
+
+    const detected = detect(video);
+    if (!detected.title || !Number.isSafeInteger(detected.episode) || detected.episode < 1) return;
+    const eventKey = [detected.sourceUrl, detected.episode, video.currentSrc || video.src || ""].join("|");
+    if (sentKodikKeys.has(eventKey)) return;
+    sentKodikKeys.add(eventKey);
+
+    chrome.runtime.sendMessage({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: {
+        ...detected,
+        currentTimeSeconds: Math.floor(currentTime),
+        durationSeconds: Math.floor(duration),
+        hasVideoElement: true,
+        manualOnly: false,
+        eventId: crypto.randomUUID(),
+        observedAt: new Date().toISOString(),
+      },
+    });
+  }
+
   function attachVideo(video) {
     const existingHandler = videoWatchHandlers.get(video);
     if (existingHandler) {
@@ -401,6 +562,14 @@
     }
 
     const maybeSend = () => {
+      if (isKodikFrame) {
+        maybeSendKodikVideo(video);
+        return;
+      }
+      if (isAniBoomFrame) {
+        maybeSendAniBoomVideo(video);
+        return;
+      }
       const duration = Number(video.duration);
       const currentTime = Number(video.currentTime);
       if (!Number.isFinite(duration) || duration <= 0 || currentTime / duration < 0.9) return;
