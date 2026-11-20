@@ -317,7 +317,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
                 <h3>{details.title}</h3>
                 {details.description && <p>{details.description}</p>}
                 <p className="streaming-detail-meta">{details.year || "{t(locale, "yearUnknown")}"}{provider !== "anixart" && details.episodeCount ? " · " + details.episodeCount + " эп." : provider === "anixart" && details.episodeCount ? " · " + details.episodeCount + " эп." : ""}</p>
-                {details.seasons.length > 0 && <div className="streaming-season-list">
+                {details.seasons.length > 0 ? <div className="streaming-season-list">
                   <strong>{t(locale, "episodes")}</strong>
                   {details.seasons.map((season) => <section className="streaming-season" key={season.number}>
                     <h4>{season.title || "Сезон " + season.number}</h4>
@@ -344,7 +344,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
                       })}
                     </div>
                   </section>)}
-                </div>}
+                </div> : <p className="catalog-hint">{t(locale, "noEpisodes")}</p>}
 
                 <div className="streaming-detail-actions">
                   <a href={details.url} target="_blank" rel="noreferrer">Открыть на сайте ↗</a>
