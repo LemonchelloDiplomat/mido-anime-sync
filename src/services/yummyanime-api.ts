@@ -50,14 +50,14 @@ export async function searchYummyAnime(query: string, page = 1, signal?: AbortSi
     limit: "20",
     offset: String(Math.max(0, page - 1) * 20),
   });
-  const payload = await request<unknown>("/api/yummyanime/search?" + params, { signal });
+  const payload = await request<unknown>("/api/yummyanime/search?" + params, signal ? { signal } : undefined);
   return parseYummySearch(payload, page);
 }
 
 export async function getYummyAnimeTitle(externalId: string, signal?: AbortSignal): Promise<StreamingTitleDetails> {
   const payload = await request<{ detail: unknown; videos: unknown }>(
     "/api/yummyanime/anime/" + encodeURIComponent(externalId),
-    { signal },
+    signal ? { signal } : undefined,
   );
   return parseYummyDetails(payload.detail, payload.videos);
 }
