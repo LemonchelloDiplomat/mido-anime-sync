@@ -111,6 +111,21 @@ describe("AnimeGO public catalog adapter", () => {
     ]);
   });
 
+  it("parses a rating from the AnimeGO search-card rating element", () => {
+    const html = `
+      <div class="ani-grid__item">
+        <a title="Rated Anime" href="/anime/rated-anime-5002"><img src="/rated.jpg" alt="Rated Anime"></a>
+        <span class="ani-grid__item-rating">8.73</span>
+        <span>2024</span>
+      </div>`;
+    expect(parseAnimeGoSearch(html)[0]).toMatchObject({
+      title: "Rated Anime",
+      averageScore: 8.73,
+      scoreSource: "AnimeGO",
+      year: 2024,
+    });
+  });
+
   it("reads AnimeGO poster srcsets and release years from the result card", () => {
     const html = `
       <div class="ani-grid__item">
