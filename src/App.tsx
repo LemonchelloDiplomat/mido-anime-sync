@@ -25,6 +25,8 @@ import { connectIntegration, disconnectIntegration, getIntegrationStatus, fetchA
 import { parseMyAnimeListApiList } from "./services/myanimelist-account.js";
 import { parseAniListAccountList, type AniListScoreFormat } from "./services/anilist-account.js";
 import { parseShikimoriAccountList } from "./services/shikimori-account.js";
+import { StreamingCatalogPanel } from "./components/StreamingCatalogPanel.js";
+import { reconcileStreamingAccountSnapshot } from "./services/streaming-account-import.js";
 import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
 import { detectRemoteDeletions } from "./core/safe-deletions.js";
 import { executeRemoteDeletions, resolvePendingRemoteDeletionIntents } from "./core/remote-deletion.js";
@@ -409,7 +411,11 @@ function App() {
         (anime.externalIds.myanimelist != null &&
           current.externalIds.myanimelist === anime.externalIds.myanimelist) ||
         (anime.externalIds.anilist != null &&
-          current.externalIds.anilist === anime.externalIds.anilist)
+          current.externalIds.anilist === anime.externalIds.anilist) ||
+        (anime.externalIds.shikimori != null &&
+          current.externalIds.shikimori === anime.externalIds.shikimori) ||
+        (anime.externalIds.yummyanime != null &&
+          current.externalIds.yummyanime === anime.externalIds.yummyanime)
       );
 
       const targetId = existing?.anime.id ?? anime.id;
@@ -518,6 +524,17 @@ function App() {
     } finally {
       setWatchEventSaving(false);
     }
+  }
+
+  async function importYummyAnimeSnapshot(snapshot: AnimeSnapshotV4) {
+    if (!repository) throw new Error("Локальная библиотека ещё не готова.");
+    const currentItems = await repository.getAll();
+    const reconciled = reconcileStreamingAccountSnapshot(
+      snapshot,
+      currentItems.map((item) => item.anime),
+    );
+    await repository.mergeSnapshot(reconciled);
+    await refreshLibrary();
   }
 
   async function refreshLibrary() {
@@ -2894,10 +2911,12 @@ function App() {
                   })}
               </div>
             )}
+            <StreamingCatalogPanel query={searchQuery} onImport={addCatalogAnime} onImportSnapshot={importYummyAnimeSnapshot} />
           </div>
         </div>
       )}
-\n      {searchPageOpen && selectedAnime && (
+
+      {searchPageOpen && selectedAnime && (
         <div className="anime-detail-overlay">
           <section className="anime-detail-page" role="dialog" aria-modal="true" aria-labelledby="anime-detail-title">
             <header className="anime-detail-header">

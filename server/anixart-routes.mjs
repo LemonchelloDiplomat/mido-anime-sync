@@ -1,0 +1,175 @@
+const SITE = "https://anixart.site";
+
+function decodeHtml(value) {
+  return String(value || "")
+    .replace(/&amp;/gi, "&").replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'").replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">").replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([\da-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)));
+}
+
+function attr(tag, name) {
+  const match = String(tag).match(new RegExp("\\b" + name + "\\s*=\\s*(['\"])(.*?)\\1", "i"));
+  return match ? decodeHtml(match[2]) : "";
+}
+
+function stripTags(value) {
+  return decodeHtml(String(value || "").replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " "))
+    .replace(/\s+/g, " ").trim();
+}
+
+function safeUrl(value, base = SITE) {
+  try {
+    const url = new URL(value, base);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+  } catch { return null; }
+}
+
+function titleSlug(url) {
+  return new URL(url).pathname.split("/").filter(Boolean).at(-1) || "";
+}
+
+export function parseAnixArtSearch(html) {
+  const items = [];
+  const seen = new Set();
+  const pattern = /<a\b([^>]*href\s*=\s*(['"])([^'"]+\.html(?:\?[^'"]*)?)\2[^>]*)>([\s\S]*?)<\/a>/gi;
+  let match;
+  while ((match = pattern.exec(html))) {
+    const url = safeUrl(match[3]);
+    if (!url || new URL(url).hostname !== "anixart.site" || seen.has(url)) continue;
+    const slug = titleSlug(url);
+    if (!/^\d+-[\p{L}\p{N}-]+\.html$/u.test(slug)) continue;
+    const inner = match[4];
+    const image = inner.match(/<img\b[^>]*>/i)?.[0] || "";
+    const title = stripTags(inner) || attr(image, "alt");
+    if (!title) continue;
+    const prefix = html.slice(Math.max(0, match.index - 1400), match.index);
+    const images = [...prefix.matchAll(/<img\b[^>]*>/gi)];
+    const posterTag = images.at(-1)?.[0] || image;
+    const poster = safeUrl(attr(posterTag, "data-src") || attr(posterTag, "src"));
+    items.push({
+      provider: "anixart",
+      externalId: slug,
+      url,
+      title,
+      alternativeTitles: [],
+      posterUrl: poster,
+    });
+    seen.add(url);
+  }
+  return items.slice(0, 30);
+}
+
+function sectionLinks(html, label) {
+  const match = html.match(new RegExp(label + "\\s*:?([\\s\\S]{0,3500}?)<\\/li>", "i"));
+  if (!match) return [];
+  const values = [];
+  const pattern = /<a\b[^>]*>([\s\S]*?)<\/a>/gi;
+  let link;
+  while ((link = pattern.exec(match[1]))) {
+    const value = stripTags(link[1]);
+    if (value && !values.includes(value)) values.push(value);
+  }
+  return values;
+}
+
+export function parseAnixArtDetail(html, requestedUrl) {
+  const canonicalTag = html.match(/<link\b[^>]*rel\s*=\s*(['"])canonical\1[^>]*>/i)?.[0] || "";
+  const ogImageTag = html.match(/<meta\b[^>]*property\s*=\s*(['"])og:image\1[^>]*>/i)?.[0] || "";
+  const descriptionTag = html.match(/<meta\b[^>]*name\s*=\s*(['"])description\1[^>]*>/i)?.[0] || "";
+  const playerTag = html.match(/<video-player\b[^>]*>/i)?.[0] || "";
+  const h1 = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || "";
+  const canonical = safeUrl(attr(canonicalTag, "href") || requestedUrl);
+  const title = stripTags(h1);
+  if (!canonical || !title) throw new Error("AnixART не вернул распознаваемую публичную карточку.");
+  const slug = titleSlug(canonical);
+  const id = slug.match(/^(\d+)-/)?.[1] || attr(playerTag, "data-title-id");
+  const playerId = attr(playerTag, "data-title-id");
+  const publisherId = attr(playerTag, "data-publisher-id");
+  const bodyText = stripTags(html);
+  const episodeMatch = bodyText.match(/(\d+)\s+из\s+(\d+)/i);
+  const episodeCount = episodeMatch ? Number(episodeMatch[2]) : null;
+  const yearMatch = bodyText.match(/(?:Год|Год выпуска)\s*:\s*(20\d{2}|19\d{2})/i);
+  const year = yearMatch ? Number(yearMatch[1]) : null;
+  const voices = sectionLinks(html, "Озвучка").map((name, index) => ({
+    externalId: "voice:" + index + ":" + name.toLocaleLowerCase(),
+    name,
+  }));
+  const genres = sectionLinks(html, "Жанр");
+  const poster = safeUrl(attr(ogImageTag, "content"));
+  const description = stripTags(attr(descriptionTag, "content")) || null;
+  const identityId = id || slug;
+  return {
+    provider: "anixart",
+    externalId: slug,
+    url: canonical,
+    title,
+    alternativeTitles: [],
+    posterUrl: poster,
+    description,
+    year,
+    episodeCount,
+    identity: {
+      id: "anixart:" + identityId,
+      titles: { romaji: title, synonyms: [] },
+      externalIds: { anixart: identityId },
+      year,
+      episodes: episodeCount,
+      genres,
+      posterUrl: poster,
+    },
+    seasons: [],
+    voices,
+    sourceMetadata: { playerTitleId: playerId || null, publisherId: publisherId || null },
+  };
+}
+
+export async function handleAnixArtRequest(request, response, url, deps) {
+  const { sendJson } = deps;
+  const method = request.method || "GET";
+  if (!url.pathname.startsWith("/api/anixart/")) return false;
+  if (method !== "GET") return sendJson(response, 405, { error: "AnixART поддерживает только чтение публичного каталога." });
+  const headers = {
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+  };
+  try {
+    if (url.pathname === "/api/anixart/search") {
+      const query = String(url.searchParams.get("q") || "").trim();
+      if (query.length < 2 || query.length > 120) return sendJson(response, 400, { error: "Поисковый запрос должен содержать от 2 до 120 символов." });
+      const searchUrl = SITE + "/?do=search&subaction=search&story=" + encodeURIComponent(query);
+      const page = await fetch(searchUrl, { headers });
+      if (!page.ok) throw new Error("AnixART: HTTP " + page.status);
+      return sendJson(response, 200, { items: parseAnixArtSearch(await page.text()), page: 1, hasNextPage: false });
+    }
+    const match = url.pathname.match(/^\/api\/anixart\/anime\/([^/]+)$/);
+    if (match) {
+      const slug = decodeURIComponent(match[1]);
+      if (!/^\d+-[\p{L}\p{N}-]+\.html$/u.test(slug)) return sendJson(response, 400, { error: "Некорректный AnixART slug." });
+      const page = await fetch(SITE + "/" + encodeURIComponent(slug), { headers });
+      if (!page.ok) throw new Error("AnixART: HTTP " + page.status);
+      return sendJson(response, 200, parseAnixArtDetail(await page.text(), SITE + "/" + encodeURIComponent(slug)));
+    }
+    if (url.pathname === "/api/anixart/status") {
+      return sendJson(response, 200, {
+        catalogSearch: true,
+        titleDetails: true,
+        episodeCount: true,
+        voiceTracks: true,
+        fullSeasonEpisodeManifest: false,
+        accountConnection: false,
+        listImport: false,
+        watchProgressRead: "browser-extension",
+        limitations: [
+          "Сайт anixart.site сам указывает, что он не связан с мобильным приложением Anixart. Аккаунты сайта и приложения нельзя считать одним профилем.",
+          "Публичная карточка содержит количество серий и озвучки, но не полный список сезонов и серий. Фактический сезон, серия и озвучка считываются расширением при просмотре.",
+          "Неофициальный reverse-engineered API приложения не используется для входа или синхронизации аккаунта.",
+        ],
+      });
+    }
+    return sendJson(response, 404, { error: "Маршрут AnixART не найден." });
+  } catch (error) {
+    return sendJson(response, 502, { error: error instanceof Error ? error.message : "Не удалось получить данные AnixART." });
+  }
+}

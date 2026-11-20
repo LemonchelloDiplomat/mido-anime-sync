@@ -6,6 +6,7 @@ import { toMyAnimeListScore } from "./mal-score.mjs";
 import { handleMalDelete } from "./mal-delete-route.mjs";
 import { handleYummyAnimeRequest } from "./yummyanime-routes.mjs";
 import { handleAnimeGoRequest } from "./animego-routes.mjs";
+import { handleAnixArtRequest } from "./anixart-routes.mjs";
 
 const ROOT = process.cwd();
 const DATA_DIR = path.join(ROOT, ".local-data");
@@ -293,6 +294,9 @@ async function handleRequest(request, response) {
   }
   if (url.pathname.startsWith("/api/animego/")) {
     return handleAnimeGoRequest(request, response, url, { sendJson });
+  }
+  if (url.pathname.startsWith("/api/anixart/")) {
+    return handleAnixArtRequest(request, response, url, { sendJson });
   }
 
   if (method === "GET" && url.pathname === "/api/health") {

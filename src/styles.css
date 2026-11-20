@@ -1975,3 +1975,47 @@ button:disabled {
   background: #22222e;
   color: #d0ccdc;
 }
+
+/* Streaming-site catalog panel */
+.streaming-catalog-panel { margin-top: 2.2rem; padding: 1.4rem; border: 1px solid var(--border, rgba(255,255,255,.1)); border-radius: 1rem; background: var(--panel, rgba(255,255,255,.025)); }
+.streaming-catalog-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.streaming-catalog-heading h2 { margin: 0; font-size: 1.15rem; }
+.streaming-catalog-heading p, .streaming-provider-note { margin: .4rem 0 0; color: var(--muted, #9696a4); font-size: .86rem; line-height: 1.5; }
+.streaming-catalog-heading select { min-width: 10rem; max-width: 13rem; padding: .65rem .8rem; border: 1px solid var(--border, rgba(255,255,255,.15)); border-radius: .65rem; color: inherit; background: var(--input, #191923); }
+.streaming-catalog-results { display: grid; grid-template-columns: minmax(15rem, .8fr) minmax(0, 1.2fr); gap: 1rem; margin-top: 1rem; }
+.streaming-catalog-list { display: grid; align-content: start; gap: .45rem; max-height: 26rem; overflow: auto; }
+.streaming-result { display: flex; align-items: center; gap: .75rem; width: 100%; padding: .55rem; text-align: left; color: inherit; border: 1px solid transparent; border-radius: .7rem; background: transparent; cursor: pointer; }
+.streaming-result:hover, .streaming-result.selected { border-color: var(--accent, #8b6cf6); background: rgba(139,108,246,.1); }
+.streaming-result img, .streaming-poster-placeholder { width: 3.2rem; height: 4.4rem; flex: 0 0 3.2rem; object-fit: cover; border-radius: .4rem; background: rgba(255,255,255,.06); }
+.streaming-poster-placeholder { display: grid; place-items: center; }
+.streaming-result span:last-child { display: grid; gap: .25rem; min-width: 0; }
+.streaming-result strong { overflow-wrap: anywhere; font-size: .9rem; }
+.streaming-result small, .streaming-detail-meta { color: var(--muted, #9696a4); font-size: .78rem; }
+.streaming-catalog-detail { min-width: 0; padding: 1rem; border-radius: .8rem; background: rgba(255,255,255,.035); }
+.streaming-catalog-detail h3 { margin: 0 0 .65rem; font-size: 1.05rem; }
+.streaming-catalog-detail p { color: var(--muted, #b0b0bb); font-size: .86rem; line-height: 1.55; }
+.streaming-season-list { margin-top: .8rem; }
+.streaming-season-list p { margin: .35rem 0; }
+.streaming-limitation { padding: .7rem; border-left: 2px solid var(--accent, #8b6cf6); background: rgba(139,108,246,.07); }
+.streaming-detail-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; margin-top: 1rem; }
+.streaming-detail-actions a, .streaming-detail-actions button { padding: .65rem .85rem; border: 1px solid var(--border, rgba(255,255,255,.15)); border-radius: .65rem; color: inherit; background: rgba(255,255,255,.04); text-decoration: none; font: inherit; cursor: pointer; }
+.streaming-detail-actions button { border-color: transparent; background: var(--accent, #7656d8); color: white; }
+.streaming-detail-actions button:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 760px) {
+  .streaming-catalog-heading { flex-direction: column; }
+  .streaming-catalog-heading select { max-width: none; width: 100%; }
+  .streaming-catalog-results { grid-template-columns: 1fr; }
+  .streaming-catalog-list { max-height: 18rem; }
+}
+
+.streaming-account-panel { margin-top: 1rem; padding: .9rem 1rem; border: 1px solid var(--border, rgba(255,255,255,.12)); border-radius: .8rem; background: rgba(255,255,255,.025); }
+.streaming-account-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .5rem; font-size: .88rem; }
+.streaming-account-heading span { color: var(--muted, #a0a0aa); }
+.streaming-login-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: .6rem; margin-top: .8rem; }
+.streaming-login-form input { min-width: 0; padding: .65rem .75rem; border: 1px solid var(--border, rgba(255,255,255,.15)); border-radius: .6rem; color: inherit; background: var(--input, #191923); }
+.streaming-login-form button, .streaming-account-actions button { padding: .65rem .85rem; border: 0; border-radius: .6rem; color: white; background: var(--accent, #7656d8); cursor: pointer; }
+.streaming-account-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .75rem; }
+.streaming-account-actions .secondary { color: inherit; border: 1px solid var(--border, rgba(255,255,255,.15)); background: transparent; }
+.streaming-account-actions button:disabled, .streaming-login-form button:disabled { opacity: .5; cursor: not-allowed; }
+.streaming-account-message { margin: .65rem 0 0; color: var(--muted, #b0b0bb); font-size: .82rem; }
+@media (max-width: 760px) { .streaming-login-form { grid-template-columns: 1fr; } }
