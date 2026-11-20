@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { normalizeCatalogQuery, t, type AppLocale } from "../i18n.js";
-import { applyStreamingPosterFallback } from "../services/streaming-metadata.js";
 import type { FormEvent } from "react";
 import type { AnimeIdentity, AnimeSnapshotV4 } from "../core/types.js";
 import { parseYummyAccountSnapshot } from "../services/yummyanime.js";
@@ -54,47 +53,6 @@ async function searchProvider(provider: StreamingProviderId, query: string, sign
   }
 }
 
-/**
- * Searches AnixART by each AnimeGO title instead of relying on the user's
- * broad catalog query. A small worker pool keeps the public site load bounded.
- */
-async function findAnixArtPoster(item: StreamingTitle, signal: AbortSignal): Promise<StreamingTitle> {
-  const queries = [...new Set([item.title, ...(item.alternativeTitles || [])]
-    .map((value) => value.trim())
-    .filter((value) => value.length >= 3))]
-    .slice(0, 3);
-
-  for (const query of queries) {
-    if (signal.aborted) return item;
-    try {
-      const timeout = AbortSignal.timeout(18_000);
-      const requestSignal = AbortSignal.any([signal, timeout]);
-      const result = await anixArt.search({ query, page: 1, signal: requestSignal });
-      if (signal.aborted) return item;
-      const matched = applyStreamingPosterFallback(item, result.items);
-      if (matched.posterSource === "AnixART" && matched.posterUrl) return matched;
-    } catch (reason) {
-      if (signal.aborted) return item;
-      console.warn("Не удалось найти постер AnixART для " + item.title + ":", reason);
-    }
-  }
-  return item;
-}
-
-async function findAnixArtPosters(items: StreamingTitle[], signal: AbortSignal): Promise<StreamingTitle[]> {
-  const output = new Array<StreamingTitle>(items.length);
-  let nextIndex = 0;
-  const worker = async () => {
-    while (!signal.aborted) {
-      const index = nextIndex++;
-      if (index >= items.length) return;
-      output[index] = await findAnixArtPoster(items[index]!, signal);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(3, items.length) }, () => worker()));
-  return signal.aborted ? items : output.map((item, index) => item || items[index]!);
-}
-
 async function loadDetails(provider: StreamingProviderId, title: StreamingTitle, signal: AbortSignal): Promise<StreamingTitleDetails> {
   if (provider === "yummyanime") return getYummyAnimeTitle(title.externalId, signal);
   if (provider === "animego") return animeGo.getTitle(title.externalId, signal);
@@ -115,7 +73,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState("");
   const [detailsAttempt, setDetailsAttempt] = useState(0);
-  const [failedPosters, setFailedPosters] = useState<Record<string, "provider" | "fallback">>({});
+  const [failedPosters, setFailedPosters] = useState<Record<string, boolean>>({});
   const [playerError, setPlayerError] = useState("");
   const [playerLoaded, setPlayerLoaded] = useState(false);
   const [error, setError] = useState("");
@@ -173,18 +131,10 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
     setDetails(null);
     setExpandedEpisode(null);
     void searchProvider(provider, normalizedQuery, controller.signal)
-      .then(async (result) => {
+      .then((result) => {
         if (controller.signal.aborted) return;
-        // Streaming catalogues remain independent from library services.
-        // AnimeGO may borrow only an exact-match poster from the public AnixART
-        // catalogue. Its title, rating, URL and identity remain AnimeGO-owned.
-        if (provider !== "animego") {
-          setResults(result.items);
-          return;
-        }
-        const posterResults = await findAnixArtPosters(result.items, controller.signal);
-        if (controller.signal.aborted) return;
-        setResults(posterResults);
+        // Keep AnimeGO posters strictly provider-owned while testing direct image URLs.
+        setResults(result.items);
       })
       .catch((reason: unknown) => {
         if (reason instanceof Error && reason.name === "AbortError") return;
@@ -344,7 +294,6 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
           setEpisodeTracksLoading({});
           setError("");
           setDetailsError("");
-          setFailedPosters({});
         }}>
           <option value="yummyanime">YummyAnime</option>
           <option value="animego">AnimeGO</option>
@@ -386,14 +335,11 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
           <div className="streaming-catalog-list">
             {sortedResults.map((item) => {
               const posterKey = provider + ":" + item.externalId;
-              const posterFailure = failedPosters[posterKey];
-              const usingFallbackPoster = posterFailure === "provider";
-              const displayPoster = usingFallbackPoster ? item.fallbackPosterUrl : item.posterUrl;
               return (
               <button type="button" className={selected?.externalId === item.externalId ? "streaming-result selected" : "streaming-result"} key={item.externalId} onClick={() => setSelected(item)}>
                 <span className="streaming-result-poster">
-                  {displayPoster && posterFailure !== "fallback"
-                    ? <img src={provider === "animego" && (usingFallbackPoster || item.posterSource !== "AnixART") ? "/api/animego/poster?url=" + encodeURIComponent(displayPoster) : displayPoster} alt="" loading="lazy" onError={() => setFailedPosters((current) => ({ ...current, [posterKey]: current[posterKey] === "provider" ? "fallback" : "provider" }))} />
+                  {item.posterUrl && !failedPosters[posterKey]
+                    ? <img src={item.posterUrl} alt="" loading="lazy" onError={() => setFailedPosters((current) => ({ ...current, [posterKey]: true }))} />
                     : <span className="streaming-poster-placeholder" title={t(locale, "noPoster")}>✦</span>}
                   {item.averageScore != null && <b className={`streaming-score ${item.averageScore >= 8 ? "excellent" : item.averageScore >= 7 ? "good" : item.averageScore >= 5 ? "average" : "poor"}`} title={`Оценка: ${item.scoreSource || providerLabels[provider]}`}>{item.averageScore.toFixed(1)}</b>}
                 </span>
