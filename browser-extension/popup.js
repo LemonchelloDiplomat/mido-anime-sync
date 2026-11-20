@@ -11,9 +11,70 @@ function status(message) {
 const pendingList = document.getElementById("pending-list");
 const pendingCount = document.getElementById("pending-count");
 
+function normalizeQueueTitle(value) {
+  return String(value || "").trim().toLocaleLowerCase().replace(/\\s+/g, " ");
+}
+
+function normalizeQueueSource(value) {
+  try {
+    const url = new URL(value);
+    return url.origin + url.pathname;
+  } catch {
+    return String(value || "");
+  }
+}
+
+function getQueueDuplicateGroups(queue) {
+  const groups = new Map();
+  for (const event of queue) {
+    const key = [
+      event.service || "",
+      normalizeQueueTitle(event.title),
+      Number(event.episode) || "",
+      normalizeQueueSource(event.sourceUrl),
+    ].join("|");
+    const group = groups.get(key) || [];
+    group.push(event);
+    groups.set(key, group);
+  }
+  return [...groups.values()].filter((group) => group.length > 1);
+}
+
+function renderQueueDiagnostics(queue) {
+  const summary = document.getElementById("queue-diagnostics-summary");
+  const groupsElement = document.getElementById("queue-diagnostics-groups");
+  const duplicateGroups = getQueueDuplicateGroups(queue);
+  const duplicateRecords = duplicateGroups.reduce((total, group) => total + group.length, 0);
+  summary.textContent = duplicateGroups.length
+    ? `Найдено совпадающих групп: ${duplicateGroups.length}. Записей в них: ${duplicateRecords} из ${queue.length}. Ничего не удалено.`
+    : `Совпадающих записей по названию, серии и источнику не найдено. Всего событий: ${queue.length}.`;
+  groupsElement.replaceChildren();
+
+  for (const group of duplicateGroups) {
+    const section = document.createElement("div");
+    section.className = "pending-warning";
+    const first = group[0];
+    const heading = document.createElement("div");
+    heading.textContent = `${first.title || "Без названия"} · серия ${first.episode || "?"} · ${first.service || "источник"} · ${group.length} записей`;
+    section.append(heading);
+
+    for (const event of group) {
+      const detail = document.createElement("div");
+      detail.className = "pending-time";
+      const date = event.observedAt ? new Date(event.observedAt) : null;
+      const time = date && !Number.isNaN(date.getTime()) ? date.toLocaleString() : "время неизвестно";
+      const id = event.eventId ? String(event.eventId).slice(-8) : "ID отсутствует";
+      detail.textContent = `Обнаружено: ${time} · ID: …${id}`;
+      section.append(detail);
+    }
+    groupsElement.append(section);
+  }
+}
+
 async function renderPendingEvents() {
   const { pendingWatchEvents = [] } = await chrome.storage.local.get({ pendingWatchEvents: [] });
   const queue = Array.isArray(pendingWatchEvents) ? pendingWatchEvents : [];
+  renderQueueDiagnostics(queue);
   pendingCount.textContent = `(${queue.length})`;
   pendingList.replaceChildren();
 
