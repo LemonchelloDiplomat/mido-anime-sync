@@ -159,9 +159,16 @@ describe("AnimeGO public catalog adapter", () => {
     });
   });
   it("retries AnimeGO search on the alternate route when the primary route returns 404", async () => {
+    const fallbackSearchHtml = `
+      <div class="ani-grid__item">
+        <a title="Shunkashuutou Daikousha: Haru no Mai" href="/anime/shunkashuutou-haru-9001"><img alt="Agents of the Four Seasons" src="/spring.jpg"></a>
+      </div>
+      <div class="ani-grid__item">
+        <a title="Shunkashuutou Daikousha" href="/anime/shunkashuutou-9002"><img alt="Four Seasons" src="/seasons.jpg"></a>
+      </div>`;
     const fetcher = vi.fn()
       .mockResolvedValueOnce({ ok: false, status: 404, async text() { return ""; } })
-      .mockResolvedValueOnce({ ok: true, status: 200, async text() { return searchHtml; } });
+      .mockResolvedValueOnce({ ok: true, status: 200, async text() { return fallbackSearchHtml; } });
     const deps = { request: fetcher, sendJson(res: ReturnType<typeof responseCapture>, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } };
     const response = responseCapture();
     await handleAnimeGoRequest(
