@@ -171,9 +171,11 @@ describe("AnimeGO public catalog adapter", () => {
     expect(response.json().items[0].title).toBe("葬送のフリーレン");
   });
 
-  it("applies a bounded abort signal to poster CDN requests", async () => {
+  it("proxies AnimeGO posters with the title-page Referer and image response headers", async () => {
     const fetcher = vi.fn(async (_url: RequestInfo | URL, options?: RequestInit) => {
       expect(options?.signal).toBeInstanceOf(AbortSignal);
+      expect(new Headers(options?.headers).get("referer")).toBe("https://animego.me/anime/sample-title-1234");
+      expect(new Headers(options?.headers).get("origin")).toBe("https://animego.me");
       return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), {
         status: 200, headers: { "Content-Type": "image/jpeg" },
       });
@@ -181,11 +183,39 @@ describe("AnimeGO public catalog adapter", () => {
     const response = responseCapture();
     await handleAnimeGoRequest(
       { method: "GET" }, response,
-      new URL("http://127.0.0.1/api/animego/poster?url=" + encodeURIComponent("https://img.cdngos.com/test.jpg")),
+      new URL("http://127.0.0.1/api/animego/poster?url=" + encodeURIComponent("https://img.cdngos.com/test.jpg") + "&referer=" + encodeURIComponent("https://animego.me/anime/sample-title-1234")),
       { fetch: fetcher, sendJson(res: any, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } },
     );
     expect(response.status).toBe(200);
+    expect(Buffer.isBuffer(response.body)).toBe(true);
+    expect(response.body).toEqual(Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects untrusted poster hosts and untrusted title-page Referers", async () => {
+    const fetcher = vi.fn();
+    const deps = { fetch: fetcher, sendJson(res: any, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } };
+    const badHost = responseCapture();
+    await handleAnimeGoRequest({ method: "GET" }, badHost,
+      new URL("http://127.0.0.1/api/animego/poster?url=" + encodeURIComponent("https://evil.example/poster.jpg")), deps);
+    expect(badHost.status).toBe(400);
+    const badReferer = responseCapture();
+    await handleAnimeGoRequest({ method: "GET" }, badReferer,
+      new URL("http://127.0.0.1/api/animego/poster?url=" + encodeURIComponent("https://img.cdngos.com/poster.jpg") + "&referer=" + encodeURIComponent("https://evil.example/")), deps);
+    expect(badReferer.status).toBe(400);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("rejects upstream responses that are not images", async () => {
+    const fetcher = vi.fn(async () => new Response("blocked", {
+      status: 200, headers: { "Content-Type": "text/html" },
+    }));
+    const response = responseCapture();
+    await handleAnimeGoRequest({ method: "GET" }, response,
+      new URL("http://127.0.0.1/api/animego/poster?url=" + encodeURIComponent("https://img.cdngos.com/poster.jpg")),
+      { fetch: fetcher, sendJson(res: any, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } });
+    expect(response.status).toBe(502);
+    expect(response.json().error).toContain("другой тип данных");
   });
 
   it("ranks the matching romanized title above unrelated AnimeGO results", async () => {
