@@ -5,12 +5,12 @@ import {
   parseAnixArtSearch,
 } from "../server/anixart-routes.mjs";
 
-function responseCapture() {
+function responseCapture(): { status: number; body: string; writeHead(status: number): void; end(body?: string): void; json(): any } {
   return {
     status: 0,
     body: "",
-    writeHead(status) { this.status = status; },
-    end(body) { this.body = body; },
+    writeHead(status: number) { this.status = status; },
+    end(body = "") { this.body = body; },
     json() { return JSON.parse(this.body); },
   };
 }
@@ -66,13 +66,13 @@ describe("AnixART public website catalog adapter", () => {
   });
 
   it("proxies public site search and explicitly reports unsupported account capabilities", async () => {
-    const fetcher = vi.fn(async () => ({
+    const fetcher = vi.fn(async (_input: RequestInfo | URL) => ({
       ok: true,
       status: 200,
       async text() { return searchHtml; },
     }));
     vi.stubGlobal("fetch", fetcher);
-    const deps = { sendJson(res, status, body) { res.writeHead(status); res.end(JSON.stringify(body)); } };
+    const deps = { sendJson(res: ReturnType<typeof responseCapture>, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } };
     const searchResponse = responseCapture();
     await handleAnixArtRequest(
       { method: "GET" },
@@ -81,7 +81,7 @@ describe("AnixART public website catalog adapter", () => {
       deps,
     );
     expect(searchResponse.status).toBe(200);
-    expect(fetcher.mock.calls[0]?.[0]).toContain("do=search");
+    expect(String(fetcher.mock.calls[0]?.[0])).toContain("do=search");
     expect(searchResponse.json().items[0].title).toBe("Магическая битва 2");
 
     const statusResponse = responseCapture();
