@@ -345,6 +345,39 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
   };
   try {
+    if (url.pathname === "/api/animego/poster") {
+      const raw = String(url.searchParams.get("url") || "");
+      let target;
+      try { target = new URL(raw); } catch { return sendJson(response, 400, { error: "Некорректный адрес постера AnimeGO." }); }
+      const allowedHost = (hostname) => hostname === "img.cdngos.com" || hostname === "animego.me";
+      if (target.protocol !== "https:" || !allowedHost(target.hostname)) {
+        return sendJson(response, 400, { error: "Источник постера AnimeGO не разрешён." });
+      }
+      const imageFetcher = deps.fetch || fetch;
+      const image = await imageFetcher(target.toString(), {
+        headers: { ...headers, Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8", Referer: SITE + "/" },
+        redirect: "follow",
+      });
+      const finalUrl = new URL(image.url || target.toString());
+      if (!image.ok) throw new Error("AnimeGO poster: HTTP " + image.status);
+      if (finalUrl.protocol !== "https:" || !allowedHost(finalUrl.hostname)) {
+        return sendJson(response, 502, { error: "AnimeGO перенаправил постер на неизвестный источник." });
+      }
+      const contentType = image.headers?.get("content-type") || "application/octet-stream";
+      if (!contentType.toLowerCase().startsWith("image/")) {
+        return sendJson(response, 502, { error: "AnimeGO вместо изображения вернул другой тип данных." });
+      }
+      const bytes = Buffer.from(await image.arrayBuffer());
+      if (bytes.length > 8 * 1024 * 1024) return sendJson(response, 413, { error: "Постер AnimeGO превышает допустимый размер." });
+      response.writeHead(200, {
+        "Content-Type": contentType,
+        "Content-Length": String(bytes.length),
+        "Cache-Control": "public, max-age=86400",
+        "X-Content-Type-Options": "nosniff",
+      });
+      response.end(bytes);
+      return true;
+    }
     if (url.pathname === "/api/animego/search") {
       const query = String(url.searchParams.get("q") || "").trim();
       if (query.length < 2 || query.length > 120) return sendJson(response, 400, { error: "Поисковый запрос должен содержать от 2 до 120 символов." });
