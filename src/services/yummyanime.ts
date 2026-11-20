@@ -176,7 +176,10 @@ function parseVideos(payload: unknown, titleUrl: string): { episodes: StreamingE
 
 export function parseYummySearch(payload: unknown, page = 1): StreamingSearchResult {
   const items = parseRows(payload).map((raw) => {
-    const title = titleFrom(raw);\n    const identity = identityFrom(raw);\n    return title ? { ...title, ...(identity ? { identity } : {}) } : null;\n  }).filter((item): item is StreamingTitle => item !== null);
+    const title = titleFrom(raw);
+    const identity = identityFrom(raw);
+    return title ? { ...title, ...(identity ? { identity } : {}) } : null;
+  }).filter((item): item is StreamingTitle => item !== null);
   const envelope = record(unwrap(payload));
   const limit = number(envelope?.limit) || items.length;
   const offset = number(envelope?.offset) || (page - 1) * limit;
