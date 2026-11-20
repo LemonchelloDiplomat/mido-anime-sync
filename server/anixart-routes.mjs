@@ -229,13 +229,15 @@ export async function handleAnixArtRequest(request, response, url, deps) {
         titleDetails: true,
         episodeCount: true,
         voiceTracks: true,
-        fullSeasonEpisodeManifest: false,
+        fullSeasonEpisodeManifest: true,
+        playerCatalogBridge: true,
         accountConnection: false,
         listImport: false,
         watchProgressRead: "browser-extension",
         limitations: [
           "Сайт anixart.site сам указывает, что он не связан с мобильным приложением Anixart. Аккаунты сайта и приложения нельзя считать одним профилем.",
-          "Публичная карточка содержит количество серий и озвучки, но не полный список сезонов и серий. Фактический сезон, серия и озвучка считываются расширением при просмотре.",
+          "Полный каталог сезонов, серий и озвучек передаётся расширением из состояния плеера в локальный интерфейс после открытия тайтла на сайте.",
+          "Выбор серии и озвучки, а также встроенное воспроизведение пока остаются на сайте AnixART.",
           "Неофициальный reverse-engineered API приложения не используется для входа или синхронизации аккаунта.",
         ],
       });
