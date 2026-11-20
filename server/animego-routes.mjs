@@ -94,41 +94,40 @@ function safeUrl(value, base = SITE) {
 }
 
 function posterFromCard(card) {
-  const tags = [...String(card || "").matchAll(/<(?:img|source)\b[^>]*>/gi)].map((match) => match[0]);
+  const source = String(card || "");
   const candidates = [];
+  const tags = [...source.matchAll(/<[a-z][\w:-]*\b[^>]*>/gi)].map((match) => match[0]);
+  const attributes = ["data-original", "data-original-src", "data-lazy-src", "data-src", "data-cfsrc", "data-image", "data-poster", "data-background", "data-bg", "src"];
   for (const tag of tags) {
-    for (const name of ["data-original", "data-lazy-src", "data-src", "data-cfsrc", "src"]) {
+    for (const name of attributes) {
       const value = attr(tag, name);
       if (value) candidates.push(value);
     }
     for (const name of ["data-srcset", "srcset"]) {
       const value = attr(tag, name);
-      if (value) {
-        const choices = value.split(",").map((entry) => {
-          const [url, descriptor] = entry.trim().split(/\s+/);
-          const width = Number(descriptor?.replace(/w$/i, "")) || 0;
-          return { url, width };
-        }).filter((entry) => entry.url);
-        choices.sort((a, b) => b.width - a.width);
-        candidates.push(...choices.map((entry) => entry.url));
-      }
+      if (!value) continue;
+      const choices = value.split(",").map((entry) => {
+        const [url, descriptor] = entry.trim().split(/\s+/);
+        const width = Number(descriptor?.replace(/w$/i, "")) || 0;
+        return { url, width };
+      }).filter((entry) => entry.url);
+      choices.sort((a, b) => b.width - a.width);
+      candidates.push(...choices.map((entry) => entry.url));
     }
     const style = attr(tag, "style");
-    const background = style.match(/background-image\s*:\s*url\((['"]?)(.*?)\1\)/i)?.[2];
+    const background = style.match(/(?:background(?:-image)?|--poster)\s*:\s*url\((['"]?)(.*?)\1\)/i)?.[2];
     if (background) candidates.push(background);
   }
-  const styleAttributes = [
-    ...String(card || "").matchAll(/\bstyle\s*=\s*"([^"]*)"/gi),
-    ...String(card || "").matchAll(/\bstyle\s*=\s*'([^']*)'/gi),
-  ];
-  for (const match of styleAttributes) {
-    const style = match[1] || "";
-    const background = style.match(/background-image\s*:\s*url\((['"]?)(.*?)\1\)/i)?.[2];
+  for (const match of source.matchAll(/\bstyle\s*=\s*(?:(['"])(.*?)\1|([^\s>]+))/gi)) {
+    const style = match[2] ?? match[3] ?? "";
+    const background = style.match(/(?:background(?:-image)?|--poster)\s*:\s*url\((['"]?)(.*?)\1\)/i)?.[2];
     if (background) candidates.push(background);
   }
   for (const candidate of candidates) {
-    const url = safeUrl(candidate);
-    if (url && !/^(?:data:|blob:)/i.test(candidate)) return url;
+    const value = decodeHtml(candidate).trim();
+    if (!value || /^(?:data:|blob:|javascript:)/i.test(value) || /(?:placeholder|no[-_]?image|default[-_]?poster)/i.test(value)) continue;
+    const url = safeUrl(value);
+    if (url) return url;
   }
   return null;
 }
