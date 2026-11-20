@@ -2090,6 +2090,21 @@ function App() {
           )}
           {settingsOpen && (
             <section className="integration-settings">
+              <article className="integration-provider">
+                <div className="integration-provider-info">
+                  <h3>{t(appLocale, "language")}</h3>
+                  <p>{appLocale === "ru" ? "Язык интерфейса и текстов каталога" : appLocale === "ja" ? "インターフェースとカタログの表示言語" : "Interface and catalog display language"}</p>
+                </div>
+                <select aria-label={t(appLocale, "language")} value={appLocale} onChange={(event) => {
+                  const next = event.target.value as AppLocale;
+                  setAppLocale(next);
+                  saveAppLocale(next);
+                }}>
+                  <option value="ru">{t(appLocale, "russian")}</option>
+                  <option value="en">{t(appLocale, "english")}</option>
+                  <option value="ja">{t(appLocale, "japanese")}</option>
+                </select>
+              </article>
               <div className="section-heading">
                 <div>
                   <div className="eyebrow">ACCOUNT CONNECTIONS</div>
