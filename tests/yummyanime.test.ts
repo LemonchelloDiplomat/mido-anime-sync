@@ -3,6 +3,7 @@ import {
   parseYummyAccountSnapshot,
   parseYummyDetails,
   parseYummySearch,
+  parseYummyWatchHistory,
 } from "../src/services/yummyanime.js";
 
 const catalogFixture = {
