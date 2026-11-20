@@ -343,9 +343,26 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
       });
       let parsed = { episodes: [], voices: [] };
       if (player.ok) parsed = parseAnimeGoPlayer(await player.json(), detail.url);
+      // AnimeGO films can expose player variants without an episode navigation bar.
+      // Surface those variants as one synthetic "Фильм" item so the existing player UI can render them.
+      const episodes = parsed.episodes.length
+        ? parsed.episodes.map((episode) => ({
+            ...episode,
+            ...(parsed.voices.length ? { voiceTracks: parsed.voices } : {}),
+          }))
+        : parsed.voices.length
+          ? [{
+              externalId: detail.externalId,
+              number: 1,
+              title: "Фильм",
+              url: detail.url,
+              seasonNumber: 1,
+              voiceTracks: parsed.voices,
+            }]
+          : [];
       return sendJson(response, 200, {
         ...detail,
-        seasons: parsed.episodes.length ? [{ number: 1, title: "Основной сезон", episodes: parsed.episodes }] : [],
+        seasons: episodes.length ? [{ number: 1, title: "Основной сезон", episodes }] : [],
         voices: parsed.voices,
       });
     }
