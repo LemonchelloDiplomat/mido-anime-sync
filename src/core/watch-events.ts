@@ -64,6 +64,9 @@ export function validateWatchEvent(value: unknown): WatchEvent {
   const currentTimeSeconds = optionalNumber("currentTimeSeconds");
   const durationSeconds = optionalNumber("durationSeconds");
   const season = optionalNumber("season");
+  if (season !== undefined && season !== null && (!Number.isSafeInteger(season) || season < 1)) {
+    throw new Error("Некорректное значение season в событии просмотра.");
+  }
   const voice = event.voice === undefined ? undefined
     : event.voice === null ? null
       : typeof event.voice === "string" && event.voice.trim().length > 0 && event.voice.length <= 100
