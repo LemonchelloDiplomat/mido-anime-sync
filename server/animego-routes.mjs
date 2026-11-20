@@ -185,8 +185,10 @@ export function parseAnimeGoSearch(html) {
   // AnimeGO pages contain navigation links to /anime/... alongside actual search cards.
   // Only inspect the dedicated ani-grid__item containers, never arbitrary page anchors.
   const divTags = [...String(html || "").matchAll(/<div\b[^>]*>/gi)];
+  // Match the exact class token. A substring regex also matched
+  // "ani-grid__item-picture", which is a nested image wrapper, not a card.
   const cardStarts = divTags
-    .filter((match) => /\bani-grid__item\b/.test(attr(match[0], "class")))
+    .filter((match) => attr(match[0], "class").split(/\s+/).includes("ani-grid__item"))
     .map((match) => match.index);
   const results = [];
   const seen = new Set();
