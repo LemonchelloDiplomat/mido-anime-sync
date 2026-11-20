@@ -30,6 +30,15 @@ function titleSlug(url) {
   return new URL(url).pathname.split("/").filter(Boolean).at(-1) || "";
 }
 
+function cleanSearchTitle(value) {
+  return String(value || "")
+    .replace(/^\\s*(?:\\d{1,2}(?:[.,]\\d{1,2})?\\s+){1,2}/, "")
+    .replace(/\\s+\\d{4}\\s*,[\\s\\S]*$/, "")
+    .replace(/[\\s,;|]+$/, "")
+    .replace(/\\s+/g, " ")
+    .trim();
+}
+
 export function parseAnixArtSearch(html) {
   const items = [];
   const seen = new Set();
@@ -42,7 +51,7 @@ export function parseAnixArtSearch(html) {
     if (!/^\d+-[\p{L}\p{N}-]+\.html$/u.test(slug)) continue;
     const inner = match[4];
     const image = inner.match(/<img\b[^>]*>/i)?.[0] || "";
-    const title = stripTags(inner) || attr(image, "alt");
+    const title = cleanSearchTitle(stripTags(inner)) || cleanSearchTitle(attr(image, "alt"));
     if (!title) continue;
     const prefix = html.slice(Math.max(0, match.index - 1400), match.index);
     const images = [...prefix.matchAll(/<img\b[^>]*>/gi)];
