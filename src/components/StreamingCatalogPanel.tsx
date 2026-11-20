@@ -130,10 +130,11 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
     if (provider !== "anixart" || !selected) return;
     const controller = new AbortController();
     let active = true;
+    let catalogReceived = false;
     const loadCatalog = async () => {
       try {
         const catalog = await getAnixArtPlayerCatalog(selected.externalId, controller.signal);
-        if (active && catalog) setAnixArtCatalog(catalog);
+        if (active && catalog) { catalogReceived = true; setAnixArtCatalog(catalog); }
       } catch (reason) {
         if (active && !(reason instanceof Error && reason.name === "AbortError")) {
           setError(reason instanceof Error ? reason.message : "Не удалось получить каталог AnixART.");
@@ -142,7 +143,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot }: Pro
     };
     void loadCatalog();
     const timer = window.setInterval(() => {
-      if (!anixArtCatalog) void loadCatalog();
+      if (!catalogReceived) void loadCatalog();
     }, 2500);
     return () => {
       active = false;
