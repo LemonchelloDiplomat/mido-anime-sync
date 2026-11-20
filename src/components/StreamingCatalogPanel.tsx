@@ -359,7 +359,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
                     ? <img
                         src={provider === "animego"
                           ? "/api/animego/poster?url=" + encodeURIComponent(posterFallbacks[posterKey] || item.posterUrl || "") + "&referer=" + encodeURIComponent(item.url)
-                          : item.posterUrl}
+                          : item.posterUrl || undefined}
                         alt=""
                         loading="lazy"
                         onError={() => {
