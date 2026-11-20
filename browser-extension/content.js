@@ -331,6 +331,7 @@
         episode,
         sourceUrl: detected.sourceUrl,
         service: detected.service,
+        ...(isCvhBridgeFrame ? { transport: "yummyanime-cvh-bridge" } : {}),
       },
     }, frameUrl.origin);
   }
@@ -388,11 +389,14 @@
       ) return;
       const sourceUrl = new URL(metadata.sourceUrl);
       const trustedCvhBridge = isCvhPlayerFrame &&
-        event.origin.toLowerCase().includes("yummyani.me") &&
+        metadata.transport === "yummyanime-cvh-bridge" &&
         (() => {
           try {
-            const referrer = new URL(document.referrer);
-            return referrer.origin === event.origin && referrer.pathname.toLowerCase() === "/iframecvh.html";
+            const originUrl = new URL(event.origin);
+            const hostname = originUrl.hostname.toLowerCase();
+            return (originUrl.protocol === "https:" || originUrl.protocol === "http:") &&
+              (hostname === "yummyani.me" || hostname.endsWith(".yummyani.me") ||
+                hostname === "yummy-ani.me" || hostname.endsWith(".yummy-ani.me"));
           } catch {
             return false;
           }
