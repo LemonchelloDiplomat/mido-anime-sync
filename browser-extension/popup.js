@@ -8,18 +8,59 @@ function status(message) {
   statusElement.textContent = message;
 }
 
-async function loadQueuedEvent() {
+const pendingList = document.getElementById("pending-list");
+const pendingCount = document.getElementById("pending-count");
+
+async function renderPendingEvents() {
   const { pendingWatchEvents = [] } = await chrome.storage.local.get({ pendingWatchEvents: [] });
-  const latest = Array.isArray(pendingWatchEvents) ? pendingWatchEvents[pendingWatchEvents.length - 1] : null;
-  if (!latest) return;
-  detected = latest;
-  pendingEventId = latest.eventId || null;
-  titleInput.value = latest.title || "";
-  episodeInput.value = latest.episode || "";
-  status("Есть неподтверждённое событие просмотра. Проверь название и номер серии, затем нажми «Передать в локальную библиотеку».");
+  const queue = Array.isArray(pendingWatchEvents) ? pendingWatchEvents : [];
+  pendingCount.textContent = `(${queue.length})`;
+  pendingList.replaceChildren();
+
+  if (queue.length === 0) {
+    const empty = document.createElement("div");
+    empty.id = "pending-empty";
+    empty.textContent = "Нет сохранённых событий.";
+    pendingList.append(empty);
+    return;
+  }
+
+  for (const event of [...queue].reverse()) {
+    const item = document.createElement("div");
+    item.className = "pending-item";
+
+    const title = document.createElement("div");
+    title.className = "pending-title";
+    title.textContent = event.title || "Без названия";
+
+    const meta = document.createElement("div");
+    meta.className = "pending-meta";
+    meta.textContent = `Серия ${event.episode || "?"} · ${event.service || "источник"}`;
+
+    const selectButton = document.createElement("button");
+    selectButton.className = "secondary";
+    selectButton.type = "button";
+    selectButton.textContent = "Проверить данные";
+    selectButton.addEventListener("click", () => {
+      detected = event;
+      pendingEventId = event.eventId || null;
+      titleInput.value = event.title || "";
+      episodeInput.value = event.episode || "";
+      status("Событие выбрано. Проверь название и серию, затем нажми «Передать в локальную библиотеку».");
+    });
+
+    item.append(title, meta, selectButton);
+    pendingList.append(item);
+  }
 }
 
-void loadQueuedEvent();
+void renderPendingEvents();
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "local" && changes.pendingWatchEvents) {
+    void renderPendingEvents();
+  }
+});
 
 // Opening the toolbar popup acknowledges the red notification without
 // removing the pending watch event from the delivery queue.
