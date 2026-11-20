@@ -13,13 +13,13 @@
 ## Поддерживаемые источники
 
 - AnimeGO: `anime-go.org`, `animego.online`, `animego.me`. Видеоплеер AniBoom (`aniboom.one`) поддерживается как вложенный iframe: расширение получает метаданные тайтла и выбранной серии от страницы AnimeGO, а время просмотра считывает непосредственно из HTML5-видеоплеера.
-- YummyAnime: `yummyani.me`, `yummy-ani.me`.
+- YummyAnime: `ru.yummyani.me`, `old.yummyani.me`, and supported `yummyani.me` / `yummy-ani.me` subdomains. The extension reads the active numeric episode from the new site's `data-selected="1"` marker; on the legacy layout it reads the `episode` parameter from the `iframeCVH.html` player URL. Legacy CVH metadata is relayed through the wrapper into the player iframe inside the component's open Shadow DOM. Native HTML5 video, CVH, and Kodik playback are supported when their player frames expose the supported video state.
 - Kodik: встроенный плеер `kodikplayer.com` на поддерживаемой странице AnimeGO или YummyAnime. Название и серия передаются от страницы просмотра, а прогресс считывается только из HTML5-видео.
 - Anixart: ручное событие с официальной веб-страницы можно отправить через popup, указав номер серии. Официальный сайт не предоставляет браузерный видеоплеер, а просмотр и ведение списков доступны в Android-приложении. Автоматическое обнаружение просмотра Anixart в браузере не поддерживается.
 
 ## Как работает автоматическое обнаружение
 
-1. На AnimeGO content script считывает заголовок и выбранную серию и передаёт эти метаданные доверенному iframe AniBoom, CVH или Kodik. На YummyAnime метаданные также передаются в Kodik. Внутри iframe content script считывает только состояние HTML5-видео. На других поддерживаемых сайтах метаданные считываются непосредственно со страницы.
+1. На AnimeGO content script считывает заголовок и выбранную серию и передаёт эти метаданные доверенному iframe AniBoom, CVH или Kodik. На YummyAnime content script считывает заголовок и активную серию, а затем передаёт метаданные во вложенные CVH и Kodik-плееры. На старом YummyAnime метаданные проходят через `iframeCVH.html`, который ретранслирует их во вложенный iframe CVH. Внутри iframe content script считывает только состояние HTML5-видео. На странице YummyAnime также отслеживается доступный нативный HTML5-плеер.
 2. Когда видео достигает 90% длительности или завершается, событие попадает в локальную очередь расширения и на значке появляется счётчик.
 3. Пользователь открывает popup, проверяет название и номер серии и нажимает «Передать».
 4. Локальное приложение открывается с событием просмотра.
