@@ -53,7 +53,7 @@
   const titleSelectors = service === "animego"
     ? ["h1", ".anime-title", ".watch-title", ".video-title", "[itemprop='name']"]
     : service === "yummyanime"
-      ? ["h1", ".watch__title", ".video-title", ".player__title", "[itemprop='name']"]
+      ? ["h1", ".watch__title", ".video-title", ".player__title", ".anime-title", ".watch-title", "[data-anime-title]", "[itemprop='name']"]
       : ["h1", "[itemprop='name']", "meta[property='og:title']"];
 
   const episodeSelectors = service === "animego"
@@ -197,12 +197,19 @@
     }
 
     const titleMeta = document.querySelector("meta[property='og:title']");
+    const titleMetaFallback = document.querySelector("meta[name='title']");
     const titleCandidates = [
       ...titleSelectors.map(textFrom),
       titleMeta?.getAttribute("content") || "",
+      titleMetaFallback?.getAttribute("content") || "",
       document.title,
-    ].filter(Boolean);
-    let title = titleCandidates.find((candidate) => candidate.length > 2) || "";
+    ];
+    const isUsableAnimeTitle = (candidate) => {
+      const normalized = String(candidate || "").trim().toLocaleLowerCase();
+      if (normalized.length < 2 || /^[.…\-–—_]+$/.test(normalized)) return false;
+      return !/^(?:загрузка|loading|yummyanime|animego|смотреть аниме онлайн)(?:\s*[|·-].*)?$/i.test(normalized);
+    };
+    let title = titleCandidates.find(isUsableAnimeTitle) || "";
     title = title
       .replace(/\s*[|·-]\s*(AnimeGO|YummyAnime|Anixart).*$/i, "")
       .replace(/\s*[|·-]\s*(смотреть аниме онлайн).*$/i, "")
