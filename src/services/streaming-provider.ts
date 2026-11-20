@@ -58,6 +58,9 @@ export interface StreamingVoice {
   externalId: string;
   name: string;
   episodeIds?: string[];
+  /** Temporary provider player URL; kept in memory and never persisted to the local library. */
+  playerUrl?: string | null;
+  playerName?: string | null;
 }
 
 export interface StreamingTitleDetails extends StreamingTitle {
