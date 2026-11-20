@@ -241,7 +241,6 @@ export function parseAnimeGoSearch(html) {
       cardText,
     ].filter(Boolean))];
     const poster = posterFromCard(card);
-    const slug = new URL(selectedUrl).pathname.split("/").filter(Boolean).at(-1) || selectedUrl;
     results.push({
       provider: "animego",
       externalId: slug,
