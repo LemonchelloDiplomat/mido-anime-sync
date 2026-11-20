@@ -342,7 +342,8 @@
         !Number.isSafeInteger(metadata.episode) ||
         metadata.episode < 1 ||
         !isAllowedWatchSourceUrl(metadata.sourceUrl) ||
-        new URL(metadata.sourceUrl).origin !== event.origin ||
+        (new URL(metadata.sourceUrl).origin !== event.origin &&
+          !(isCvhPlayerFrame && event.origin === "https://animego.me" && metadata.service === "yummyanime")) ||
         ((isKodikFrame || isCvhTrackingFrame) && metadata.service != null &&
           metadata.service !== "animego" && metadata.service !== "yummyanime")
       ) return;
