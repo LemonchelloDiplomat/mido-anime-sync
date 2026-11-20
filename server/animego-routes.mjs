@@ -280,7 +280,7 @@ export function parseAnimeGoSearch(html) {
 
 export function parseAnimeGoPagePoster(html, pageUrl = SITE) {
   const source = String(html || "");
-  const metaTags = [...source.matchAll(/<meta\\b[^>]*>/gi)].map((match) => match[0]);
+  const metaTags = [...source.matchAll(/<meta\b[^>]*>/gi)].map((match) => match[0]);
   const candidates = [];
   for (const tag of metaTags) {
     const key = (attr(tag, "property") || attr(tag, "name") || attr(tag, "itemprop") || "").toLowerCase();
@@ -289,14 +289,14 @@ export function parseAnimeGoPagePoster(html, pageUrl = SITE) {
       if (value) candidates.push(value);
     }
   }
-  const imageLinks = [...source.matchAll(/<link\\b[^>]*>/gi)].map((match) => match[0]);
+  const imageLinks = [...source.matchAll(/<link\b[^>]*>/gi)].map((match) => match[0]);
   for (const tag of imageLinks) {
-    if (/\\bimage_src\\b/i.test(attr(tag, "rel"))) {
+    if (/\bimage_src\b/i.test(attr(tag, "rel"))) {
       const value = attr(tag, "href");
       if (value) candidates.push(value);
     }
   }
-  for (const match of source.matchAll(/<script\\b[^>]*type\\s*=\\s*(['"])application\\/ld\\+json\\1[^>]*>([\\s\\S]*?)<\\/script>/gi)) {
+  for (const match of source.matchAll(/<script\b[^>]*type\s*=\s*(['"])application\/ld\+json\1[^>]*>([\s\S]*?)<\/script>/gi)) {
     try {
       const parsed = JSON.parse(match[2]);
       const entries = Array.isArray(parsed) ? parsed : [parsed];
@@ -500,7 +500,7 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
         return sendJson(response, 400, { error: "Некорректный адрес страницы AnimeGO." });
       }
       if (pageUrl.protocol !== "https:" || pageUrl.hostname !== "animego.me" ||
-          !/^\\/anime\\/[\\p{L}\\p{N}-]+-\\d+\\/?$/u.test(pageUrl.pathname)) {
+          !/^\/anime\/[\p{L}\p{N}-]+-\d+\/?$/u.test(pageUrl.pathname)) {
         return sendJson(response, 400, { error: "Разрешены только публичные страницы тайтлов AnimeGO." });
       }
       const page = await requestAnimeGoImpl(pageUrl.toString(), { headers });
