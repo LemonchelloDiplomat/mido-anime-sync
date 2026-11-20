@@ -5,6 +5,8 @@ const EXACT_EXTERNAL_KEYS: Array<keyof AnimeIdentity["externalIds"]> = [
   "anilist",
   "shikimori",
   "yummyanime",
+  "animego",
+  "anixart",
 ];
 
 /**
