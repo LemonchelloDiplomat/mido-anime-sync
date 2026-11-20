@@ -6,4 +6,5 @@ type AnimeGoRouteDependencies = { sendJson(response: RouteResponse, status: numb
 export function parseAnimeGoSearch(html: string): StreamingTitle[];
 export function parseAnimeGoDetail(html: string, url: string): StreamingTitle & { identity: AnimeIdentity };
 export function parseAnimeGoPlayer(payload: unknown, titleUrl: string): { episodes: StreamingEpisode[]; voices: StreamingVoice[] };
+export function parseAnimeGoVoices(payload: unknown): StreamingVoice[];
 export function handleAnimeGoRequest(request: RouteRequest, response: RouteResponse, url: URL, deps: AnimeGoRouteDependencies): Promise<boolean | void>;
