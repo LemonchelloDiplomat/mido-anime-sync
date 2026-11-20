@@ -145,20 +145,22 @@
       if (Number.isSafeInteger(episode) && episode > 0) return episode;
     }
 
-    // The legacy YummyAnime layout keeps the selected episode in the CVH
-    // wrapper URL instead of marking an episode element in the page DOM.
-    const cvhFrame = Array.from(document.querySelectorAll("iframe")).find((frame) => {
+    // The legacy YummyAnime layout keeps the selected episode in the
+    // embedded player URL instead of marking an episode element in the DOM.
+    // Both its CVH wrapper and direct Kodik iframe expose an episode parameter.
+    const playerFrame = Array.from(document.querySelectorAll("iframe")).find((frame) => {
       try {
         const url = new URL(frame.src, location.href);
-        return url.hostname.toLowerCase().endsWith(".yummyani.me") &&
-          url.pathname === "/iframeCVH.html";
+        const hostname = url.hostname.toLowerCase();
+        return (hostname.endsWith(".yummyani.me") && url.pathname === "/iframeCVH.html") ||
+          hostname === "kodikplayer.com";
       } catch {
         return false;
       }
     });
-    if (cvhFrame) {
+    if (playerFrame) {
       try {
-        const episode = Number(new URL(cvhFrame.src, location.href).searchParams.get("episode"));
+        const episode = Number(new URL(playerFrame.src, location.href).searchParams.get("episode"));
         if (Number.isSafeInteger(episode) && episode > 0 && episode <= 9999) return episode;
       } catch {
         // Ignore malformed or unavailable player URLs.
