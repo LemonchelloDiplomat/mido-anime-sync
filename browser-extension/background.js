@@ -37,6 +37,14 @@ function normalizeTitle(title) {
 function normalizeSourceUrl(rawUrl) {
   try {
     const url = new URL(rawUrl);
+    const host = url.hostname.toLowerCase();
+    // YummyAnime uses regional and legacy subdomains for the same catalogue.
+    // Treat them as one source so the same pending episode is not duplicated.
+    if (host === "yummyani.me" || host.endsWith(".yummyani.me")) {
+      url.hostname = "yummyani.me";
+    } else if (host === "yummy-ani.me" || host.endsWith(".yummy-ani.me")) {
+      url.hostname = "yummy-ani.me";
+    }
     return url.origin + url.pathname;
   } catch {
     return "";
