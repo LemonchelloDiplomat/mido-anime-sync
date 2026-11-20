@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   STREAMING_PROVIDER_IDS,
+  STREAMING_PROVIDER_CAPABILITIES,
+  getStreamingProviderCapabilities,
   isStreamingProviderId,
   toStreamingServiceId,
   type StreamingProviderCapabilities,
@@ -15,6 +17,23 @@ describe("streaming provider contracts", () => {
     expect(isStreamingProviderId("anixart")).toBe(true);
     expect(isStreamingProviderId("anilist")).toBe(false);
     expect(isStreamingProviderId("unknown")).toBe(false);
+  });
+
+  it("declares account and progress capabilities only where implemented", () => {
+    expect(STREAMING_PROVIDER_CAPABILITIES.yummyanime).toMatchObject({
+      accountConnection: true, listImport: true, listWrite: true,
+      watchProgressRead: true, watchProgressWrite: true,
+    });
+    for (const provider of ["animego", "anixart"] as const) {
+      expect(getStreamingProviderCapabilities(provider)).toMatchObject({
+        catalogSearch: true, titleDetails: true,
+        accountConnection: false, listImport: false, listWrite: false,
+        watchProgressRead: true, watchProgressWrite: false,
+      });
+    }
+    const copy = getStreamingProviderCapabilities("animego");
+    copy.limitations?.push("mutated");
+    expect(STREAMING_PROVIDER_CAPABILITIES.animego.limitations).not.toContain("mutated");
   });
 
   it("maps streaming provider IDs to existing source-entry IDs", () => {
