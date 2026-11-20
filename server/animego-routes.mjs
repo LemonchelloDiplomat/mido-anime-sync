@@ -94,7 +94,7 @@ function safeUrl(value, base = SITE) {
 }
 
 function posterFromCard(card) {
-  const tags = [...String(card || "").matchAll(/<(?:img|source)\\b[^>]*>/gi)].map((match) => match[0]);
+  const tags = [...String(card || "").matchAll(/<(?:img|source)\b[^>]*>/gi)].map((match) => match[0]);
   const candidates = [];
   for (const tag of tags) {
     for (const name of ["data-original", "data-lazy-src", "data-src", "data-cfsrc", "src"]) {
@@ -105,7 +105,7 @@ function posterFromCard(card) {
       const value = attr(tag, name);
       if (value) {
         const choices = value.split(",").map((entry) => {
-          const [url, descriptor] = entry.trim().split(/\\s+/);
+          const [url, descriptor] = entry.trim().split(/\s+/);
           const width = Number(descriptor?.replace(/w$/i, "")) || 0;
           return { url, width };
         }).filter((entry) => entry.url);
@@ -114,13 +114,13 @@ function posterFromCard(card) {
       }
     }
     const style = attr(tag, "style");
-    const background = style.match(/background-image\\s*:\\s*url\\((['"]?)(.*?)\\1\\)/i)?.[2];
+    const background = style.match(/background-image\s*:\s*url\((['"]?)(.*?)\1\)/i)?.[2];
     if (background) candidates.push(background);
   }
-  const styleTags = [...String(card || "").matchAll(/<[^>]+\\bstyle\\s*=\\s*(['"])[^'"]*background-image\\s*:[^'"]*\\1[^>]*>/gi)];
+  const styleTags = [...String(card || "").matchAll(/<[^>]+\bstyle\s*=\s*(['"])[^'"]*background-image\s*:[^'"]*\1[^>]*>/gi)];
   for (const match of styleTags) {
     const style = attr(match[0], "style");
-    const background = style.match(/background-image\\s*:\\s*url\\((['"]?)(.*?)\\1\\)/i)?.[2];
+    const background = style.match(/background-image\s*:\s*url\((['"]?)(.*?)\1\)/i)?.[2];
     if (background) candidates.push(background);
   }
   for (const candidate of candidates) {
