@@ -104,6 +104,23 @@ describe("YummyAnime adapter", () => {
     expect(snapshot.sourceEntries).toEqual(snapshot.entries);
   });
 
+  it("groups remote watch history by title and keeps the furthest episode", () => {
+    const snapshot = parseYummyWatchHistory({
+      response: [
+        { anime_id: 10001, anime_title: "Sample Chronicle", episode: 2, video_id: 50002, date: 1786000000, time: 300, duration: 1440 },
+        { anime_id: 10001, anime_title: "Sample Chronicle", episode: 5, video_id: 50005, date: 1786100000, time: 90, duration: 1440 },
+      ],
+    });
+    expect(snapshot.entries).toHaveLength(1);
+    expect(snapshot.entries[0]).toMatchObject({
+      animeId: "yummyanime:10001",
+      source: "yummyanime",
+      status: "WATCHING",
+      progress: 5,
+    });
+    expect(snapshot.entries[0]?.sourceMetadata?.videoIds).toEqual(["50002", "50005"]);
+  });
+
   it("rejects malformed and duplicate account records instead of silently dropping them", () => {
     expect(() => parseYummyAccountSnapshot({ response: [{ title: "Missing ID" }] }))
       .toThrow("без корректного ID");
