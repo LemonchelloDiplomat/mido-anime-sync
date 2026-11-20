@@ -14,13 +14,14 @@ function showQueuedEvent(latest) {
   pendingEventId = latest.eventId || null;
   titleInput.value = latest.title || "";
   episodeInput.value = latest.episode || "";
-  status("Сайт автоматически обнаружил почти завершённую серию. Проверь данные и нажми «Передать в локальную библиотеку».");
+  status("Обнаружена серия, просмотренная более чем на 90%. Проверь данные и нажми «Передать в локальную библиотеку».");
 }
 
 async function loadQueuedEvent() {
   const { pendingWatchEvents = [] } = await chrome.storage.local.get({ pendingWatchEvents: [] });
   const latest = Array.isArray(pendingWatchEvents) ? pendingWatchEvents[pendingWatchEvents.length - 1] : null;
-  showQueuedEvent(latest);
+  if (latest) showQueuedEvent(latest);
+  else status("Ничего не найдено. После просмотра 90% серии поддерживаемый сайт автоматически добавит её сюда.");
 }
 
 void loadQueuedEvent();
