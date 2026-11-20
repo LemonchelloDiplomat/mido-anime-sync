@@ -68,7 +68,7 @@ describe("YummyAnime adapter", () => {
         {
           video_id: 50003,
           number: "2",
-          data: { translation: "Subtitles Team", player: "Sibnet" },
+          data: JSON.stringify({ translation: "Subtitles Team", player: "Sibnet" }),
         },
       ],
     });
@@ -78,7 +78,7 @@ describe("YummyAnime adapter", () => {
       { externalId: "50002", name: "Subtitles Team", playerUrl: null, playerName: "Sibnet" },
     ]);
     expect(details.seasons[0]?.episodes[1]?.voiceTracks).toEqual([
-      { externalId: "50003", name: "Subtitles Team" },
+      { externalId: "50003", name: "Subtitles Team", playerUrl: null, playerName: "Sibnet" },
     ]);
     expect(details.voices.map((voice) => voice.name)).toEqual(["Studio Example", "Subtitles Team"]);
     expect(details.seasons[0]?.episodes[1]?.voiceTracks?.[0]?.playerUrl).toBeNull();
