@@ -41,6 +41,7 @@ export function applyFallbackMetadata(
     // Prefer a verified AniList cover for this provider, but only after an exact title match.
     posterUrl: options.preferPoster ? (match.posterUrl || item.posterUrl || null) : (item.posterUrl || match.posterUrl || null),
     averageScore: item.averageScore ?? match.averageScore ?? null,
+    year: item.year ?? match.year ?? null,
     posterSource: options.preferPoster && match.posterUrl ? "AniList" : item.posterUrl ? (item.posterSource || item.provider) : match.posterUrl ? "AniList" : null,
     scoreSource: item.averageScore != null ? (item.scoreSource || item.provider) : match.averageScore != null ? "AniList" : null,
     identity: item.identity || match,
