@@ -1,4 +1,44 @@
 const SITE = "https://anixart.site";
+const playerCatalogs = new Map();
+const PLAYER_CATALOG_TTL_MS = 10 * 60 * 1000;
+
+function sanitizePlayerCatalog(input) {
+  if (!input || typeof input !== "object" ||
+      typeof input.slug !== "string" || !/^\\d+-[\\p{L}\\p{N}-]+\\.html$/u.test(input.slug) ||
+      typeof input.title !== "string" || input.title.trim().length < 2 ||
+      !Array.isArray(input.seasons)) return null;
+  const seasons = input.seasons.slice(0, 50).flatMap((season) => {
+    const number = Number(season?.number);
+    if (!Number.isSafeInteger(number) || number < 1 || !Array.isArray(season.episodes)) return [];
+    const episodes = season.episodes.slice(0, 500).flatMap((episode) => {
+      const episodeNumber = Number(episode?.number);
+      if (!Number.isSafeInteger(episodeNumber) || episodeNumber < 1 || !Array.isArray(episode.voices)) return [];
+      const voices = episode.voices.slice(0, 100).flatMap((voice) => {
+        const name = typeof voice?.name === "string" ? voice.name.trim().slice(0, 100) : "";
+        return name ? [{ name, type: typeof voice.type === "string" ? voice.type.slice(0, 60) : null }] : [];
+      });
+      return [{ number: episodeNumber, title: typeof episode.title === "string" ? episode.title.slice(0, 120) : String(episodeNumber), voices }];
+    });
+    episodes.sort((a, b) => a.number - b.number);
+    return [{ number, episodes }];
+  });
+  seasons.sort((a, b) => a.number - b.number);
+  if (!seasons.length) return null;
+  const current = input.current && typeof input.current === "object" ? input.current : {};
+  const currentSeason = Number(current.season);
+  const currentEpisode = Number(current.episode);
+  return {
+    slug: input.slug,
+    title: input.title.trim().slice(0, 200),
+    seasons,
+    current: {
+      season: Number.isSafeInteger(currentSeason) && currentSeason > 0 ? currentSeason : null,
+      episode: Number.isSafeInteger(currentEpisode) && currentEpisode > 0 ? currentEpisode : null,
+      voice: typeof current.voice === "string" ? current.voice.trim().slice(0, 100) : null,
+    },
+    receivedAt: new Date().toISOString(),
+  };
+}
 
 function decodeHtml(value) {
   return String(value || "")
@@ -138,7 +178,30 @@ export async function handleAnixArtRequest(request, response, url, deps) {
   const { sendJson } = deps;
   const method = request.method || "GET";
   if (!url.pathname.startsWith("/api/anixart/")) return false;
-  if (method !== "GET") return sendJson(response, 405, { error: "AnixART поддерживает только чтение публичного каталога." });
+
+  if (url.pathname === "/api/anixart/player-catalog") {
+    if (method === "POST") {
+      if (typeof deps.readJson !== "function") return sendJson(response, 503, { error: "Приём каталога AnixART не настроен." });
+      const body = await deps.readJson(request, 512 * 1024);
+      const catalog = sanitizePlayerCatalog(body);
+      if (!catalog) return sendJson(response, 400, { error: "Некорректная структура каталога AnixART." });
+      playerCatalogs.set(catalog.slug, { catalog, expiresAt: Date.now() + PLAYER_CATALOG_TTL_MS });
+      return sendJson(response, 200, { ok: true, seasonCount: catalog.seasons.length });
+    }
+    if (method === "GET") {
+      const slug = String(url.searchParams.get("slug") || "");
+      if (!/^\\d+-[\\p{L}\\p{N}-]+\\.html$/u.test(slug)) return sendJson(response, 400, { error: "Некорректный AnixART slug." });
+      const cached = playerCatalogs.get(slug);
+      if (!cached || cached.expiresAt <= Date.now()) {
+        playerCatalogs.delete(slug);
+        return sendJson(response, 200, { catalog: null });
+      }
+      return sendJson(response, 200, { catalog: cached.catalog });
+    }
+    return sendJson(response, 405, { error: "Метод не поддерживается." });
+  }
+
+  if (method !== "GET") return sendJson(response, 405, { error: "AnixART поддерживает только чтение публичного каталога и приём данных плеера." });
   const headers = {
     Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
