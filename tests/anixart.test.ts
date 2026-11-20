@@ -155,7 +155,8 @@ describe("AnixART public website catalog adapter", () => {
     );
     expect(statusResponse.json()).toMatchObject({
       catalogSearch: true,
-      fullSeasonEpisodeManifest: true,\n      playerCatalogBridge: true,
+      fullSeasonEpisodeManifest: true,
+      playerCatalogBridge: true,
       accountConnection: false,
       listImport: false,
       watchProgressRead: "browser-extension",
