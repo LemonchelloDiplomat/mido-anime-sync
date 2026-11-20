@@ -7,9 +7,17 @@ const backgroundScript = await readFile(
   "utf8",
 );
 
-function createBackgroundHarness() {
-  const storage: Record<string, unknown> = { pendingWatchEvents: [] };
+type HarnessOptions = {
+  storage?: Record<string, unknown>;
+  delayFirstQueueWrite?: boolean;
+  failNextQueueWrite?: boolean;
+};
+
+function createBackgroundHarness(options: HarnessOptions = {}) {
+  const storage = options.storage || { pendingWatchEvents: [] as unknown[] };
   let messageListener: ((message: any) => void) | null = null;
+  let delayedQueueWriteUsed = false;
+  let failNextQueueWrite = Boolean(options.failNextQueueWrite);
 
   const drawingContext = {
     clearRect() {}, save() {}, restore() {}, beginPath() {}, roundRect() {}, fill() {},
@@ -26,6 +34,16 @@ function createBackgroundHarness() {
           return { ...defaults, ...storage };
         },
         async set(values: Record<string, unknown>) {
+          if (Object.hasOwn(values, "pendingWatchEvents")) {
+            if (failNextQueueWrite) {
+              failNextQueueWrite = false;
+              throw new Error("simulated storage quota failure");
+            }
+            if (options.delayFirstQueueWrite && !delayedQueueWriteUsed) {
+              delayedQueueWriteUsed = true;
+              await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+          }
           Object.assign(storage, values);
         },
       },
@@ -50,6 +68,7 @@ function createBackgroundHarness() {
     },
   };
 
+  const warnings: unknown[][] = [];
   vm.runInNewContext(backgroundScript, {
     chrome: chromeMock,
     URL,
@@ -57,16 +76,18 @@ function createBackgroundHarness() {
       getContext() { return drawingContext; }
     },
     crypto: { randomUUID: () => "generated-event-id" },
-    console,
+    console: { warn(...args: unknown[]) { warnings.push(args); } },
   });
 
   if (!messageListener) throw new Error("Background message listener was not registered");
 
   return {
     storage,
+    warnings,
     async send(message: unknown) {
       messageListener?.(message);
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      // Let the serialized background mutation and storage promises settle.
+      await new Promise((resolve) => setTimeout(resolve, 35));
     },
   };
 }
@@ -138,5 +159,94 @@ describe("browser extension pending watch queue", () => {
       event: { ...watchEvent, eventId: "episode-three-rewatch" },
     });
     expect(harness.storage.pendingWatchEvents).toHaveLength(2);
+  });
+
+  it("preserves every pending event instead of silently dropping entries after the twentieth", async () => {
+    const harness = createBackgroundHarness();
+
+    for (let episode = 1; episode <= 25; episode += 1) {
+      await harness.send({
+        type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+        event: {
+          ...watchEvent,
+          episode,
+          sourceUrl: `https://yummyani.me/catalog/item-${episode}`,
+          eventId: `event-${episode}`,
+        },
+      });
+    }
+
+    expect(harness.storage.pendingWatchEvents).toHaveLength(25);
+    expect(harness.storage.pendingWatchEvents).toMatchObject([
+      { eventId: "event-1" },
+      { eventId: "event-25" },
+    ]);
+  });
+
+  it("serializes acknowledgement with incoming events so an acknowledged event cannot reappear", async () => {
+    const harness = createBackgroundHarness({ delayFirstQueueWrite: true });
+
+    const first = { ...watchEvent, eventId: "ack-me" };
+    harness.storage.pendingWatchEvents = [];
+    // Queue both messages without waiting between them to reproduce the
+    // storage read/write race that can occur when the app acknowledges fast.
+    const listener = (harness as any).send;
+    await listener({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: first,
+    });
+    await listener({ type: "MIDAHOSHI_APP_ACK", eventId: "ack-me" });
+
+    expect(harness.storage.pendingWatchEvents).toEqual([]);
+  });
+
+  it("keeps the existing queue after a storage write failure and accepts later events", async () => {
+    const harness = createBackgroundHarness({ failNextQueueWrite: true });
+
+    await harness.send({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: { ...watchEvent, eventId: "first-write-fails" },
+    });
+    expect(harness.storage.pendingWatchEvents).toEqual([]);
+    expect(harness.warnings.length).toBeGreaterThan(0);
+
+    await harness.send({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: { ...watchEvent, episode: 4, eventId: "second-write-succeeds" },
+    });
+    expect(harness.storage.pendingWatchEvents).toMatchObject([
+      { eventId: "second-write-succeeds", episode: 4 },
+    ]);
+  });
+
+  it("keeps queued events across a background service worker restart", async () => {
+    const firstWorker = createBackgroundHarness();
+    await firstWorker.send({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: { ...watchEvent, eventId: "survives-restart" },
+    });
+
+    const restartedWorker = createBackgroundHarness({ storage: firstWorker.storage });
+    await restartedWorker.send({ type: "MIDAHOSHI_DISMISS_ALERT" });
+
+    expect(restartedWorker.storage.pendingWatchEvents).toMatchObject([
+      { eventId: "survives-restart", title: "Санка Рэа", episode: 3 },
+    ]);
+  });
+
+  it("rejects malformed, unsupported, and below-threshold events", async () => {
+    const harness = createBackgroundHarness();
+
+    for (const event of [
+      { ...watchEvent, eventId: "bad-scheme", sourceUrl: "javascript:alert(1)" },
+      { ...watchEvent, eventId: "foreign-host", sourceUrl: "https://example.com/watch" },
+      { ...watchEvent, eventId: "bad-episode", episode: 0 },
+      { ...watchEvent, eventId: "below-threshold", currentTimeSeconds: 899 },
+      { ...watchEvent, eventId: "bad-duration", durationSeconds: 0 },
+    ]) {
+      await harness.send({ type: "MIDAHOSHI_AUTO_WATCH_EVENT", event });
+    }
+
+    expect(harness.storage.pendingWatchEvents).toEqual([]);
   });
 });
