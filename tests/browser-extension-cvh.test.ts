@@ -295,3 +295,167 @@ describe("AnimeGO CVH iframe tracking", () => {
     });
   });
 });
+
+
+describe("YummyAnime CVH iframe tracking", () => {
+  it("forwards YummyAnime title and episode metadata to a direct CVH player iframe", () => {
+    const listeners: Record<string, ((event: any) => void)[]> = {};
+    const forwardedMessages: any[] = [];
+    const playerWindow = {
+      postMessage(data: unknown, origin: string) {
+        forwardedMessages.push({ data, origin });
+      },
+    };
+    const playerFrame = {
+      src: "https://player.cdnvideohub.com/s2/v2.43.56/frame/",
+      contentWindow: playerWindow,
+    };
+    const title = { textContent: "Санка Рэа", getAttribute() { return null; } };
+    const episode = { textContent: "Серия 5", getAttribute() { return null; } };
+    const window = {
+      addEventListener(type: string, listener: (event: any) => void) {
+        (listeners[type] ||= []).push(listener);
+      },
+    };
+    const document = {
+      title: "Санка Рэа | YummyAnime",
+      documentElement: {},
+      querySelector(selector: string) {
+        if (selector === "h1") return title;
+        if (selector === ".watch__episode") return episode;
+        return null;
+      },
+      querySelectorAll(selector: string) {
+        return selector === "iframe" ? [playerFrame] : [];
+      },
+    };
+
+    vm.runInNewContext(contentScript, {
+      ...common,
+      location: {
+        hostname: "ru.yummyani.me",
+        origin: "https://ru.yummyani.me",
+        pathname: "/catalog/item/sanka-rea-tv",
+        href: "https://ru.yummyani.me/catalog/item/sanka-rea-tv",
+      },
+      document,
+      window,
+      chrome: { runtime: { onMessage: { addListener() {} }, sendMessage() {} } },
+    });
+
+    expect(forwardedMessages).toContainEqual({
+      origin: "https://player.cdnvideohub.com",
+      data: {
+        type: "MIDAHOSHI_PARENT_METADATA",
+        metadata: {
+          title: "Санка Рэа",
+          episode: 5,
+          sourceUrl: "https://ru.yummyani.me/catalog/item/sanka-rea-tv",
+          service: "yummyanime",
+        },
+      },
+    });
+
+    // The direct CVH player can request metadata again after its own script loads.
+    for (const listener of listeners.message || []) {
+      listener({
+        source: playerWindow,
+        origin: "https://player.cdnvideohub.com",
+        data: { type: "MIDAHOSHI_REQUEST_PARENT_METADATA" },
+      });
+    }
+    expect(forwardedMessages).toHaveLength(2);
+  });
+
+  it("accepts YummyAnime as the CVH parent and reports automatic progress as YummyAnime", () => {
+    const listeners: Record<string, ((event: any) => void)[]> = {};
+    const sentEvents: any[] = [];
+    const parentWindow = { postMessage() {} };
+    const window = {
+      parent: parentWindow,
+      addEventListener(type: string, listener: (event: any) => void) {
+        (listeners[type] ||= []).push(listener);
+      },
+      setInterval() { return 1; },
+      clearInterval() {},
+    };
+
+    vm.runInNewContext(contentScript, {
+      ...common,
+      location: {
+        hostname: "player.cdnvideohub.com",
+        origin: "https://player.cdnvideohub.com",
+        pathname: "/s2/v2.43.56/frame/",
+        href: "https://player.cdnvideohub.com/s2/v2.43.56/frame/",
+      },
+      document: {
+        title: "CVH Player",
+        referrer: "https://ru.yummyani.me/catalog/item/sanka-rea-tv",
+        documentElement: {},
+        querySelectorAll() { return []; },
+      },
+      window,
+      chrome: {
+        runtime: {
+          onMessage: { addListener() {} },
+          sendMessage(message: unknown) { sentEvents.push(message); },
+        },
+      },
+      crypto: { randomUUID: () => "yummy-cvh-test-event-id" },
+    });
+
+    expect(parentWindow).toBeDefined();
+    const parentRequests = (listeners.message || []);
+    expect(parentRequests).toHaveLength(2);
+
+    const dispatch = (event: any) => {
+      for (const listener of parentRequests) listener(event);
+    };
+    dispatch({
+      source: parentWindow,
+      origin: "https://ru.yummyani.me",
+      data: {
+        type: "MIDAHOSHI_PARENT_METADATA",
+        metadata: {
+          title: "Санка Рэа",
+          episode: 5,
+          sourceUrl: "https://ru.yummyani.me/catalog/item/sanka-rea-tv",
+          service: "yummyanime",
+        },
+      },
+    });
+
+    const sendSample = (currentTime: number) => {
+      dispatch({
+        source: window,
+        origin: "https://player.cdnvideohub.com",
+        data: {
+          type: "MIDAHOSHI_CVH_STATE",
+          state: {
+            currentTime,
+            duration: 100,
+            paused: false,
+            readyState: 4,
+          },
+        },
+      });
+    };
+    sendSample(89);
+    sendSample(90);
+
+    expect(sentEvents).toHaveLength(1);
+    expect(sentEvents[0]).toMatchObject({
+      type: "MIDAHOSHI_AUTO_WATCH_EVENT",
+      event: {
+        service: "yummyanime",
+        title: "Санка Рэа",
+        episode: 5,
+        sourceUrl: "https://ru.yummyani.me/catalog/item/sanka-rea-tv",
+        currentTimeSeconds: 90,
+        durationSeconds: 100,
+        hasVideoElement: true,
+        manualOnly: false,
+      },
+    });
+  });
+});
