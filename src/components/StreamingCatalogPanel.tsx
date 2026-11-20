@@ -89,11 +89,17 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
 
   const normalizedQuery = useMemo(() => normalizeCatalogQuery(query), [query]);
   const sortedResults = useMemo(() => [...results].sort((a, b) => {
-    if (catalogSort === "score") return (b.averageScore ?? -1) - (a.averageScore ?? -1);
-    if (catalogSort === "title") return a.title.localeCompare(b.title);
-    return catalogSort === "year-asc"
-      ? (a.year ?? 0) - (b.year ?? 0)
-      : (b.year ?? 0) - (a.year ?? 0);
+    if (catalogSort === "score") {
+      if (a.averageScore == null && b.averageScore == null) return a.title.localeCompare(b.title);
+      if (a.averageScore == null) return 1;
+      if (b.averageScore == null) return -1;
+      return b.averageScore - a.averageScore;
+    }
+    if (catalogSort === "title") return a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+    if (a.year == null && b.year == null) return a.title.localeCompare(b.title);
+    if (a.year == null) return 1;
+    if (b.year == null) return -1;
+    return catalogSort === "year-asc" ? a.year - b.year : b.year - a.year;
   }), [results, catalogSort]);
 
   useEffect(() => {
@@ -129,7 +135,9 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
     void searchProvider(provider, normalizedQuery, controller.signal)
       .then(async (result) => {
         if (controller.signal.aborted) return;
-        const needsFallback = result.items.some((item) => !item.posterUrl || item.averageScore == null);
+        // AnimeGO uses unstable CDN poster URLs, so always look for a verified
+        // AniList cover. Other providers only need fallback when metadata is absent.
+        const needsFallback = provider === "animego" || result.items.some((item) => !item.posterUrl || item.averageScore == null);
         if (!needsFallback) {
           setResults(result.items);
           return;
@@ -137,7 +145,9 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
         try {
           const metadata = await searchAniListAnime(normalizedQuery, controller.signal);
           if (controller.signal.aborted) return;
-          setResults(result.items.map((item) => applyFallbackMetadata(item, metadata)));
+          setResults(result.items.map((item) => applyFallbackMetadata(item, metadata, {
+            preferPoster: provider === "animego",
+          })));
         } catch {
           if (!controller.signal.aborted) setResults(result.items);
         }
