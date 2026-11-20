@@ -60,6 +60,7 @@ describe("streaming catalogue fallback metadata", () => {
     const result = applyFallbackMetadata(item, [identity("1", 2024, 9.1)], { preferPoster: true });
     expect(result.posterUrl).toBe("https://images.example/1.jpg");
     expect(result.posterSource).toBe("AniList");
+    expect(result.fallbackPosterUrl).toBe("https://animego.example/broken.jpg");
     expect(result.averageScore).toBe(7.4);
     expect(result.scoreSource).toBe("AnimeGO");
   });
