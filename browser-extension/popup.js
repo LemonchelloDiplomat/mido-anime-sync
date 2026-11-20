@@ -67,14 +67,6 @@ function getEventProgress(event) {
     : -1;
 }
 
-function chooseBestQueueEvent(group) {
-  return [...group].sort((a, b) => {
-    const progressDifference = getEventProgress(b) - getEventProgress(a);
-    if (progressDifference !== 0) return progressDifference;
-    return Date.parse(b.observedAt || "") - Date.parse(a.observedAt || "");
-  })[0];
-}
-
 function buildDeduplicatedQueue(queue) {
   const winners = new Map();
   for (const event of queue) {
