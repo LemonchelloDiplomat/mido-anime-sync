@@ -467,9 +467,16 @@ function App() {
       }
 
       await refreshLibrary();
-      setCatalogActionMessage(existing
-        ? "Информация об аниме обновлена. Твоя запись и статус просмотра сохранены."
-        : "Аниме добавлено в список «В планах».");
+      if (pendingWatchEvent) {
+        setWatchEventTargetId(targetId);
+        setSearchPageOpen(false);
+        setSelectedAnime(null);
+        setCatalogActionMessage("Аниме добавлено и выбрано для события просмотра. Теперь подтверди обновление прогресса.");
+      } else {
+        setCatalogActionMessage(existing
+          ? "Информация об аниме обновлена. Твоя запись и статус просмотра сохранены."
+          : "Аниме добавлено в список «В планах».");
+      }
     } catch (err) {
       setCatalogError(err instanceof Error ? err.message : "Не удалось добавить аниме.");
     } finally {
@@ -1778,6 +1785,10 @@ function App() {
   }
 
 
+  const pendingWatchEventMatches = pendingWatchEvent
+    ? findExactAnimeTitleMatches(library.map((item) => item.anime), pendingWatchEvent.title)
+    : [];
+
   const filteredLibrary = useMemo(
     () => filterLibrary(library, filters).sort((a, b) => {
       const titleA = a.anime.titles.english ?? a.anime.titles.romaji ?? "";
@@ -2004,7 +2015,14 @@ function App() {
                 <button className="secondary-button" type="button" onClick={acknowledgePendingWatchEvent}>Отменить</button>
               </div>
               <p className="watch-event-title">{pendingWatchEvent.title}</p>
-              <label htmlFor="watch-event-anime">Выбери соответствующий тайтл в локальной библиотеке</label>
+              {pendingWatchEventMatches.length === 0 ? (
+                <p className="watch-event-no-match" role="status">
+                  «{pendingWatchEvent.title}» пока нет в локальной библиотеке. Найди его в каталоге AniList и добавь, чтобы привязать это событие просмотра.
+                </p>
+              ) : (
+                <p className="watch-event-match-help">Найдено точных совпадений: {pendingWatchEventMatches.length}. Проверь выбранный тайтл перед подтверждением.</p>
+              )}
+              <label htmlFor="watch-event-anime">Выбрать тайтл вручную из локальной библиотеки</label>
               <select
                 id="watch-event-anime"
                 className="filter-select watch-event-select"
@@ -2021,6 +2039,22 @@ function App() {
                     </option>
                   ))}
               </select>
+              {pendingWatchEventMatches.length === 0 && (
+                <button
+                  className="secondary-button watch-event-add-button"
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery(pendingWatchEvent.title);
+                    setCatalogActionMessage("");
+                    setCatalogError("");
+                    setHideAnimeInMyLists(false);
+                    setSelectedAnime(null);
+                    setSearchPageOpen(true);
+                  }}
+                >
+                  ＋ Найти и добавить аниме
+                </button>
+              )}
               <div className="watch-event-meta">
                 <span>Позиция: {pendingWatchEvent.currentTimeSeconds == null ? "не определена" : Math.floor(pendingWatchEvent.currentTimeSeconds / 60) + " мин."}</span>
                 <span>Источник: {new URL(pendingWatchEvent.sourceUrl).hostname}</span>
@@ -2853,7 +2887,7 @@ function App() {
                         <div>{anime.format ?? "Формат не указан"}{anime.year ? ` · ${anime.year}` : ""}{anime.episodes ? ` · ${anime.episodes} эп.` : ""}</div>
                         <small>{(anime.genres ?? []).join(" · ")}</small>
                         <button className="catalog-add-button" disabled={addingCatalogId !== null} onClick={() => void addCatalogAnime(anime)}>
-                          {addingCatalogId === anime.id ? "Сохраняем..." : existing?.entry ? "Обновить данные" : existing ? "Добавить в список" : "＋ Добавить в библиотеку"}
+                          {addingCatalogId === anime.id ? "Сохраняем..." : pendingWatchEvent ? "＋ Добавить и выбрать для просмотра" : existing?.entry ? "Обновить данные" : existing ? "Добавить в список" : "＋ Добавить в библиотеку"}
                         </button>
                       </div>
                     </article>;
