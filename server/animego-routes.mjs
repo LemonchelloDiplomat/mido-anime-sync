@@ -93,6 +93,54 @@ function safeUrl(value, base = SITE) {
   } catch { return null; }
 }
 
+function normalizeAnimeGoSearchText(value) {
+  const cyrillicToLatin = {
+    а:"a", б:"b", в:"v", г:"g", д:"d", е:"e", ё:"yo", ж:"zh", з:"z", и:"i",
+    й:"y", к:"k", л:"l", м:"m", н:"n", о:"o", п:"p", р:"r", с:"s", т:"t",
+    у:"u", ф:"f", х:"kh", ц:"ts", ч:"ch", ш:"sh", щ:"shch", ъ:"", ы:"y",
+    ь:"", э:"e", ю:"yu", я:"ya",
+  };
+  return decodeHtml(String(value || ""))
+    .toLocaleLowerCase("ru")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[а-яё]/g, (letter) => cyrillicToLatin[letter] ?? letter)
+    .replace(/ё/g, "yo")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function animeGoSimilarity(query, candidate) {
+  const q = normalizeAnimeGoSearchText(query);
+  const value = normalizeAnimeGoSearchText(candidate);
+  if (!q || !value) return 0;
+  if (q === value) return 1;
+  if (value.includes(q) || q.includes(value)) return 0.96;
+
+  const qTokens = q.split(" ").filter((token) => token.length > 1);
+  const vTokens = value.split(" ").filter((token) => token.length > 1);
+  const tokenScore = qTokens.length
+    ? qTokens.filter((token) => vTokens.some((other) =>
+        other === token || other.startsWith(token) || token.startsWith(other) ||
+        (token.length >= 5 && other.length >= 5 && (token.includes(other) || other.includes(token)))
+      )).length / qTokens.length
+    : 0;
+
+  const grams = (text) => {
+    const padded = "  " + text + "  ";
+    const result = new Set();
+    for (let i = 0; i <= padded.length - 3; i += 1) result.add(padded.slice(i, i + 3));
+    return result;
+  };
+  const a = grams(q);
+  const b = grams(value);
+  let overlap = 0;
+  for (const gram of a) if (b.has(gram)) overlap += 1;
+  const dice = (2 * overlap) / (a.size + b.size);
+  return Math.max(tokenScore * 0.82, dice);
+}
+
 export function parseAnimeGoSearch(html) {
   // AnimeGO pages contain navigation links to /anime/... alongside actual search cards.
   // Only inspect the dedicated ani-grid__item containers, never arbitrary page anchors.
@@ -126,6 +174,13 @@ export function parseAnimeGoSearch(html) {
       stripTags(card.match(/<a\b[^>]*>([\s\S]*?)<\/a>/i)?.[1] || "");
     if (!title) continue;
 
+    const cardText = stripTags(card);
+    const aliases = [...new Set([
+      title,
+      attr(image, "alt"),
+      ...[...card.matchAll(/<a\b[^>]*>/gi)].map((entry) => attr(entry[0], "title")),
+      cardText,
+    ].filter(Boolean))];
     const poster = safeUrl(attr(image, "data-src") || attr(image, "src"));
     const slug = new URL(selectedUrl).pathname.split("/").filter(Boolean).at(-1) || selectedUrl;
     results.push({
@@ -133,7 +188,7 @@ export function parseAnimeGoSearch(html) {
       externalId: slug,
       url: selectedUrl,
       title,
-      alternativeTitles: [],
+      alternativeTitles: aliases.filter((alias) => alias !== title).slice(0, 8),
       posterUrl: poster,
     });
     seen.add(selectedUrl);
@@ -255,8 +310,17 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
         page = await requestAnimeGoImpl(SITE + "/search/all?" + searchQuery, { headers });
       }
       if (!page.ok) throw new Error("AnimeGO: HTTP " + page.status);
-      const items = parseAnimeGoSearch(await page.text());
-      return sendJson(response, 200, { items, page: 1, hasNextPage: false });
+      const parsedItems = parseAnimeGoSearch(await page.text());
+      const rankedItems = parsedItems
+        .map((item) => ({
+          item,
+          score: Math.max(...[item.title, ...(item.alternativeTitles || [])]
+            .map((candidate) => animeGoSimilarity(query, candidate))),
+        }))
+        .filter((entry) => entry.score >= 0.24)
+        .sort((a, b) => b.score - a.score)
+        .map((entry) => entry.item);
+      return sendJson(response, 200, { items: rankedItems.slice(0, 20), page: 1, hasNextPage: false });
     }
     const episodeMatch = url.pathname.match(/^\/api\/animego\/episode\/(\d+)$/);
     if (episodeMatch) {
