@@ -184,6 +184,23 @@ describe("AnimeGO public catalog adapter", () => {
     );
   });
 
+  it("exposes AnimeGO movie player variants as a synthetic film episode", async () => {
+    const filmHtml = '<link rel="canonical" href="https://animego.me/anime/naruto-posledniy-film-387"><h1>Наруто: Последний фильм</h1>';
+    const playerPayload = { data: { content: '<button data-player="https://kodikplayer.com/seria/film387" data-translation-title="AniDUB" data-provider-title="Kodik" data-ptranslation="77">Play</button>' } };
+    const fetcher = vi.fn(async (url: string) => url.includes("/player/")
+      ? { ok: true, status: 200, async json() { return playerPayload; }, async text() { return ""; } }
+      : { ok: true, status: 200, async text() { return filmHtml; }, async json() { return {}; } });
+    const deps = { request: fetcher, sendJson(res: ReturnType<typeof responseCapture>, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } };
+    const response = responseCapture();
+    await handleAnimeGoRequest({ method: "GET" }, response, new URL("http://127.0.0.1/api/animego/anime/naruto-posledniy-film-387"), deps);
+    expect(response.status).toBe(200);
+    expect(response.json().seasons[0].episodes).toHaveLength(1);
+    expect(response.json().seasons[0].episodes[0]).toMatchObject({
+      externalId: "387", number: 1, title: "Фильм",
+      voiceTracks: [{ name: "AniDUB", playerName: "Kodik", playerUrl: "https://kodikplayer.com/seria/film387" }],
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
   it("loads player embeds for an individual episode through the local proxy", async () => {
     const payload = {
       data: {
