@@ -144,6 +144,22 @@ function posterFromCard(card) {
   return null;
 }
 
+
+function ratingFromCard(card) {
+  const source = String(card || "");
+  const tags = [...source.matchAll(/<[a-z][\\w:-]*\\b[^>]*>/gi)];
+  for (const match of tags) {
+    const tag = match[0];
+    const className = attr(tag, "class");
+    if (!/(?:rating|score|rate)/i.test(className)) continue;
+    const raw = attr(tag, "data-rating") || attr(tag, "data-score") || attr(tag, "content") || attr(tag, "title");
+    const text = raw || stripTags(source.slice(match.index, match.index + 240));
+    const number = Number(String(text).match(/\\d{1,2}(?:[.,]\\d{1,2})?/)?.[0]?.replace(",", "."));
+    if (Number.isFinite(number) && number >= 0 && number <= 10) return number;
+  }
+  return null;
+}
+
 function normalizeAnimeGoSearchText(value) {
   const cyrillicToLatin = {
     а:"a", б:"b", в:"v", г:"g", д:"d", е:"e", ё:"yo", ж:"zh", з:"z", и:"i",
@@ -244,6 +260,7 @@ export function parseAnimeGoSearch(html) {
       cardText,
     ].filter(Boolean))];
     const poster = posterFromCard(card);
+    const averageScore = ratingFromCard(card);
     results.push({
       provider: "animego",
       externalId: slug,
@@ -251,6 +268,8 @@ export function parseAnimeGoSearch(html) {
       title,
       alternativeTitles: aliases.filter((alias) => alias !== title).slice(0, 8),
       posterUrl: poster,
+      averageScore,
+      scoreSource: averageScore != null ? "AnimeGO" : null,
       year: yearMatch ? Number(yearMatch[1]) : null,
     });
     seen.add(selectedUrl);
