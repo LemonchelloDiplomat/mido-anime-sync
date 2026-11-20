@@ -1,5 +1,5 @@
 import type { StreamingSearchResult, StreamingTitleDetails } from "./streaming-provider.js";
-import { parseYummyDetails, parseYummySearch } from "./yummyanime.js";
+import { parseYummyDetails, parseYummySearch, parseYummyWatchHistory } from "./yummyanime.js";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -64,9 +64,9 @@ export function fetchYummyAnimeLists(): Promise<{ profile: unknown; lists: unkno
   return request("/api/yummyanime/lists");
 }
 
-export function fetchYummyAnimeHistory(limit = 100, offset = 0): Promise<{ entries: unknown[]; count: number; limit: number; offset: number }> {
+export async function fetchYummyAnimeHistory(limit = 100, offset = 0): Promise<import("../core/types.js").AnimeSnapshotV4> {
   const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
-  return request("/api/yummyanime/history?" + params);
+  const payload = await request<{ entries: unknown[] }>("/api/yummyanime/history?" + params);\n  return parseYummyWatchHistory({ response: payload.entries });
 }
 
 export function updateYummyAnimeList(animeId: string, listId: 0 | 1 | 2 | 3 | 5): Promise<{ ok: boolean }> {
