@@ -137,7 +137,11 @@ export function parseAnixArtDetail(html, requestedUrl) {
   const canonicalTag = html.match(/<link\b[^>]*rel\s*=\s*(['"])canonical\1[^>]*>/i)?.[0] || "";
   const ogImageTag = html.match(/<meta\b[^>]*property\s*=\s*(['"])og:image\1[^>]*>/i)?.[0] || "";
   const descriptionTag = html.match(/<meta\b[^>]*name\s*=\s*(['"])description\1[^>]*>/i)?.[0] || "";
-  const playerTag = html.match(/<video-player\b[^>]*>/i)?.[0] || "";
+  // AnixART uses more than one player wrapper across title types and older pages.
+  // Read the CVH identifiers from any opening element carrying the player data attributes.
+  const playerTags = [...html.matchAll(/<[a-z][\w:-]*\b[^>]*>/gi)].map((match) => match[0]);
+  const playerTag = playerTags.find((tag) => attr(tag, "data-title-id") && attr(tag, "data-publisher-id")) ||
+    playerTags.find((tag) => attr(tag, "data-title-id")) || "";
   const h1 = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || "";
   const canonical = safeUrl(attr(canonicalTag, "href") || requestedUrl);
   const title = stripTags(h1);
@@ -189,8 +193,13 @@ export function parseAnixArtPlayerPlaylist(payload, titleUrl) {
   const seasons = new Map();
   const voices = new Map();
   for (const row of rows) {
-    const seasonNumber = Number(row?.season) || 1;
-    const episodeNumber = Number(row?.episode);
+    const videoId = String(row?.vkId || "").trim();
+    const parsedEpisodeNumber = Number(row?.episode);
+    // Some AnixART films/ONAs are represented by a single CVH video row without
+    // season/episode numbers. Preserve that playable row as a synthetic film episode.
+    const isSingleVideo = (!Number.isSafeInteger(parsedEpisodeNumber) || parsedEpisodeNumber < 1) && /^\d+$/.test(videoId);
+    const episodeNumber = isSingleVideo ? 1 : parsedEpisodeNumber;
+    const seasonNumber = isSingleVideo ? 1 : Number(row?.season) || 1;
     if (!Number.isSafeInteger(episodeNumber) || episodeNumber < 1) continue;
     const voiceName = String(row?.voiceStudio || row?.voice || "").trim() || "Озвучка не указана";
     const voiceType = String(row?.voiceType || "").trim() || null;
@@ -198,13 +207,12 @@ export function parseAnixArtPlayerPlaylist(payload, titleUrl) {
     const episode = season.get(episodeNumber) || {
       externalId: "anixart:" + seasonNumber + ":" + episodeNumber,
       number: episodeNumber,
-      title: String(row?.name || episodeNumber),
+      title: String(row?.name || (isSingleVideo ? "Фильм" : episodeNumber)),
       url: titleUrl,
       seasonNumber,
       voiceTracks: [],
     };
     const voiceKey = voiceName.toLocaleLowerCase() + "\u0000" + String(voiceType || "").toLocaleLowerCase();
-    const videoId = String(row?.vkId || "").trim();
     if (!episode.voiceTracks.some((track) => track.externalId === voiceKey)) {
       episode.voiceTracks.push({
         externalId: voiceKey,
