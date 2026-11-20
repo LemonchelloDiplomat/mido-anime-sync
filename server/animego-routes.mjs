@@ -346,10 +346,7 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
       // AnimeGO films can expose player variants without an episode navigation bar.
       // Surface those variants as one synthetic "Фильм" item so the existing player UI can render them.
       const episodes = parsed.episodes.length
-        ? parsed.episodes.map((episode) => ({
-            ...episode,
-            ...(parsed.voices.length ? { voiceTracks: parsed.voices } : {}),
-          }))
+        ? parsed.episodes
         : parsed.voices.length
           ? [{
               externalId: detail.externalId,
