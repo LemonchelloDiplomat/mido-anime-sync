@@ -147,6 +147,7 @@ describe("AnixART site playback integration", () => {
     });
 
     send(5, 89);
+    send(5, 89.5, { voice: "Force Media" });
     send(5, 90);
     expect(harness.sentMessages.filter(message => message.type === "MIDAHOSHI_AUTO_WATCH_EVENT")).toHaveLength(1);
     expect(harness.sentMessages).toContainEqual(expect.objectContaining({
