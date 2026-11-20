@@ -590,7 +590,14 @@
     }
 
     const delta = previousTime === null ? 0 : currentTime - previousTime;
-    if (delta < 0.15 || delta > 5 || currentTime / duration < 0.9) return;
+    // The background validates the integer-second values below. Check that
+    // same ratio here before marking the episode as sent, otherwise flooring
+    // fractional timestamps can turn a valid 90% sample into <90% and the
+    // one-shot event would be rejected without another attempt.
+    const currentTimeSeconds = Math.floor(currentTime);
+    const durationSeconds = Math.floor(duration);
+    if (delta < 0.15 || delta > 5 || durationSeconds <= 0 ||
+        currentTimeSeconds / durationSeconds < 0.9) return;
 
     const detected = detect();
     if (!detected.title || !Number.isSafeInteger(detected.episode) || detected.episode < 1) return;
