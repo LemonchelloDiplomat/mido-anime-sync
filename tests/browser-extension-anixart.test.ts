@@ -136,7 +136,7 @@ describe("AnixART site playback integration", () => {
 
   it("detects the active episode and emits one event after real playback crosses 90%", () => {
     const harness = createAnixartContentHarness();
-    const send = (episode: number, currentTime: number, overrides = {}) => harness.dispatch({
+    const send = (episode: number, currentTime: number, overrides: Record<string, unknown> = {}) => harness.dispatch({
       season: 2,
       episode,
       voice: "AniBoom",
