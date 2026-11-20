@@ -80,6 +80,32 @@ function titleSlug(url) {
   return new URL(url).pathname.split("/").filter(Boolean).at(-1) || "";
 }
 
+function posterFromMarkup(markup) {
+  const source = String(markup || "");
+  const tags = [...source.matchAll(/<[a-z][\\w:-]*\\b[^>]*>/gi)].map((match) => match[0]);
+  const candidates = [];
+  for (const tag of tags) {
+    for (const name of ["data-original", "data-original-src", "data-lazy-src", "data-src", "data-poster", "data-image", "data-bg", "src"]) {
+      const value = attr(tag, name);
+      if (value) candidates.push(value);
+    }
+    const srcset = attr(tag, "data-srcset") || attr(tag, "srcset");
+    if (srcset) {
+      const options = srcset.split(",").map((item) => item.trim().split(/\\s+/)[0]).filter(Boolean);
+      candidates.push(...options.reverse());
+    }
+    const style = attr(tag, "style");
+    const background = style.match(/url\\((['"]?)(.*?)\\1\\)/i)?.[2];
+    if (background) candidates.push(background);
+  }
+  for (const value of candidates) {
+    if (!value || /^(?:data:|blob:|javascript:)/i.test(value) || /(?:placeholder|no[-_]?image|default[-_]?poster)/i.test(value)) continue;
+    const url = safeUrl(value);
+    if (url) return url;
+  }
+  return null;
+}
+
 function cleanSearchTitle(value) {
   return String(value || "")
     .replace(/^\s*(?:\d{1,2}(?:[.,]\d{1,2})?\s+){1,2}/, "")
@@ -106,7 +132,9 @@ export function parseAnixArtSearch(html) {
     const prefix = html.slice(Math.max(0, match.index - 1400), match.index);
     const images = [...prefix.matchAll(/<img\b[^>]*>/gi)];
     const posterTag = images.at(-1)?.[0] || image;
-    const poster = safeUrl(attr(posterTag, "data-src") || attr(posterTag, "src"));
+    // Posters may live on a lazy-loaded image, picture/source srcset, or a CSS
+    // background wrapper rather than the title anchor itself.
+    const poster = posterFromMarkup(inner) || posterFromMarkup(posterTag);
     items.push({
       provider: "anixart",
       externalId: slug,
@@ -280,7 +308,7 @@ export async function handleAnixArtRequest(request, response, url, deps) {
       const query = String(url.searchParams.get("q") || "").trim();
       if (query.length < 2 || query.length > 120) return sendJson(response, 400, { error: "Поисковый запрос должен содержать от 2 до 120 символов." });
       const searchUrl = SITE + "/?do=search&subaction=search&story=" + encodeURIComponent(query);
-      const page = await fetcher(searchUrl, { headers });
+      const page = await fetcher(searchUrl, { headers, signal: AbortSignal.timeout(15000) });
       if (!page.ok) throw new Error("AnixART: HTTP " + page.status);
       return sendJson(response, 200, { items: parseAnixArtSearch(await page.text()), page: 1, hasNextPage: false });
     }
@@ -334,7 +362,7 @@ export async function handleAnixArtRequest(request, response, url, deps) {
       const slug = decodeURIComponent(match[1]);
       if (!/^\d+-[\p{L}\p{N}-]+\.html$/u.test(slug)) return sendJson(response, 400, { error: "Некорректный AnixART slug." });
       const titleUrl = SITE + "/" + encodeURIComponent(slug);
-      const page = await fetcher(titleUrl, { headers });
+      const page = await fetcher(titleUrl, { headers, signal: AbortSignal.timeout(15000) });
       if (!page.ok) throw new Error("AnixART: HTTP " + page.status);
       const detail = parseAnixArtDetail(await page.text(), titleUrl);
       const playerTitleId = String(detail.sourceMetadata?.playerTitleId || "");
@@ -351,6 +379,7 @@ export async function handleAnixArtRequest(request, response, url, deps) {
             Referer: CVH_PLAYER,
             Origin: "https://player.cdnvideohub.com",
           },
+          signal: AbortSignal.timeout(12000),
         });
         if (playlist.ok) {
           playerCatalog = parseAnixArtPlayerPlaylist(await playlist.json(), detail.url);
