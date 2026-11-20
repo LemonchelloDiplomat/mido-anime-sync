@@ -21,7 +21,7 @@ function createApi(applicationToken, token) {
         ...(token ? { Authorization: "Bearer " + token } : {}),
       },
       ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
-      signal: options.signal,
+      signal: options.signal || AbortSignal.timeout(15000),
     });
     const raw = await response.text();
     let payload;
