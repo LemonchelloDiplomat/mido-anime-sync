@@ -71,11 +71,12 @@ describe("AnixART public website catalog adapter", () => {
       externalId: "7004-magicheskaja-bitva-2.html",
       title: "Магическая битва 2",
       year: 2023,
-      episodeCount: 23,
+      episodeCount: null,
       sourceMetadata: { playerTitleId: "51009", publisherId: "1103" },
     });
     expect(title.voices.map((voice) => voice.name)).toEqual(["AniLibria.TV", "OnWave"]);
     expect(title.identity.externalIds.anixart).toBe("7004");
+    expect(title.identity.episodes).toBeNull();
     expect(title.seasons).toEqual([]);
     expect(JSON.stringify(title)).not.toContain("iframe");
     expect(JSON.stringify(title)).not.toContain("token");
@@ -90,7 +91,11 @@ describe("AnixART public website catalog adapter", () => {
         episodes: [{
           number: 1,
           title: "1",
-          voices: [{ name: "AniBoom", type: "Дубляж" }],
+          voices: [
+            { name: "AniBoom", type: "Дубляж" },
+            { name: "Субтитры", type: null },
+            { name: "Субтитры", type: null },
+          ],
         }],
       }],
       current: { season: 2, episode: 1, voice: "AniBoom" },
@@ -121,7 +126,7 @@ describe("AnixART public website catalog adapter", () => {
     );
     expect(getResponse.json().catalog).toMatchObject({
       slug: catalog.slug,
-      seasons: catalog.seasons,
+      seasons: [{ number: 2, episodes: [{ number: 1, title: "1", voices: [{ name: "AniBoom", type: "Дубляж" }, { name: "Студия не указана", type: "Субтитры" }] }] }],
       current: catalog.current,
     });
     expect(JSON.stringify(getResponse.json())).not.toContain("must-not-be-stored");
