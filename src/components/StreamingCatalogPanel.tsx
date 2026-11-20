@@ -75,7 +75,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState("");
   const [detailsAttempt, setDetailsAttempt] = useState(0);
-  const [failedPosters, setFailedPosters] = useState<Record<string, boolean>>({});
+  const [failedPosters, setFailedPosters] = useState<Record<string, "provider" | "fallback">>({});
   const [playerError, setPlayerError] = useState("");
   const [playerLoaded, setPlayerLoaded] = useState(false);
   const [error, setError] = useState("");
@@ -137,14 +137,25 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
         if (controller.signal.aborted) return;
         // AnimeGO uses unstable CDN poster URLs, so always look for a verified
         // AniList cover. Other providers only need fallback when metadata is absent.
-        const needsFallback = provider === "animego" || result.items.some((item) => !item.posterUrl || item.averageScore == null);
+        // AnimeGO and AnixART can return poster URLs that exist syntactically but
+        // fail when loaded. Resolve a small set of title-specific AniList candidates
+        // so the UI can switch to a verified cover after an image error. Matching
+        // remains exact (including aliases) and ambiguous matches are rejected.
+        const needsFallback = provider !== "yummyanime";
         if (!needsFallback) {
           setResults(result.items);
           return;
         }
         try {
-          const metadata = await searchAniListAnime(normalizedQuery, controller.signal);
+          const fallbackQueries = [...new Set([
+            normalizedQuery,
+            ...result.items.slice(0, 8).flatMap((item) => [item.title, ...(item.alternativeTitles || []).slice(0, 1)]),
+          ].map((value) => value.trim()).filter((value) => value.length >= 2))].slice(0, 9);
+          const candidateSets = await Promise.all(fallbackQueries.map((value) =>
+            searchAniListAnime(value, controller.signal).catch(() => []),
+          ));
           if (controller.signal.aborted) return;
+          const metadata = [...new Map(candidateSets.flat().map((identity) => [identity.externalIds.anilist || identity.id, identity])).values()];
           setResults(result.items.map((item) => applyFallbackMetadata(item, metadata, {
             preferPoster: provider === "animego",
           })));
@@ -350,17 +361,23 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
       ) : (
         <div className="streaming-catalog-results">
           <div className="streaming-catalog-list">
-            {sortedResults.map((item) => (
+            {sortedResults.map((item) => {
+              const posterKey = provider + ":" + item.externalId;
+              const posterFailure = failedPosters[posterKey];
+              const usingFallbackPoster = posterFailure === "provider";
+              const displayPoster = usingFallbackPoster ? item.fallbackPosterUrl : item.posterUrl;
+              return (
               <button type="button" className={selected?.externalId === item.externalId ? "streaming-result selected" : "streaming-result"} key={item.externalId} onClick={() => setSelected(item)}>
                 <span className="streaming-result-poster">
-                  {item.posterUrl && !failedPosters[provider + ":" + item.externalId]
-                    ? <img src={provider === "animego" && item.posterSource !== "AniList" ? "/api/animego/poster?url=" + encodeURIComponent(item.posterUrl) : item.posterUrl} alt="" loading="lazy" onError={() => setFailedPosters((current) => ({ ...current, [provider + ":" + item.externalId]: true }))} />
+                  {displayPoster && posterFailure !== "fallback"
+                    ? <img src={provider === "animego" && !usingFallbackPoster && item.posterSource !== "AniList" ? "/api/animego/poster?url=" + encodeURIComponent(displayPoster) : displayPoster} alt="" loading="lazy" onError={() => setFailedPosters((current) => ({ ...current, [posterKey]: current[posterKey] === "provider" ? "fallback" : "provider" }))} />
                     : <span className="streaming-poster-placeholder" title={t(locale, "noPoster")}>✦</span>}
                   {item.averageScore != null && <b className={`streaming-score ${item.averageScore >= 8 ? "excellent" : item.averageScore >= 7 ? "good" : item.averageScore >= 5 ? "average" : "poor"}`} title={`Оценка: ${item.scoreSource || providerLabels[provider]}`}>{item.averageScore.toFixed(1)}</b>}
                 </span>
                 <span><strong>{item.title}</strong>{item.year ? <small>{item.year}</small> : null}{item.averageScore != null ? <small>★ {item.averageScore.toFixed(1)} · {item.scoreSource || providerLabels[provider]}</small> : null}</span>
               </button>
-            ))}
+              );
+            })}
           </div>
           <div className="streaming-catalog-detail">
             {!selected ? (
