@@ -219,6 +219,73 @@ export async function searchAniListAnime(
 }
 
 
+/**
+ * Searches several streaming-catalogue titles in one GraphQL operation.
+ * This avoids firing many parallel AniList requests and hitting its rate limit.
+ */
+export async function searchAniListAnimeBatch(
+  rawQueries: string[],
+  signal?: AbortSignal,
+): Promise<AnimeIdentity[]> {
+  const searches = [...new Set(rawQueries.map((value) => value.trim()).filter((value) => value.length >= 2))]
+    .slice(0, 9);
+  if (!searches.length) return [];
+
+  const variableDefinitions = searches.map((_, index) => `$search${index}: String!`).join(", ");
+  const fields = searches.map((_, index) => `
+    results${index}: Page(page: 1, perPage: 20) {
+      media(search: $search${index}, type: ANIME, sort: SEARCH_MATCH, isAdult: false) {
+        id
+        idMal
+        title { romaji english native }
+        synonyms
+        format
+        status
+        episodes
+        seasonYear
+        startDate { year month day }
+        averageScore
+        genres
+        coverImage { extraLarge large }
+      }
+    }`).join("\n");
+  const response = await fetch(ANILIST_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({
+      query: `query StreamingCatalogueFallback(${variableDefinitions}) { ${fields} }`,
+      variables: Object.fromEntries(searches.map((value, index) => [`search${index}`, value.slice(0, 100)])),
+    }),
+    ...(signal ? { signal } : {}),
+  });
+
+  if (response.status === 429) {
+    throw new Error("AniList временно ограничил частоту запросов. Повтори поиск немного позже.");
+  }
+  if (!response.ok) throw new Error(`AniList вернул ошибку HTTP ${response.status} при поиске метаданных.`);
+
+  const payload = await response.json() as {
+    data?: Record<string, { media?: AniListMedia[] }>;
+    errors?: Array<{ message?: string }>;
+  };
+  if (payload.errors?.length) {
+    throw new Error(payload.errors[0]?.message ?? "AniList не смог выполнить пакетный поиск.");
+  }
+  if (!payload.data) throw new Error("AniList вернул ответ в неожиданном формате.");
+
+  const unique = new Map<string, AnimeIdentity>();
+  searches.forEach((_, index) => {
+    const media = payload.data?.[`results${index}`]?.media;
+    if (!Array.isArray(media)) return;
+    for (const entry of media) {
+      const identity = mapMedia(entry);
+      unique.set(identity.externalIds.anilist || identity.id, identity);
+    }
+  });
+  return [...unique.values()];
+}
+
+
 const MAL_METADATA_BATCH_SIZE = 20;
 const ANILIST_METADATA_MIN_INTERVAL_MS = 2_200;
 let lastAniListMetadataRequestAt = 0;
