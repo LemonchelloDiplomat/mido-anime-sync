@@ -312,7 +312,7 @@ document.getElementById("send").addEventListener("click", async () => {
     const host = new URL(tab.url).hostname.toLowerCase();
     const service = host.includes("yummyani.me") || host.includes("yummy-ani.me")
       ? "yummyanime"
-      : (host.includes("anixart-app.com") || host.includes("anixartapp.com"))
+      : (host === "anixart.site" || host.endsWith(".anixart.site") || host.includes("anixart-app.com") || host.includes("anixartapp.com"))
         ? "anixart"
         : host === "animego.me" || host.endsWith(".animego.me") || host.includes("anime-go.org") || host.includes("animego.online")
           ? "animego"
