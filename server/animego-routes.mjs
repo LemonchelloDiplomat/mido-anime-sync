@@ -76,10 +76,9 @@ function decodeHtml(value) {
 }
 
 function attr(tag, name) {
-  const match = String(tag).match(new RegExp("\\b" + name + "\\s*=\\s*(['\"])(.*?)\\1", "i"));
-  return match ? decodeHtml(match[2]) : "";
+  const match = String(tag).match(new RegExp("\\b" + name + "\\s*=\\s*(?:(['\\"])(.*?)\\1|([^\\s"'=<>\x60]+))", "i"));
+  return match ? decodeHtml(match[2] ?? match[3] ?? "") : "";
 }
-
 function stripTags(value) {
   return decodeHtml(String(value || "").replace(/<script\b[\s\S]*?<\/script>/gi, " ")
     .replace(/<style\b[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " "))
@@ -405,7 +404,8 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
         headers: { ...headers, Accept: "application/json", "X-Requested-With": "XMLHttpRequest", Referer: SITE + "/" },
       });
       if (!player.ok) throw new Error("AnimeGO player: HTTP " + player.status);
-      const voices = parseAnimeGoVoices(await player.json());
+      const payload = typeof player.json === "function" ? await player.json() : JSON.parse(await player.text());
+      const voices = parseAnimeGoVoices(payload);
       return sendJson(response, 200, { voices });
     }
     const match = url.pathname.match(/^\/api\/animego\/anime\/([^/]+)$/);
@@ -419,7 +419,10 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
         headers: { ...headers, Accept: "application/json", "X-Requested-With": "XMLHttpRequest", Referer: SITE + "/" },
       });
       let parsed = { episodes: [], voices: [] };
-      if (player.ok) parsed = parseAnimeGoPlayer(await player.json(), detail.url);
+      if (player.ok) {
+        const payload = typeof player.json === "function" ? await player.json() : JSON.parse(await player.text());
+        parsed = parseAnimeGoPlayer(payload, detail.url);
+      }
       // AnimeGO films can expose player variants without an episode navigation bar.
       // Surface those variants as one synthetic "Фильм" item so the existing player UI can render them.
       const episodes = parsed.episodes.length
