@@ -288,12 +288,24 @@
     if ((isAniBoomTarget || isCvhTarget || isCvhPlayerTarget) && service !== "animego") return;
 
     const detected = detect();
-    if (!detected.title || !Number.isSafeInteger(detected.episode) || detected.episode < 1) return;
+    // Legacy YummyAnime pages may not expose the selected episode in their
+    // own DOM. Kodik's cross-origin iframe URL carries the active episode as
+    // a query parameter, so use that explicit value as a narrowly scoped
+    // fallback rather than guessing from page text.
+    const kodikEpisode = service === "yummyanime" && isKodikTarget
+      ? Number(frameUrl.searchParams.get("episode"))
+      : null;
+    const episode = Number.isSafeInteger(detected.episode) && detected.episode > 0
+      ? detected.episode
+      : Number.isSafeInteger(kodikEpisode) && kodikEpisode > 0
+        ? kodikEpisode
+        : null;
+    if (!detected.title || episode === null) return;
     frame.contentWindow.postMessage({
       type: "MIDAHOSHI_PARENT_METADATA",
       metadata: {
         title: detected.title,
-        episode: detected.episode,
+        episode,
         sourceUrl: detected.sourceUrl,
         service: detected.service,
       },
