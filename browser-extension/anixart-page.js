@@ -71,30 +71,34 @@
   const samplePlayer = () => {
     const element = document.querySelector("video-player");
     const state = element?.state;
-    const video = state?.currentVideo;
-    if (!state || !video) return;
+    if (!state) return;
 
-    const episode = Number(video.episode ?? state.currentEpisode?.name);
-    const season = Number(video.season ?? state.currentSeason?.name);
-    const currentTime = Number(state.position);
-    const duration = Number(state.duration);
-    const playing = state.playing === true;
+    // The season/episode catalog can be ready before the user starts a video.
+    // Publish it independently from current playback state.
+    const video = state.currentVideo;
+    if (video && typeof video === "object") {
+      const episode = Number(video.episode ?? state.currentEpisode?.name);
+      const season = Number(video.season ?? state.currentSeason?.name);
+      const currentTime = Number(state.position);
+      const duration = Number(state.duration);
+      const playing = state.playing === true;
 
-    if (Number.isSafeInteger(episode) && episode > 0 &&
-        Number.isFinite(currentTime) && currentTime >= 0 &&
-        Number.isFinite(duration) && duration > 0) {
-      const voice = typeof video.voiceStudio === "string"
-        ? video.voiceStudio.slice(0, 100)
-        : typeof state.currentVoice?.name === "string"
-          ? state.currentVoice.name.slice(0, 100)
-          : null;
-      window.postMessage({
-        type: "MIDAHOSHI_ANIXART_STATE",
-        state: {
-          season: Number.isSafeInteger(season) && season > 0 ? season : null,
-          episode, voice, currentTime, duration, playing
-        }
-      }, location.origin);
+      if (Number.isSafeInteger(episode) && episode > 0 &&
+          Number.isFinite(currentTime) && currentTime >= 0 &&
+          Number.isFinite(duration) && duration > 0) {
+        const voice = typeof video.voiceStudio === "string"
+          ? video.voiceStudio.slice(0, 100)
+          : typeof state.currentVoice?.name === "string"
+            ? state.currentVoice.name.slice(0, 100)
+            : null;
+        window.postMessage({
+          type: "MIDAHOSHI_ANIXART_STATE",
+          state: {
+            season: Number.isSafeInteger(season) && season > 0 ? season : null,
+            episode, voice, currentTime, duration, playing
+          }
+        }, location.origin);
+      }
     }
 
     const catalog = buildCatalog(state);
