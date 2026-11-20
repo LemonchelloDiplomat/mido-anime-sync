@@ -67,6 +67,20 @@ describe("AnixART public website catalog adapter", () => {
     ]);
   });
 
+  it("extracts AnixART posters from lazy attributes and CSS background wrappers", () => {
+    const html = `
+      <div class="shortstory">
+        <a href="/8001-lazy-poster.html"><div class="poster"><img data-original="/images/lazy.jpg" src="/images/placeholder.jpg"></div><span>Lazy poster</span></a>
+      </div>
+      <div class="shortstory">
+        <a href="/8002-background-poster.html"><div class="poster" style="background-image:url('/images/background.jpg')"></div><span>Background poster</span></a>
+      </div>`;
+    expect(parseAnixArtSearch(html).map((item) => item.posterUrl)).toEqual([
+      "https://anixart.site/images/lazy.jpg",
+      "https://anixart.site/images/background.jpg",
+    ]);
+  });
+
   it("parses public title metadata, dubbings and the player identifiers only", () => {
     const title = parseAnixArtDetail(detailHtml, "https://anixart.site/7004-magicheskaja-bitva-2.html");
     expect(title).toMatchObject({
