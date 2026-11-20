@@ -117,10 +117,13 @@ function posterFromCard(card) {
     const background = style.match(/background-image\s*:\s*url\((['"]?)(.*?)\1\)/i)?.[2];
     if (background) candidates.push(background);
   }
-  const styleTags = [...String(card || "").matchAll(/<[^>]+\bstyle\s*=\s*(['"])[^'"]*background-image\s*:[^'"]*\1[^>]*>/gi)];
-  for (const match of styleTags) {
-    const style = attr(match[0], "style");
-    const background = style.match(/background-image\s*:\s*url\((['"]?)(.*?)\1\)/i)?.[2];
+  const styleAttributes = [
+    ...String(card || "").matchAll(/\\bstyle\\s*=\\s*"([^"]*)"/gi),
+    ...String(card || "").matchAll(/\\bstyle\\s*=\\s*'([^']*)'/gi),
+  ];
+  for (const match of styleAttributes) {
+    const style = match[1] || "";
+    const background = style.match(/background-image\\s*:\\s*url\\((['"]?)(.*?)\\1\\)/i)?.[2];
     if (background) candidates.push(background);
   }
   for (const candidate of candidates) {
