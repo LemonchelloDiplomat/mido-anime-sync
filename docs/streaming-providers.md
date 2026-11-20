@@ -18,7 +18,7 @@ Catalog providers (MAL, AniList, Shikimori) and streaming websites (YummyAnime, 
 | --- | --- | --- | --- | --- |
 | YummyAnime | Yes | Yes | Yes, via official personal-use API | Import supported; explicit remote API operations |
 | AnimeGO | Public website pages | Public episode metadata and dubbing labels | No verified account API | Existing browser extension |
-| AnixART desktop site | Public website pages | Voice labels and total count; no complete episode manifest | No mobile-account sync; site says it is separate from app | Existing browser extension |
+| AnixART desktop site | Public website pages | Full seasons, episodes, and voice variants via public CVH playlist API | No mobile-account sync; site says it is separate from app | Existing browser extension for playback progress only |
 
 ## YummyAnime
 
