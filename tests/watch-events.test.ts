@@ -39,6 +39,31 @@ describe("watch source events", () => {
     expect(normalized.sourceUrl).toBe("https://animego.me/anime/example");
   });
 
+  it("accepts AnixART site events and preserves season and voice metadata", () => {
+    const anixartEvent = validateWatchEvent({
+      ...event,
+      service: "anixart",
+      sourceUrl: "https://anixart.site/7004-magicheskaja-bitva-2.html?ref=private#player",
+      season: 2,
+      voice: "AniBoom",
+    });
+    expect(anixartEvent).toMatchObject({
+      service: "anixart",
+      sourceUrl: "https://anixart.site/7004-magicheskaja-bitva-2.html",
+      season: 2,
+      voice: "AniBoom",
+    });
+    const entry = createWatchSourceEntry(anime, anixartEvent);
+    expect(entry.sourceMetadata).toMatchObject({ lastSeason: 2, lastVoice: "AniBoom" });
+  });
+
+  it("rejects invalid AnixART season and voice metadata", () => {
+    expect(() => validateWatchEvent({ ...event, service: "anixart", sourceUrl: "https://anixart.site/title", season: 0 }))
+      .toThrow("Некорректное значение season");
+    expect(() => validateWatchEvent({ ...event, service: "anixart", sourceUrl: "https://anixart.site/title", voice: "x".repeat(101) }))
+      .toThrow("Некорректное значение voice");
+  });
+
   it("removes query strings and fragments from stored source URLs", () => {
     const normalized = validateWatchEvent({
       ...event,
