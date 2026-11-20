@@ -208,6 +208,57 @@ describe("AnixART site playback integration", () => {
     expect(JSON.stringify(catalogMessage)).not.toContain("private-vk-id");
   });
 
+  it("publishes the season catalog before a current video has been selected", () => {
+    const messages: any[] = [];
+    const state = {
+      seasons: {
+        1: {
+          name: 1,
+          episodes: {
+            1: { name: 1, visibleName: "1", voices: { AniBoom: { name: "AniBoom", videos: [] } } },
+            2: { name: 2, visibleName: "2", voices: { AniBoom: { name: "AniBoom", videos: [] } } },
+          },
+        },
+      },
+      currentVideo: null,
+    };
+    let intervalCallback: (() => void) | undefined;
+    const window: any = {
+      postMessage(message: unknown) { messages.push(message); },
+      setInterval(callback: () => void) { intervalCallback = callback; return 1; },
+      addEventListener() {},
+      clearInterval() {},
+    };
+
+    vm.runInNewContext(pageScript, {
+      location: { hostname: "anixart.site", origin: "https://anixart.site", pathname: "/7360-put-naruto.html" },
+      document: {
+        title: "Путь Наруто | AnixART",
+        querySelector(selector: string) {
+          if (selector === "video-player") return { state };
+          if (selector === "h1") return { textContent: "Путь Наруто" };
+          return null;
+        },
+      },
+      window,
+      Number,
+      Date,
+    });
+
+    intervalCallback?.();
+    const catalogMessage = messages.find((entry) => entry.type === "MIDAHOSHI_ANIXART_CATALOG");
+    expect(catalogMessage?.catalog).toMatchObject({
+      slug: "7360-put-naruto.html",
+      title: "Путь Наруто",
+      seasons: [{
+        number: 1,
+        episodes: [{ number: 1 }, { number: 2 }],
+      }],
+      current: { season: null, episode: null, voice: null },
+    });
+    expect(messages.some((entry) => entry.type === "MIDAHOSHI_ANIXART_STATE")).toBe(false);
+  });
+
   it("detects the active episode and emits one event after real playback crosses 90%", () => {
     const harness = createAnixartContentHarness();
     const send = (episode: number, currentTime: number, overrides: Record<string, unknown> = {}) => harness.dispatch({
