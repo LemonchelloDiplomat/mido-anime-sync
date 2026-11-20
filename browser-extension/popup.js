@@ -290,9 +290,14 @@ document.getElementById("scan").addEventListener("click", async () => {
     const hasAnimeGoMetadata = detected.service === "animego" &&
       typeof detected.title === "string" && detected.title.trim().length > 2 &&
       Number.isSafeInteger(detected.episode) && detected.episode > 0;
-    const note = hasAnimeGoMetadata && detected.manualOnly
-      ? "Название и серия найдены на AnimeGO. Видео находится во встроенном плеере. Продолжай просмотр: событие появится автоматически после 90%."
-      : detected.manualOnly
+    const hasAnixartMetadata = detected.service === "anixart" &&
+      Number.isSafeInteger(detected.episode) && detected.episode > 0 &&
+      typeof detected.voice === "string" && detected.voice.length > 0;
+    const note = hasAnixartMetadata && !detected.manualOnly
+      ? `AnixART: сезон ${detected.season || "?"}, серия ${detected.episode}, озвучка ${detected.voice}. Событие появится автоматически после 90% просмотра.`
+      : hasAnimeGoMetadata && detected.manualOnly
+        ? "Название и серия найдены на AnimeGO. Видео находится во встроенном плеере. Продолжай просмотр: событие появится автоматически после 90%."
+        : detected.manualOnly
         ? "Плеер или номер серии не обнаружен. Проверь название и введи номер вручную."
         : detected.episode
           ? "Найден видеоплеер и предполагаемый номер серии. Проверь данные перед отправкой."
@@ -343,6 +348,8 @@ document.getElementById("send").addEventListener("click", async () => {
     observedAt: detected.observedAt || new Date().toISOString(),
     currentTimeSeconds: detected.currentTimeSeconds ?? null,
     durationSeconds: detected.durationSeconds ?? null,
+    ...(detected.season !== undefined ? { season: detected.season } : {}),
+    ...(detected.voice !== undefined ? { voice: detected.voice } : {}),
   };
   const { appUrl = "http://127.0.0.1:5173" } = await chrome.storage.local.get({ appUrl: "http://127.0.0.1:5173" });
   let destination;
