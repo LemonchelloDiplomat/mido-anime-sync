@@ -2452,7 +2452,7 @@ describe("three-tracker import order integration", () => {
     ["shikimori", "mal", "anilist"],
   ] as const;
 
-  it.each(orders)("converges to one anime with all three provider records for order %j", async (order) => {
+  it.each(orders.map((order) => ({ order })))("converges to one anime with all three provider records for order $order", async ({ order }) => {
     const repo = await createRepository();
 
     for (const provider of order) {
