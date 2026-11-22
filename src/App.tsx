@@ -29,6 +29,8 @@ import { parseAniListAccountList, type AniListScoreFormat } from "./services/ani
 import { parseShikimoriAccountList } from "./services/shikimori-account.js";
 import { StreamingCatalogPanel } from "./components/StreamingCatalogPanel.js";
 import { StreamingTrackerPanel } from "./components/StreamingTrackerPanel.js";
+import { StreamingAccountManagerPanel } from "./components/StreamingAccountManagerPanel.js";
+import type { StreamingRuntime } from "./services/platform/streaming-runtime.js";
 import { reconcileStreamingAccountSnapshot } from "./services/streaming-account-import.js";
 import { normalizeAnimeGoAccountList, type AnimeGoAccountListPayload } from "./services/animego-account-import.js";
 import { parseAnixartBookmarkExport } from "./services/anixart-export-import.js";
@@ -148,7 +150,7 @@ function AnimeCover({ url, score }: { url?: string | null; score?: number | null
   );
 }
 
-function App() {
+function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }) {
   const [repository, setRepository] = useState<BrowserAnimeRepository | null>(
     null,
   );
@@ -2442,6 +2444,7 @@ function App() {
                   </article>
                 );
               })}
+              <StreamingAccountManagerPanel runtime={streamingRuntime} />
               <StreamingTrackerPanel
                 items={library}
                 onImportAnixart={prepareAnixartExportImport}
