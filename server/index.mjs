@@ -276,7 +276,7 @@ async function shikimoriRequest(pathname, tokens, options = {}) {
 async function shikimoriGraphqlRequest(query, variables, tokens) {
   const accessToken = await getShikimoriAccessToken(tokens);
   await acquireShikimoriRequestSlot();
-  const payload = await fetchJson(SHIKIMORI_API + "/graphql", {
+  const payload = await fetchJson(SHIKIMORI_API, {
     method: "POST",
     headers: {
       "User-Agent": process.env.SHIKIMORI_USER_AGENT || "mido-anime-sync/0.5.0",
@@ -285,6 +285,7 @@ async function shikimoriGraphqlRequest(query, variables, tokens) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ query, variables }),
+    signal: AbortSignal.timeout(20000),
   });
   if (payload.errors?.length) {
     throw new Error(payload.errors.map((item) => item?.message || "GraphQL error").join("; "));
@@ -805,6 +806,8 @@ async function handleRequest(request, response) {
           const details = await fetchIdentityBatch([id]);
           return details.find((detail) => String(detail.id) === String(id)) || null;
         },
+        50,
+        { resolveMissingIndividually: false },
       );
       const identityCoverage = getShikimoriIdentityCoverage(enrichedItems);
       return sendJson(response, 200, { data: enrichedItems, count: enrichedItems.length, identityCoverage });
