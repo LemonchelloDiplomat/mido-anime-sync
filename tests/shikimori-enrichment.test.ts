@@ -46,7 +46,7 @@ describe("Shikimori anime_rates enrichment", () => {
   it("keeps a valid existing MAL ID when the details endpoint has no mapping", async () => {
     const result = await enrichShikimoriAnimeRates(
       [rate(10, { myanimelist_id: 777 })],
-      async (ids) => ids.map((id) => ({ id, myanimelist_id: null })),
+      async (ids: number[]) => ids.map((id) => ({ id, myanimelist_id: null })),
     );
 
     expect(result[0]?.anime.myanimelist_id).toBe(777);
