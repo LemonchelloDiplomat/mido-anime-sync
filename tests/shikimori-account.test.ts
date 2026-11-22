@@ -51,6 +51,7 @@ describe("Shikimori account list importer", () => {
       score: null,
       source: "shikimori",
       updatedAt: "2026-11-11T14:25:08.296Z",
+      sharedMetadata: { rewatchCount: 0 },
       sourceMetadata: { shikimoriRateId: 219694778, rewatches: 0, text: "" },
     });
     expect(snapshot.sourceEntries).toEqual(snapshot.entries);
