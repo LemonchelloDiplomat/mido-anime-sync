@@ -59,7 +59,8 @@ async function enrichAnimeRows(authApi, rows) {
       const id = ids[cursor++];
       try {
         const detail = unwrap(await authApi("/anime/" + encodeURIComponent(id)));
-        if (detail && typeof detail === "object" && !Array.isArray(detail)) cache.set(id, detail);
+        if (detail && typeof detail === "object" && !Array.isArray(detail) &&
+          (detail.anime_id !== undefined || typeof detail.title === "string")) cache.set(id, detail);
       } catch {
         // A detail endpoint outage must not prevent importing the user's list.
       }
@@ -303,9 +304,10 @@ export async function handleYummyAnimeRequest(request, response, url, deps) {
           ...(listName && !row?.list_name ? { list_name: listName } : {}),
         })));
       }
+      const enrichedRows = await enrichAnimeRows(authApi, rows);
       return sendJson(response, 200, {
-        profile, lists: sourceRows, entries: rows, count: rows.length,
-        diagnostics: { definitionsCount: sourceRows.length, fetchedRows: rows.length, lists: diagnostics,
+        profile, lists: sourceRows, entries: enrichedRows, count: enrichedRows.length,
+        diagnostics: { definitionsCount: sourceRows.length, fetchedRows: enrichedRows.length, lists: diagnostics,
           definitionsKeys: objectKeys(sourceRows[0]), definitionsPayloadKeys: objectKeys(payload) },
       });
     } catch (error) { return sendJson(response, error.status || 502, { error: error.message }); }
