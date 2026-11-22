@@ -2173,3 +2173,108 @@ button:disabled {
 .streaming-tracker-provider-limitations p {
   margin: 0;
 }
+
+
+/* Unified account rows for streaming providers */
+.streaming-provider-list {
+  display: grid;
+  gap: 0;
+  margin-top: 2px;
+}
+.streaming-provider-row {
+  min-width: 0;
+}
+.streaming-provider-row .integration-provider-info {
+  min-width: 160px;
+}
+.integration-provider-mark--yummyanime {
+  background: #5b3bb7;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+.integration-provider-mark--animego {
+  background: #253b5d;
+  color: #dce8ff;
+  font-size: 13px;
+  font-weight: 800;
+}
+.integration-provider-mark--anixart {
+  background: #334b86;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+}
+.streaming-provider-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.streaming-provider-actions button {
+  white-space: nowrap;
+}
+.streaming-provider-actions button:disabled {
+  opacity: .38;
+  cursor: not-allowed;
+}
+.streaming-provider-expanded {
+  margin: -2px 0 12px 64px;
+  padding: 0 0 14px;
+  border-bottom: 1px solid #302d3a;
+}
+.streaming-provider-expanded > p {
+  margin: 0 0 12px;
+  color: #a6a5b5;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.streaming-provider-login {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 0 14px 64px;
+}
+.streaming-provider-login input {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.streaming-provider-feedback {
+  margin: 12px 0 0;
+  color: #c9bddf;
+  font-size: 12px;
+  line-height: 1.5;
+}
+@media (max-width: 1100px) {
+  .streaming-provider-row {
+    flex-wrap: wrap;
+  }
+  .streaming-provider-row .integration-provider-info {
+    flex: 1 1 calc(100% - 76px);
+  }
+  .streaming-provider-actions {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+    padding-left: 64px;
+  }
+  .streaming-provider-expanded {
+    margin-left: 0;
+  }
+  .streaming-provider-login {
+    padding-left: 0;
+  }
+}
+@media (max-width: 620px) {
+  .streaming-provider-actions {
+    flex-wrap: wrap;
+    padding-left: 0;
+  }
+  .streaming-provider-actions button {
+    flex: 1 1 100%;
+  }
+  .streaming-provider-row .integration-state {
+    margin-left: 64px;
+  }
+}
