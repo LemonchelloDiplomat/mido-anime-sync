@@ -171,7 +171,7 @@ describe("YummyAnime local API routes", () => {
 
   it("adds and removes favorites through the documented independent favorite route", async () => {
     process.env.YUMMY_APPLICATION_TOKEN = "public-app-token";
-    const fetcher = vi.fn(async () => ({ ok: true, status: 200, async text() { return JSON.stringify({ response: true }); } }));
+    const fetcher = vi.fn(async (_url: string, _options?: RequestInit) => ({ ok: true, status: 200, async text() { return JSON.stringify({ response: true }); } }));
     vi.stubGlobal("fetch", fetcher);
     const deps = dependencies({ yummyanime: { accessToken: "private-user-token", refreshedAt: Date.now() } });
     const add = responseCapture();
