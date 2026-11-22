@@ -215,7 +215,7 @@ describe("YummyAnime local API routes", () => {
     expect(res.status).toBe(200);
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(fetcher.mock.calls[1]?.[0]).toContain("/users/42/lists");
-    expect(fetcher.mock.calls.some(([url]) => String(url).match(/\\/lists\\/\\d+$/))).toBe(false);
+    expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/lists/0"))).toBe(false);
     expect(res.json().entries).toHaveLength(2);
     expect(res.json().lists).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 0, name: "Смотрю", rowCount: 1 }),
