@@ -59,7 +59,7 @@ async function enrichAnimeRows(authApi, rows) {
       const id = ids[cursor++];
       try {
         const detail = unwrap(await authApi("/anime/" + encodeURIComponent(id)));
-        if (detail && typeof detail === "object") cache.set(id, detail);
+        if (detail && typeof detail === "object" && !Array.isArray(detail)) cache.set(id, detail);
       } catch {
         // A detail endpoint outage must not prevent importing the user's list.
       }
