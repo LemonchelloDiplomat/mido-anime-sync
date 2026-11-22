@@ -772,8 +772,10 @@ async function handleRequest(request, response) {
         page += 1;
       }
       if (page > 100) throw new Error("Список Shikimori слишком большой: достигнут лимит страниц.");
-      const enrichedItems = await enrichShikimoriAnimeRates(items, (ids) =>
-        shikimoriRequest("/animes?ids=" + encodeURIComponent(ids.join(",")), tokens),
+      const enrichedItems = await enrichShikimoriAnimeRates(
+        items,
+        (ids) => shikimoriRequest("/animes?ids=" + ids.join(","), tokens),
+        (id) => shikimoriRequest("/animes/" + id, tokens),
       );
       return sendJson(response, 200, { data: enrichedItems, count: enrichedItems.length });
     } catch (error) {
