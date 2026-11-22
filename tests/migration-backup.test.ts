@@ -262,12 +262,19 @@ it("keeps the source database and its backup when a schema upgrade aborts", asyn
   const backup = await createMigrationBackupIfNeeded(name, 8);
   expect(backup).not.toBeNull();
 
-  await expect(openDB(name, 8, {
-    upgrade(database) {
-      database.createObjectStore("partialMigration", { keyPath: "id" });
-      throw new Error("Simulated migration failure");
-    },
-  })).rejects.toThrow("Simulated migration failure");
+  const migrationError = await new Promise<DOMException | null>((resolve) => {
+    const request = indexedDB.open(name, 8);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore("partialMigration", { keyPath: "id" });
+      request.transaction?.abort();
+    };
+    request.onsuccess = () => {
+      request.result.close();
+      resolve(null);
+    };
+    request.onerror = () => resolve(request.error);
+  });
+  expect(migrationError?.name).toBe("AbortError");
 
   const stillLegacy = await openDB(name, 7);
   expect(stillLegacy.version).toBe(7);
