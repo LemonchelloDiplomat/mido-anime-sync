@@ -108,25 +108,14 @@
       );
     }
 
-    function openReadOnlyDatabase(name) {
-      return new Promise((resolve, reject) => {
-        const request = indexedDB.open(name);
-        request.onupgradeneeded = () => {
-          request.transaction?.abort();
-          reject(new Error(`База ${name} отсутствует или имеет неожиданную версию. Оригинал не будет создан или изменён.`));
-        };
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error ?? new Error(`Не удалось открыть ${name}`));
-      });
-    }
-
     async function verifyOriginalIsPresent() {
       if (typeof indexedDB.databases !== "function") {
         throw new Error("Этот браузер не поддерживает безопасную проверку списка IndexedDB. Используй актуальный Chrome или Edge.");
       }
       const databases = await indexedDB.databases();
-      if (!databases.some((database) => database.name === SOURCE_NAME)) {
-        throw new Error("Оригинальная база не найдена на текущем origin. Открой инструмент через тот же адрес, что и приложение.");
+      const sourceDatabase = databases.find((database) => database.name === SOURCE_NAME);
+      if (!sourceDatabase || sourceDatabase.version !== 7) {
+        throw new Error("Оригинальная база не найдена на текущем origin или её версия не равна 7. Открой инструмент через тот же адрес, что и приложение.");
       }
       if (databases.some((database) => database.name === TARGET_NAME)) {
         throw new Error(`Целевая база ${TARGET_NAME} уже существует. Ничего не перезаписано.`);
@@ -172,7 +161,10 @@
               }),
             ));
             const actualCounts = Object.fromEntries(counts);
-            if (JSON.stringify(actualCounts) !== JSON.stringify(expectedCounts)) {
+            const countsMatch = storeNames.every(
+              (name) => actualCounts[name] === expectedCounts[name],
+            );
+            if (!countsMatch) {
               reject(new Error("Проверка количества записей после импорта не прошла."));
               return;
             }
@@ -221,8 +213,17 @@
         createdDatabase = null;
         report(`Готово. Тестовая база создана и проверена:\\n${JSON.stringify(counts, null, 2)}\\n\\nОригинальная база ${SOURCE_NAME} не изменялась.\\nТеперь открой приложение с параметром ?database=${TARGET_NAME}.`);
       } catch (error) {
-        createdDatabase?.close();
-        report(`ОШИБКА: ${error instanceof Error ? error.message : String(error)}\\n\\nИсходная база не изменялась. Если целевая база была создана до ошибки, она не перезаписывается автоматически.`);
+        if (createdDatabase) {
+          createdDatabase.close();
+          createdDatabase = null;
+          await new Promise((resolve) => {
+            const deletion = indexedDB.deleteDatabase(TARGET_NAME);
+            deletion.onsuccess = resolve;
+            deletion.onerror = resolve;
+            deletion.onblocked = resolve;
+          });
+        }
+        report(`ОШИБКА: ${error instanceof Error ? error.message : String(error)}\\n\\nИсходная база не изменялась. Если создание тестовой копии завершилось ошибкой, созданная этим запуском тестовая база удалена, если браузер разрешил удаление.`);
         cloneButton.disabled = false;
       }
     });
