@@ -58,6 +58,26 @@ describe("Shikimori account list importer", () => {
     expect(snapshot.sourceEntries).toEqual(snapshot.entries);
   });
 
+  it("accepts numeric-string MAL IDs and the camelCase API alias", () => {
+    const snapshot = parseShikimoriAccountList([
+      {
+        id: 1,
+        status: "planned",
+        anime: { id: 41, name: "Example", myanimelist_id: "12345" },
+      },
+      {
+        id: 2,
+        status: "planned",
+        anime: { id: 42, name: "Another", malId: "67890" },
+      },
+    ]);
+
+    expect(snapshot.anime.map((anime) => anime.externalIds.myanimelist)).toEqual([
+      "12345",
+      "67890",
+    ]);
+  });
+
   it("normalizes all supported statuses and user scores", () => {
     const statuses = [
       ["watching", "WATCHING"],
