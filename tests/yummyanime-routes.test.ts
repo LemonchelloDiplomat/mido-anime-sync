@@ -153,6 +153,38 @@ describe("YummyAnime local API routes", () => {
     expect(res.json()).toMatchObject({ captchaRequired: true, siteKey: expect.any(String) });
   });
 
+  it("preserves list ID and label on every returned account row", async () => {
+    process.env.YUMMY_APPLICATION_TOKEN = "public-app-token";
+    const fetcher = vi.fn(async (url: string) => {
+      const payload = url.endsWith("/profile") ? { response: { id: 42 } }
+        : url.endsWith("/users/42/lists") ? { response: [{ id: 1, name: "Watching" }] }
+        : { response: [{ anime_id: 7, title: "Test Anime" }] };
+      return { ok: true, status: 200, async text() { return JSON.stringify(payload); } };
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const deps = dependencies({ yummyanime: { accessToken: "private-user-token", userId: 42, refreshedAt: Date.now() } });
+    const res = responseCapture();
+    await handleYummyAnimeRequest({ method: "GET" }, res, new URL("http://127.0.0.1/api/yummyanime/lists"), deps);
+    expect(res.status).toBe(200);
+    expect(res.json().entries).toEqual([{ anime_id: 7, title: "Test Anime", list_id: 1, list_name: "Watching" }]);
+  });
+
+  it("adds and removes favorites through the documented independent favorite route", async () => {
+    process.env.YUMMY_APPLICATION_TOKEN = "public-app-token";
+    const fetcher = vi.fn(async () => ({ ok: true, status: 200, async text() { return JSON.stringify({ response: true }); } }));
+    vi.stubGlobal("fetch", fetcher);
+    const deps = dependencies({ yummyanime: { accessToken: "private-user-token", refreshedAt: Date.now() } });
+    const add = responseCapture();
+    await handleYummyAnimeRequest({ method: "POST", body: { animeId: "42", favorite: true } }, add, new URL("http://127.0.0.1/api/yummyanime/favorite"), deps);
+    expect(add.status).toBe(200);
+    expect(fetcher.mock.calls[0]?.[0]).toContain("/anime/42/list/fav");
+    expect(fetcher.mock.calls[0]?.[1]?.method).toBe("PUT");
+    const remove = responseCapture();
+    await handleYummyAnimeRequest({ method: "POST", body: { animeId: "42", favorite: false } }, remove, new URL("http://127.0.0.1/api/yummyanime/favorite"), deps);
+    expect(remove.status).toBe(200);
+    expect(fetcher.mock.calls[1]?.[1]?.method).toBe("DELETE");
+  });
+
   it("does not pretend an account list is available when the user is disconnected", async () => {
     process.env.YUMMY_APPLICATION_TOKEN = "public-app-token";
     const res = responseCapture();
