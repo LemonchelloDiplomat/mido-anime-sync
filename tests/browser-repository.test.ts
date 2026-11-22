@@ -790,6 +790,37 @@ describe("BrowserAnimeRepository V3 backups", () => {
     ]);
   });
 
+  it("restores aggregate-only anime from a mixed snapshot without data loss", async () => {
+    const repo = await createRepository();
+    const first = makeAnime("provider-backed-anime");
+    const second = makeAnime("legacy-only-anime");
+    const providerEntry = {
+      ...makeEntry(first.id, 4, "2026-11-17T12:00:00.000Z"),
+      source: "anilist" as const,
+    };
+    const legacyEntry = {
+      ...makeEntry(second.id, 9, "2026-11-17T12:00:00.000Z"),
+      source: "local" as const,
+    };
+
+    await repo.restoreSnapshot({
+      schemaVersion: 4,
+      exportedAt: "2026-11-17T12:00:00.000Z",
+      anime: [first, second],
+      entries: [providerEntry, legacyEntry],
+      sourceEntries: [providerEntry],
+      conflictResolutions: [],
+      animeRelations: [],
+    });
+
+    expect(await repo.getAnime(first.id)).toEqual(first);
+    expect(await repo.getAnime(second.id)).toEqual(second);
+    expect(await repo.getSourceEntries(first.id)).toEqual([providerEntry]);
+    expect(await repo.getSourceEntries(second.id)).toEqual([legacyEntry]);
+    expect(await repo.getEntry(first.id)).toMatchObject({ progress: 4, source: "anilist" });
+    expect(await repo.getEntry(second.id)).toMatchObject({ progress: 9, source: "local" });
+  });
+
   it("imports a V2 backup without conflict resolutions", async () => {
     const repo = await createRepository();
 
