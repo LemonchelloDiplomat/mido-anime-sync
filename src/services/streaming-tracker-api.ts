@@ -18,7 +18,7 @@ export const yummyTrackerApi={
 };
 const STATUS_ALIASES:Array<[RegExp,AnimeStatus]>=[
  [/watch|смотр|просмотр/i,"WATCHING"],[/complete|заверш|просмотрено/i,"COMPLETED"],
- [/plan|later|отлож|заплан|буду смотреть/i,"PLANNING"],[/hold|pause|postpon|отлож|пауз|приостанов/i,"ON_HOLD"],
+ [/plan|later|заплан|буду смотреть|в планах/i,"PLANNING"],[/hold|pause|postpon|отлож|пауз|приостанов/i,"ON_HOLD"],
  [/drop|брос|заброш/i,"DROPPED"],[/rewatch|пересмотр/i,"REWATCHING"],
 ];
 const textValue=(...values:unknown[])=>{const value=values.find(v=>typeof v==="string"&&v.trim());return typeof value==="string"?value.trim():"";};
@@ -33,6 +33,8 @@ function statusFor(list:Record<string,unknown>,row:Record<string,unknown>,userLi
   rowStatus.name,rowStatus.title,rowStatus.label,
   listValue.name,listValue.title,listValue.label,
   userList.list_name,
+  objectValue(userList.list).title,
+  objectValue(userList.list).name,
  );
  for(const [pattern,status] of STATUS_ALIASES) if(pattern.test(label)) return status;
  // Numeric IDs alone are not sufficient: custom lists can use the same IDs.
@@ -58,7 +60,7 @@ export function normalizeYummyLists(payload:YummyRawLists):Array<{anime:AnimeIde
   const episodes=numberValue(nested.episodes,nested.episode_count,row.episodes,row.episode_count);
   const rawProgress=numberValue(row.progress,row.episodes_watched,row.watched_episodes,userList.progress,userList.watched_episodes);
   const progress=Math.max(0,rawProgress??0);
-  const rawScore=numberValue(row.score,row.rating,user.rate);
+  const rawScore=numberValue(row.score,row.rating,user.rating,user.rate);
   const score=rawScore===null?null:Math.max(0,Math.min(100,rawScore<=10?rawScore*10:rawScore));
   const favoriteValue=row.favorite??nested.favorite??userList.is_fav;
   const favoriteKnown=typeof favoriteValue==="boolean";
