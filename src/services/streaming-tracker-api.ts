@@ -43,10 +43,10 @@ function statusFor(list:Record<string,unknown>,row:Record<string,unknown>,userLi
 }
 function mapFormat(value:unknown):AnimeFormat|undefined{
  const normalized=String(value??"").trim().toLowerCase().replace(/[ _-]+/g,"");
- if(["tv","tvshort","series","сериал"].includes(normalized))return "TV";
- if(["movie","film","фильм"].includes(normalized))return "MOVIE";
- if(normalized==="ova")return "OVA";
- if(normalized==="ona")return "ONA";
+ if(["tv","tvshort","series","сериал","тв","телесериал"].includes(normalized))return "TV";
+ if(["movie","film","фильм","полнометражный фильм"].includes(normalized))return "MOVIE";
+ if(["ova","ова"].includes(normalized))return "OVA";
+ if(["ona","она"].includes(normalized))return "ONA";
  if(["special","спешл"].includes(normalized))return "SPECIAL";
  if(["music","музыкальное"].includes(normalized))return "MUSIC";
  return undefined;
@@ -132,7 +132,11 @@ export function normalizeYummyLists(payload:YummyRawLists):Array<{anime:AnimeIde
   const anime:AnimeIdentity={
    id:"yummyanime:"+id,
    titles:{romaji:title,synonyms:[originalTitle,...otherTitles].filter(Boolean)},
-   externalIds:{yummyanime:id},
+   externalIds:{
+    yummyanime:id,
+    ...(numberValue(objectValue(nested.remote_ids).myanimelist_id)!==null?{myanimelist:String(numberValue(objectValue(nested.remote_ids).myanimelist_id))}:{}),
+    ...(numberValue(objectValue(nested.remote_ids).shikimori_id)!==null?{shikimori:String(numberValue(objectValue(nested.remote_ids).shikimori_id))}:{}),
+   },
    year,episodes,posterUrl:poster,
    ...(format?{format}:{}),
    ...(genres.length?{genres}:{}),
