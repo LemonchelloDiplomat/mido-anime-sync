@@ -171,6 +171,25 @@ describe("YummyAnime local API routes", () => {
     expect(normalizeYummyLists(res.json()).map((row) => row.entry.status)).toEqual(["WATCHING"]);
   });
 
+  it("fetches custom account list IDs and unwraps nested list response shapes", async () => {
+    process.env.YUMMY_APPLICATION_TOKEN = "public-app-token";
+    const fetcher = vi.fn(async (url: string) => {
+      const payload = url.endsWith("/profile") ? { response: { id: 42 } }
+        : url.endsWith("/users/42/lists") ? { response: { data: [{ list_id: 12, name: "Смотрю" }] } }
+        : { response: { items: [{ anime: { id: 99, title: "Nested account title" } }] } };
+      return { ok: true, status: 200, async text() { return JSON.stringify(payload); } };
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const deps = dependencies({ yummyanime: { accessToken: "private-user-token", userId: 42, refreshedAt: Date.now() } });
+    const res = responseCapture();
+    await handleYummyAnimeRequest({ method: "GET" }, res, new URL("http://127.0.0.1/api/yummyanime/lists"), deps);
+    expect(res.status).toBe(200);
+    expect(res.json().entries).toEqual([{ anime: { id: 99, title: "Nested account title" }, anime_id: 99, list_id: 12, list_name: "Смотрю" }]);
+    expect(res.json().diagnostics).toMatchObject({ definitionsCount: 1, fetchedRows: 1, lists: [{ listId: 12, rowCount: 1 }] });
+    expect(normalizeYummyLists(res.json()).map((row) => row.entry.status)).toEqual(["WATCHING"]);
+    expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/users/42/lists/12"))).toBe(true);
+  });
+
   it("adds and removes favorites through the documented independent favorite route", async () => {
     process.env.YUMMY_APPLICATION_TOKEN = "public-app-token";
     const fetcher = vi.fn(async (_url: string, _options?: RequestInit) => ({ ok: true, status: 200, async text() { return JSON.stringify({ response: true }); } }));
