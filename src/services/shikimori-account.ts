@@ -147,6 +147,9 @@ export function parseShikimoriAccountList(
       favorite: false,
       updatedAt,
       source: "shikimori",
+      sharedMetadata: {
+        rewatchCount: Math.max(0, Number(raw.rewatches) || 0),
+      },
       sourceMetadata: {
         shikimoriRateId: raw.id,
         rewatches: raw.rewatches ?? 0,
