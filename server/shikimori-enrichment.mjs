@@ -1,5 +1,41 @@
 const DEFAULT_BATCH_SIZE = 50;
 
+export const SHIKIMORI_ANIME_IDENTITY_QUERY = `
+  query ShikimoriAnimeIdentity($ids: String) {
+    animes(ids: $ids) {
+      id
+      malId
+    }
+  }
+`;
+
+/**
+ * Loads the canonical Shikimori-to-MAL identity mapping from GraphQL.
+ * Shikimori's malId is a separate nullable field; its native id is never
+ * treated as a MAL ID.
+ */
+export async function fetchShikimoriAnimeIdentityBatch(ids, requestGraphql) {
+  if (!Array.isArray(ids) || ids.some((id) => !Number.isSafeInteger(id) || id <= 0)) {
+    throw new Error("Переданы некорректные Shikimori ID для GraphQL.");
+  }
+  if (typeof requestGraphql !== "function") {
+    throw new Error("Не настроен GraphQL-запрос Shikimori.");
+  }
+  if (ids.length === 0) return [];
+
+  const data = await requestGraphql(SHIKIMORI_ANIME_IDENTITY_QUERY, {
+    ids: ids.join(","),
+  });
+  if (!data || !Array.isArray(data.animes)) {
+    throw new Error("Shikimori GraphQL вернул список аниме в неожиданном формате.");
+  }
+
+  return data.animes.map((anime) => ({
+    id: anime?.id,
+    malId: anime?.malId ?? null,
+  }));
+}
+
 function normalizeAnimeId(value) {
   if (typeof value !== "number" && typeof value !== "string") return null;
   if (typeof value === "string" && !/^\d+$/.test(value.trim())) return null;
