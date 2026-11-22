@@ -10,6 +10,7 @@ on:
       - feat/streaming-site-bridge
       - feat/streaming-site-bridge-stacked
       - feat/kodik-watch-tracking
+      - feature/full-tracker-sync
   pull_request:
 
 jobs:
