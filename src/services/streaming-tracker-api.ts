@@ -14,10 +14,11 @@ export const yummyTrackerApi={
  lists:()=>requestJson<YummyRawLists>("/api/yummyanime/lists"),
  /** Requires an explicit target list ID. Status-to-list mapping is never guessed. */
  setList:(animeId:string,listId:number)=>requestJson<{ok:true}>("/api/yummyanime/list",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({animeId,listId})}),
+ setFavorite:(animeId:string,favorite:boolean)=>requestJson<{ok:true}>("/api/yummyanime/favorite",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({animeId,favorite})}),
 };
 const STATUS_ALIASES:Array<[RegExp,AnimeStatus]>=[
  [/watch|смотр|просмотр/i,"WATCHING"],[/complete|заверш|просмотрено/i,"COMPLETED"],
- [/plan|later|отлож|заплан|буду смотреть/i,"PLANNING"],[/hold|pause|пауз|приостанов/i,"ON_HOLD"],
+ [/plan|later|отлож|заплан|буду смотреть/i,"PLANNING"],[/hold|pause|postpon|отлож|пауз|приостанов/i,"ON_HOLD"],
  [/drop|брос|заброш/i,"DROPPED"],[/rewatch|пересмотр/i,"REWATCHING"],
 ];
 const textValue=(...values:unknown[])=>{const value=values.find(v=>typeof v==="string"&&v.trim());return typeof value==="string"?value.trim():"";};
