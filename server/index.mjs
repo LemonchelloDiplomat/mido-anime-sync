@@ -8,7 +8,7 @@ import { handleYummyAnimeRequest } from "./yummyanime-routes.mjs";
 import { handleAnimeGoRequest } from "./animego-routes.mjs";
 import { handleAnixArtRequest } from "./anixart-routes.mjs";
 import { fetchAniListAnimeList } from "./anilist-list.mjs";
-import { enrichShikimoriAnimeRates, getShikimoriIdentityCoverage } from "./shikimori-enrichment.mjs";
+import { enrichShikimoriAnimeRates, fetchShikimoriAnimeIdentityBatch, getShikimoriIdentityCoverage } from "./shikimori-enrichment.mjs";
 
 const ROOT = process.cwd();
 const DATA_DIR = path.join(ROOT, ".local-data");
@@ -271,6 +271,28 @@ async function shikimoriRequest(pathname, tokens, options = {}) {
       ...options.headers,
     },
   });
+}
+
+async function shikimoriGraphqlRequest(query, variables, tokens) {
+  const accessToken = await getShikimoriAccessToken(tokens);
+  await acquireShikimoriRequestSlot();
+  const payload = await fetchJson(SHIKIMORI_API + "/graphql", {
+    method: "POST",
+    headers: {
+      "User-Agent": process.env.SHIKIMORI_USER_AGENT || "mido-anime-sync/0.5.0",
+      Authorization: "Bearer " + accessToken,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (payload.errors?.length) {
+    throw new Error(payload.errors.map((item) => item?.message || "GraphQL error").join("; "));
+  }
+  if (!payload.data) {
+    throw new Error("Shikimori GraphQL не вернул data.");
+  }
+  return payload.data;
 }
 
 async function anilistRequest(query, variables, token) {
@@ -772,10 +794,17 @@ async function handleRequest(request, response) {
         page += 1;
       }
       if (page > 100) throw new Error("Список Shikimori слишком большой: достигнут лимит страниц.");
+      const fetchIdentityBatch = (ids) => fetchShikimoriAnimeIdentityBatch(
+        ids,
+        (query, variables) => shikimoriGraphqlRequest(query, variables, tokens),
+      );
       const enrichedItems = await enrichShikimoriAnimeRates(
         items,
-        (ids) => shikimoriRequest("/animes?ids=" + ids.join(",") + "&limit=" + ids.length, tokens),
-        (id) => shikimoriRequest("/animes/" + id, tokens),
+        fetchIdentityBatch,
+        async (id) => {
+          const details = await fetchIdentityBatch([id]);
+          return details.find((detail) => String(detail.id) === String(id)) || null;
+        },
       );
       const identityCoverage = getShikimoriIdentityCoverage(enrichedItems);
       return sendJson(response, 200, { data: enrichedItems, count: enrichedItems.length, identityCoverage });
