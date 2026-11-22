@@ -3,9 +3,10 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import "./styles.css";
 import { initializeStreamingRuntimeFromHost } from "./services/platform/runtime-bootstrap.js";
+import type { StreamingRuntime } from "./services/platform/streaming-runtime.js";
 
 /** Initialize native adapters before React renders; web builds remain local-only. */
-let streamingRuntime = null;
+let streamingRuntime: StreamingRuntime | null = null;
 try {
   streamingRuntime = await initializeStreamingRuntimeFromHost();
 } catch (error) {
