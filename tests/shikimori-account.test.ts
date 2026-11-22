@@ -14,6 +14,7 @@ describe("Shikimori account list importer", () => {
       anime: {
         id: 32998,
         name: "91 Days",
+        myanimelist_id: 32998,
         russian: "91 день",
         image: {
           original: "/system/animes/original/32998.jpg?1711937952",
@@ -35,7 +36,7 @@ describe("Shikimori account list importer", () => {
     expect(snapshot.anime).toHaveLength(1);
     expect(snapshot.anime[0]).toMatchObject({
       id: "shikimori:32998",
-      externalIds: { shikimori: "32998" },
+      externalIds: { shikimori: "32998", myanimelist: "32998" },
       titles: { romaji: "91 Days", synonyms: ["91 день"] },
       format: "TV",
       year: 2016,
