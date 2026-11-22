@@ -802,6 +802,8 @@ function App() {
   }
 
   async function handleImportFile(event: ChangeEvent<HTMLInputElement>) {
+    setImportSuggestions({});
+    setImportManualMappings({});
     const input = event.currentTarget;
     const file = input.files?.[0];
 
@@ -1051,6 +1053,8 @@ function App() {
 
   async function handleImportFromAccount(provider: SyncProvider) {
     if (!repository || importing) return;
+    setImportSuggestions({});
+    setImportManualMappings({});
     setImporting(true);
     setError("");
     try {
