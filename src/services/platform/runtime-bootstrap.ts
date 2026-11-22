@@ -1,3 +1,4 @@
+import { Capacitor, CapacitorHttp } from "@capacitor/core";
 import {
   createAndroidStreamingRuntime,
   createWindowsStreamingRuntime,
@@ -76,7 +77,7 @@ export async function initializeStreamingRuntimeFromHost(
     return createAndroidStreamingRuntime(host.__MIDO_STREAMING_ANDROID__);
   }
 
-  const capacitor = host.Capacitor;
+  const capacitor = host.Capacitor ?? Capacitor;
   if (!capacitor?.isNativePlatform() || capacitor.getPlatform() !== "android") {
     return null;
   }
@@ -86,21 +87,15 @@ export async function initializeStreamingRuntimeFromHost(
 }
 
 async function loadCapacitorAndroidModules(): Promise<CapacitorAndroidModules> {
-  // Variable module specifiers intentionally keep optional native packages
-  // out of the regular browser bundle. setup:platforms installs both packages.
-  const corePackage = "@capacitor/core";
-  const secureStoragePackage = "@capnative/capacitor-secure-storage";
-  const [core, secureStorage] = await Promise.all([
-    import("@capacitor/core"),
-    import("@capnative/capacitor-secure-storage"),
-  ]);
+  // Secure storage is a lazy native-only chunk. CapacitorHttp is part of core.
+  const secureStorage = await import("@capnative/capacitor-secure-storage");
 
-  if (!core.CapacitorHttp || !secureStorage.SecureStorage) {
+  if (!CapacitorHttp || !secureStorage.SecureStorage) {
     throw new Error("Capacitor Android streaming plugins are not registered. Run npm run setup:platforms and npx cap sync android.");
   }
 
   return {
-    http: core.CapacitorHttp as CapacitorHttpPlugin,
+    http: CapacitorHttp as CapacitorHttpPlugin,
     secureStorage: secureStorage.SecureStorage as CapacitorSecureStoragePlugin,
   };
 }
