@@ -114,7 +114,7 @@ export function StreamingTrackerPanel({ items, onImport, onImportAnixart }: {
         <button className="secondary-button" disabled={busy||options.length===0} onClick={()=>void syncStatuses()}>Отправить статусы и избранное</button>
         <button className="secondary-button" disabled={busy} onClick={()=>void disconnect()}>Отключить</button>
       </div>
-      <p>Найдено распознанных записей: {importCount??"не проверено"}. Для отправки статусов сначала вручную сопоставь статусы приложения со списками сайта.</p>
+      <p>Найдено распознанных записей: {importCount??"не проверено"}. {importCount ? "Чтобы отправлять статусы на сайт, вручную сопоставь статусы приложения со списками YummyAnime ниже." : "Нажми «Импортировать список», чтобы получить записи из аккаунта."}</p>
       <div className="streaming-tracker-mapping">
         {STATUSES.map(value=><label key={value}>{STATUS_LABELS[value]}
           <select value={mapping[value]||""} onChange={event=>setMapping(previous=>({...previous,[value]:event.target.value}))}>
