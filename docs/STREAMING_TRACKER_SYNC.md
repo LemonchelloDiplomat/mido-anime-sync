@@ -31,13 +31,13 @@ AnimeGO read-only list import now uses the authenticated profile DOM in the brow
 ## Eight implementation workstreams
 
 1. Provider capability registry and adapter contract: implemented.
-2. Exact ID resolution plus manual fuzzy suggestions: implemented.
-3. YummyAnime login, list import, mapped status writes and favorite-add writes: implemented in the local API/client flow. Runtime verification remains part of the final branch check.
-4. Anixart account API adapter: deliberately disabled. The app now imports the user's own official CSV/TXT bookmark export instead; this avoids credentials and undocumented API access.
-5. AnimeGO account read integration: research boundary documented, implementation blocked until the live login/session and list-read contract can be verified.
-6. AnimeGO account write integration: blocked until stage 5 is verified. No speculative AJAX mutations are sent.
-7. Account UI and explicit sequential write flow: implemented for YummyAnime; unsupported providers display their exact blockers.
-8. Regression coverage: pure sync, matching, normalization and write-queue tests have been added. Full test/typecheck/build verification is intentionally deferred to the requested final branch check.
+2. Exact ID resolution plus user-confirmed fuzzy title suggestions: implemented.
+3. YummyAnime login, list import, mapped status writes and favorite-add writes: implemented. Progress/score writes and automatic favorite removal remain unsupported.
+4. Anixart own-export import: implemented for CSV and legacy TXT. No account credentials or private API calls.
+5. AnimeGO account-list read: implemented as a user-initiated browser-extension capture from the open profile page. It does not read cookies or credentials.
+6. AnimeGO remote writes: blocked until a stable, permitted mutation contract is verified. No speculative AJAX mutations are sent.
+7. Account/import UI: implemented for YummyAnime, AnimeGO profile capture and Anixart export preview.
+8. Regression coverage and CI: passed on the latest PR commit. Runtime smoke tests against real user exports/profile pages remain to be performed by the user.
 
 ## AnimeGO profile import
 
