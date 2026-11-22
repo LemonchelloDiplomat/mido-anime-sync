@@ -134,8 +134,10 @@ export function parseAniListAccountList(
       source: "anilist",
       sharedMetadata: {
         rewatchCount: Math.max(0, Number(raw.repeat) || 0),
-        ...(formatDate(raw.startedAt) ? { startedAt: formatDate(raw.startedAt) } : {}),
-        ...(formatDate(raw.completedAt) ? { completedAt: formatDate(raw.completedAt) } : {}),
+        // Null is meaningful: it distinguishes an explicitly empty provider date
+        // from metadata that was never present in an older local snapshot.
+        startedAt: formatDate(raw.startedAt),
+        completedAt: formatDate(raw.completedAt),
       },
       sourceMetadata: {
         anilistEntryId: raw.id,
