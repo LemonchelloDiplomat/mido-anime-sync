@@ -26,6 +26,7 @@ export function enrichShikimoriAnimeRates(
   fetchAnimeBatch: (ids: number[]) => Promise<unknown>,
   fetchAnimeById: (id: number) => Promise<unknown>,
   batchSize?: number,
+  options?: { resolveMissingIndividually?: boolean },
 ): Promise<ShikimoriAnimeRate[]>;
 
 export interface ShikimoriIdentityCoverage {
