@@ -139,7 +139,7 @@ export class StreamingHttpClient {
     }
     const response = await this.transport.request<T>(request);
     if (response.status < 200 || response.status >= 300) {
-      throw new StreamingHttpError(response.status, request.provider, request.url, response.data);
+      throw new StreamingHttpError(response.status, request.provider, request.url);
     }
     return response;
   }
@@ -150,7 +150,6 @@ export class StreamingHttpError extends Error {
     readonly status: number,
     readonly provider: StreamingProviderId,
     requestUrl: string,
-    readonly responseBody: unknown,
   ) {
     super(`Streaming request failed (${status}) for ${provider}: ${safeUrl(requestUrl)}`);
     this.name = "StreamingHttpError";
