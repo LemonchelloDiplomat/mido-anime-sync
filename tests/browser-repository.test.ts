@@ -2067,3 +2067,144 @@ describe("BrowserAnimeRepository identity reconciliation", () => {
   });
 });
 
+
+describe("BrowserAnimeRepository migration regression", () => {
+  it("upgrades a version 2 database while preserving its provider baseline", async () => {
+    const name = `anime-sync-v2-upgrade-${Date.now()}-${Math.random()}`;
+    const request = indexedDB.open(name, 2);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      database.createObjectStore("anime", { keyPath: "id" });
+      database.createObjectStore("entries", { keyPath: "animeId" });
+      database.createObjectStore("sourceEntries", { keyPath: ["animeId", "source"] });
+    };
+    const oldDatabase = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const anime = makeAnime("legacy-v2-anime");
+    const entry = {
+      ...makeEntry("legacy-v2-anime", 6, "2026-11-17T12:00:00.000Z"),
+      source: "anilist" as const,
+      score: 88,
+      favorite: true,
+      sourceMetadata: { anilistEntryId: 2201 },
+    };
+    await new Promise<void>((resolve, reject) => {
+      const transaction = oldDatabase.transaction(
+        ["anime", "entries", "sourceEntries"],
+        "readwrite",
+      );
+      transaction.objectStore("anime").put(anime);
+      transaction.objectStore("entries").put(entry);
+      transaction.objectStore("sourceEntries").put(entry);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    oldDatabase.close();
+
+    const upgraded = await BrowserAnimeRepository.open(name);
+    repositories.push(upgraded);
+
+    expect(await upgraded.getAnime(anime.id)).toEqual(anime);
+    expect(await upgraded.getEntry(anime.id)).toEqual(entry);
+    expect(await upgraded.getSourceEntries(anime.id)).toEqual([entry]);
+    expect(await upgraded.getSyncOperations()).toEqual([]);
+    expect(await upgraded.getSyncSessions()).toEqual([]);
+    expect(await upgraded.getDeletionIntents()).toEqual([]);
+  });
+
+  it("upgrades a version 3 database while preserving conflict decisions", async () => {
+    const name = `anime-sync-v3-upgrade-${Date.now()}-${Math.random()}`;
+    const request = indexedDB.open(name, 3);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      database.createObjectStore("anime", { keyPath: "id" });
+      database.createObjectStore("entries", { keyPath: "animeId" });
+      database.createObjectStore("sourceEntries", { keyPath: ["animeId", "source"] });
+      database.createObjectStore("conflictResolutions", { keyPath: "animeId" });
+    };
+    const oldDatabase = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const anime = makeAnime("legacy-v3-anime");
+    const entry = makeEntry(anime.id, 7, "2026-11-17T12:00:00.000Z");
+    const resolution = {
+      animeId: anime.id,
+      status: "WATCHING" as const,
+      fingerprint: "legacy-v3-fingerprint",
+      resolvedAt: "2026-11-17T12:01:00.000Z",
+    };
+    await new Promise<void>((resolve, reject) => {
+      const transaction = oldDatabase.transaction(
+        ["anime", "entries", "sourceEntries", "conflictResolutions"],
+        "readwrite",
+      );
+      transaction.objectStore("anime").put(anime);
+      transaction.objectStore("entries").put(entry);
+      transaction.objectStore("sourceEntries").put(entry);
+      transaction.objectStore("conflictResolutions").put(resolution);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    oldDatabase.close();
+
+    const upgraded = await BrowserAnimeRepository.open(name);
+    repositories.push(upgraded);
+
+    expect(await upgraded.getAnime(anime.id)).toEqual(anime);
+    expect(await upgraded.getSourceEntries(anime.id)).toEqual([entry]);
+    expect(await upgraded.getConflictResolution(anime.id)).toEqual(resolution);
+    expect(await upgraded.getAnimeRelations()).toEqual([]);
+    expect(await upgraded.getSyncOperations()).toEqual([]);
+    expect(await upgraded.getSyncSessions()).toEqual([]);
+    expect(await upgraded.getDeletionIntents()).toEqual([]);
+  });
+});
+
+describe("BrowserAnimeRepository duplicate merge idempotency", () => {
+  it("does not change the library when exact-identity reconciliation is repeated", async () => {
+    const repo = await createRepository();
+    const mal = makeAnime("mal:700");
+    mal.externalIds = { myanimelist: "700" };
+    const anilist = makeAnime("anilist:900");
+    anilist.externalIds = { myanimelist: "700", anilist: "900" };
+    await repo.saveAnime(mal);
+    await repo.saveAnime(anilist);
+    await repo.saveSourceEntry({
+      ...makeEntry(mal.id, 12, "2026-11-18T10:00:00.000Z"),
+      source: "myanimelist",
+      score: 91,
+      favorite: true,
+      sourceMetadata: { comments: "kept" },
+    });
+    await repo.saveSourceEntry({
+      ...makeEntry(anilist.id, 8, "2026-11-18T11:00:00.000Z"),
+      source: "anilist",
+      score: 87,
+      sourceMetadata: { repeat: 3 },
+    });
+
+    expect(await repo.reconcileExactIdentityDuplicates()).toEqual({
+      mergedPairs: 1,
+      skippedPairs: 0,
+    });
+    const firstSnapshot = await repo.snapshot();
+
+    expect(await repo.reconcileExactIdentityDuplicates()).toEqual({
+      mergedPairs: 0,
+      skippedPairs: 0,
+    });
+    const secondSnapshot = await repo.snapshot();
+
+    expect(secondSnapshot.anime).toEqual(firstSnapshot.anime);
+    expect(secondSnapshot.entries).toEqual(firstSnapshot.entries);
+    expect(secondSnapshot.sourceEntries).toEqual(firstSnapshot.sourceEntries);
+    expect(secondSnapshot.conflictResolutions).toEqual(firstSnapshot.conflictResolutions);
+    expect(secondSnapshot.animeRelations).toEqual(firstSnapshot.animeRelations);
+    expect(secondSnapshot.deletionIntents).toEqual(firstSnapshot.deletionIntents);
+  });
+});
