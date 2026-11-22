@@ -2425,20 +2425,29 @@ describe("three-tracker import order integration", () => {
       source: "myanimelist" as const,
       externalIds: { myanimelist: "1001" },
       progress: 4,
-      sourceMetadata: { tags: ["mal-tag"], comments: "MAL note" },
+      status: "WATCHING" as const,
+      score: 90,
+      favorite: false,
+      sourceMetadata: { tags: ["mal-tag"], comments: "MAL note", timesRewatched: 0 },
     },
     anilist: {
       id: "anilist:2001",
       source: "anilist" as const,
       externalIds: { myanimelist: "1001", anilist: "2001" },
       progress: 7,
+      status: "REWATCHING" as const,
+      score: 85,
+      favorite: true,
       sourceMetadata: { notes: "AniList note", repeat: 2 },
     },
     shikimori: {
       id: "shikimori:3001",
       source: "shikimori" as const,
       externalIds: { myanimelist: "1001", shikimori: "3001" },
-      progress: 9,
+      progress: 12,
+      status: "COMPLETED" as const,
+      score: 80,
+      favorite: false,
       sourceMetadata: { shikimoriRateId: 9001, rewatches: 3, text: "Shikimori note" },
     },
   };
@@ -2460,8 +2469,14 @@ describe("three-tracker import order integration", () => {
       const snapshot = makeSnapshot([config.id], config.progress);
       snapshot.anime[0]!.externalIds = { ...config.externalIds };
       snapshot.entries[0]!.source = config.source;
+      snapshot.entries[0]!.status = config.status;
+      snapshot.entries[0]!.score = config.score;
+      snapshot.entries[0]!.favorite = config.favorite;
       snapshot.entries[0]!.sourceMetadata = structuredClone(config.sourceMetadata);
       snapshot.sourceEntries[0]!.source = config.source;
+      snapshot.sourceEntries[0]!.status = config.status;
+      snapshot.sourceEntries[0]!.score = config.score;
+      snapshot.sourceEntries[0]!.favorite = config.favorite;
       snapshot.sourceEntries[0]!.sourceMetadata = structuredClone(config.sourceMetadata);
 
       const current = await repo.snapshot();
@@ -2496,6 +2511,12 @@ describe("three-tracker import order integration", () => {
       .toEqual(providers.anilist.sourceMetadata);
     expect(result.sourceEntries.find((entry) => entry.source === "shikimori")?.sourceMetadata)
       .toEqual(providers.shikimori.sourceMetadata);
+    expect(result.sourceEntries.find((entry) => entry.source === "myanimelist"))
+      .toMatchObject({ status: "WATCHING", progress: 4, score: 90, favorite: false });
+    expect(result.sourceEntries.find((entry) => entry.source === "anilist"))
+      .toMatchObject({ status: "REWATCHING", progress: 7, score: 85, favorite: true });
+    expect(result.sourceEntries.find((entry) => entry.source === "shikimori"))
+      .toMatchObject({ status: "COMPLETED", progress: 12, score: 80, favorite: false });
   });
 });
 
