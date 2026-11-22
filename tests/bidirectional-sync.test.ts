@@ -408,7 +408,15 @@ describe("shared metadata bidirectional sync", () => {
   });
 
   it("does not treat unsupported Shikimori dates as sync conflicts", () => {
-    const localAnime = anime("local:shiki");
+    const localAnime: AnimeIdentity = {
+      id: "local:shiki",
+      titles: { english: "Example anime", synonyms: [] },
+      externalIds: { shikimori: "41" },
+    };
+    const remoteAnime: AnimeIdentity = {
+      ...localAnime,
+      id: "shikimori:shiki",
+    };
     const baseline = entry(localAnime.id, "shikimori", "2026-11-15T10:00:00.000Z", {
       sharedMetadata: { rewatchCount: 1 },
     });
@@ -420,7 +428,7 @@ describe("shared metadata bidirectional sync", () => {
     });
     const plan = createBidirectionalSyncPlan(
       [{ anime: localAnime, entry: localEntry, baseline }],
-      remoteSnapshot([anime("shikimori:shiki")], [remoteEntry]),
+      remoteSnapshot([remoteAnime], [remoteEntry]),
       "shikimori",
     );
 
