@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AnimeIdentity, AnimeListEntry, AnimeStatus } from "../core/types.js";
 import { normalizeYummyLists, yummyTrackerApi, type YummyAccountStatus } from "../services/streaming-tracker-api.js";
-import { getStreamingTrackerCapabilities } from "../services/streaming-tracker-registry.js";
 import { runConfirmedTrackerWrites } from "../services/streaming-tracker-write-queue.js";
 
 type LibraryRow = { anime: AnimeIdentity; entry: AnimeListEntry | undefined };
@@ -11,9 +10,32 @@ const STATUS_LABELS: Record<AnimeStatus,string> = {
   PLANNING:"Запланировано", WATCHING:"Смотрю", COMPLETED:"Просмотрено",
   ON_HOLD:"Отложено", DROPPED:"Брошено", REWATCHING:"Пересматриваю",
 };
-export function StreamingTrackerPanel({ items, onImport, onImportAnixart }: {
+
+function UnavailableProviderRow({ id, mark, name, detail }: {
+  id: "animego" | "anixart";
+  mark: string;
+  name: string;
+  detail: string;
+}) {
+  return <article className="integration-provider streaming-provider-row" data-provider={id}>
+    <div className={"integration-provider-mark integration-provider-mark--" + id} aria-hidden="true"><span>{mark}</span></div>
+    <div className="integration-provider-info">
+      <h3>{name}</h3>
+      <p>{detail}</p>
+    </div>
+    <div className="integration-state">{id === "animego" ? "API не подтверждён" : "API недоступен"}</div>
+    <div className="streaming-provider-actions">
+      <button className="add-button" type="button" disabled title="Кнопка станет доступна после появления разрешённого API">Импорт списка</button>
+      <button className="secondary-button" type="button" disabled title="Нет подтверждённого API для синхронизации">Синхронизировать</button>
+      <button className="secondary-button" type="button" disabled>Отключить</button>
+    </div>
+  </article>;
+}
+
+export function StreamingTrackerPanel({ items, onImport }: {
   items: LibraryRow[];
   onImport: (rows: NormalizedRow[]) => Promise<void>;
+  /** Kept temporarily for compatibility with the previous Anixart file-import caller. */
   onImportAnixart: (file: File) => Promise<{ imported: number; skipped: number }>;
 }) {
   const [status,setStatus]=useState<YummyAccountStatus|null>(null);
@@ -87,38 +109,32 @@ export function StreamingTrackerPanel({ items, onImport, onImportAnixart }: {
     }catch(e){setError(e instanceof Error?e.message:"Не удалось обновить списки.");}
     finally{setBusy(false);}
   }
-  async function importAnixartFile(file:File){
-    setBusy(true);setError("");setMessage("");
-    try{
-      const result=await onImportAnixart(file);
-      setMessage("Предпросмотр Anixart готов: "+result.imported+" записей, пропущено: "+result.skipped+". Проверь сопоставления в блоке импорта и подтверди перенос.");
-    }catch(e){setError(e instanceof Error?e.message:"Не удалось прочитать экспорт Anixart.");}
-    finally{setBusy(false);}
-  }
   async function disconnect(){
     setBusy(true);setError("");setMessage("");
     try{await yummyTrackerApi.logout();setStatus({...status!,connected:false,username:null});setLists([]);setMessage("Аккаунт отключён.");}
     catch(e){setError(e instanceof Error?e.message:"Не удалось отключить аккаунт.");}
     finally{setBusy(false);}
   }
-  return <section className="integration-provider streaming-tracker-provider">
-    <div className="streaming-tracker-account-header">
+  return <div className="streaming-provider-list">
+    <article className="integration-provider streaming-provider-row streaming-tracker-provider" data-provider="yummyanime">
       <div className="integration-provider-mark integration-provider-mark--yummyanime" aria-hidden="true"><span>YA</span></div>
       <div className="integration-provider-info">
-      <h3>YummyAnime · синхронизация списков</h3>
-      <p>{status?.connected?"Подключён аккаунт: "+(status.username||"пользователь"):"Подключение через локальный API. Пароль не сохраняется в интерфейсе."}</p>
-      {!status?.configured&&<p>Для работы добавь YUMMY_APPLICATION_TOKEN в .env.local.</p>}
+        <h3>YummyAnime</h3>
+        <p>{status?.connected?"Подключён аккаунт: "+(status.username||"пользователь"):"Авторизация через API YummyAnime."}{!status?.configured?" Добавь YUMMY_APPLICATION_TOKEN в .env.local.":""}</p>
       </div>
-      {status?.connected&&<div className="integration-state connected">Подключён</div>}
-      {status&&!status.connected&&<div className="integration-state">{status.configured?"Не подключён":"Не настроен"}</div>}
-    </div>
-    {status?.connected?<>
-      <div className="streaming-tracker-actions">
+      <div className={"integration-state "+(status?.connected?"connected":"")}>
+        {status?.connected?"Подключён":status?.configured?"Не подключён":"Не настроен"}
+      </div>
+      {status?.connected ? <div className="streaming-provider-actions">
         <button className="add-button" disabled={busy} onClick={()=>void importList()}>{busy?"Подождите...":"Импорт списка"}</button>
         <button className="secondary-button" disabled={busy||options.length===0} onClick={()=>void syncStatuses()}>Синхронизировать</button>
         <button className="secondary-button" disabled={busy} onClick={()=>void disconnect()}>Отключить</button>
-      </div>
-      <p>Найдено распознанных записей: {importCount??"не проверено"}. {importCount ? "Чтобы отправлять статусы на сайт, вручную сопоставь статусы приложения со списками YummyAnime ниже." : "Нажми «Импортировать список», чтобы получить записи из аккаунта."}</p>
+      </div> : <div className="streaming-provider-actions">
+        <button className="add-button" disabled={busy||!status?.configured||!login.trim()||!password} onClick={()=>void connect()}>{busy?"Подключение...":"Подключить"}</button>
+      </div>}
+    </article>
+    {status?.connected && <div className="streaming-provider-expanded">
+      <p>Распознано записей: {importCount??"не проверено"}. Импорт и запись выполняются через API. Прогресс эпизодов пока не подтверждён ответом аккаунтного API.</p>
       <div className="streaming-tracker-mapping">
         {STATUSES.map(value=><label key={value}>{STATUS_LABELS[value]}
           <select value={mapping[value]||""} onChange={event=>setMapping(previous=>({...previous,[value]:event.target.value}))}>
@@ -127,26 +143,21 @@ export function StreamingTrackerPanel({ items, onImport, onImportAnixart }: {
           </select>
         </label>)}
       </div>
-      <p className="integration-security-note">Отправляются статусы по выбранной карте и добавление в избранное для тайтлов с точным YummyAnime ID. Снятие избранного, прогресс и оценка пока не синхронизируются. Не назначай один список нескольким статусам, если не хочешь неоднозначных результатов.</p>
-    </>:<>
-      <div className="streaming-tracker-login">
+      <p className="integration-security-note">Отправляются статусы по выбранной карте и добавление в избранное для тайтлов с точным YummyAnime ID. Снятие избранного, прогресс и оценка пока не синхронизируются.</p>
+      {!status?.connected && <div className="streaming-tracker-login">
         <input value={login} onChange={event=>setLogin(event.target.value)} placeholder="Логин YummyAnime" autoComplete="username"/>
         <input value={password} onChange={event=>setPassword(event.target.value)} placeholder="Пароль" type="password" autoComplete="current-password"/>
         <input value={captcha} onChange={event=>setCaptcha(event.target.value)} placeholder="Ответ hCaptcha, если запрошен" autoComplete="off"/>
-        <button className="add-button" disabled={busy||!status?.configured||!login.trim()||!password} onClick={()=>void connect()}>{busy?"Подключение...":"Подключить"}</button>
-      </div>
-    </>}
-    <div className="streaming-tracker-provider-limitations">
-      <h4>Импорт других площадок</h4>
-      <p><strong>AnimeGO:</strong> {getStreamingTrackerCapabilities("animego").reason}</p>
-      <p><strong>Anixart:</strong> официальный экспорт закладок CSV или TXT. Пароль и API не нужны.</p>
-      <label className="streaming-tracker-import-file">
-        <span>{busy?"Обработка файла...":"Выбрать экспорт Anixart (.csv или .txt)"}</span>
-        <input type="file" accept=".csv,.txt,text/csv,text/plain" disabled={busy} onChange={event=>{const file=event.target.files?.[0];if(file)void importAnixartFile(file);event.currentTarget.value="";}}/>
-      </label>
-      <p className="integration-security-note">В Anixart: Настройки → Данные и память → Экспорт закладок. Выбери нужные списки и включи «Оригинальное название», «Альтернативные названия», «Статус просмотра» и «Моя оценка». Избранное переносится отдельной отметкой. Официальный экспорт не содержит прогресс по эпизодам.</p>
-    </div>
-    {message&&<p role="status">{message}</p>}
+      </div>}
+    </div>}
+    {!status?.connected && <div className="streaming-provider-login">
+      <input value={login} onChange={event=>setLogin(event.target.value)} placeholder="Логин YummyAnime" autoComplete="username"/>
+      <input value={password} onChange={event=>setPassword(event.target.value)} placeholder="Пароль" type="password" autoComplete="current-password"/>
+      <input value={captcha} onChange={event=>setCaptcha(event.target.value)} placeholder="Ответ hCaptcha, если запрошен" autoComplete="off"/>
+    </div>}
+    <UnavailableProviderRow id="animego" mark="AG" name="AnimeGO" detail="Каталог и просмотр доступны. Авторизация и управление списком через API пока не подтверждены."/>
+    <UnavailableProviderRow id="anixart" mark="AX" name="Anixart" detail="Каталог доступен. Официальный API для сторонней синхронизации не опубликован; CSV/TXT импорт отключён по твоему требованию."/>
+    {message&&<p className="streaming-provider-feedback" role="status">{message}</p>}
     {error&&<p className="error-message" role="alert">{error}</p>}
-  </section>;
+  </div>;
 }
