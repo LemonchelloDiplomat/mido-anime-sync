@@ -58,6 +58,6 @@ The import payload is relayed through extension-local storage and a same-origin 
 3. Save the file and select it in the **Streaming accounts → Anixart** section in Mido.
 4. Mido parses the export and opens the existing import preview. Review title matches before confirming the merge.
 
-The parser supports Russian and English CSV column names and the legacy slash-delimited text export. When a stable Anixart release ID is present it is retained as an exact external ID. If the export contains titles only, deterministic provisional IDs are used and matches must be reviewed in the import preview. Missing progress, score and favorite values remain unknown rather than being reset. Favorites-only rows without a watch status are skipped because the shared list model requires a status.
+The parser supports Russian and English CSV column names and the legacy slash-delimited text export. When a stable Anixart release ID is present it is retained as an exact external ID. If the export contains titles only, deterministic provisional IDs are used. Mido displays fuzzy title candidates (with similarity percentages) as suggestions only; the user must select each merge explicitly, and duplicate target selections are rejected. Missing progress, score and favorite values remain unknown rather than being reset. Favorites-only rows without a watch status are skipped because the shared list model requires a status.
 
 The mobile account API remains disabled. No password, token, cookie or private API request is used.
