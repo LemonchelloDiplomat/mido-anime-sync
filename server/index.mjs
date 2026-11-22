@@ -7,6 +7,7 @@ import { handleMalDelete } from "./mal-delete-route.mjs";
 import { handleYummyAnimeRequest } from "./yummyanime-routes.mjs";
 import { handleAnimeGoRequest } from "./animego-routes.mjs";
 import { handleAnixArtRequest } from "./anixart-routes.mjs";
+import { fetchAniListAnimeList } from "./anilist-list.mjs";
 
 const ROOT = process.cwd();
 const DATA_DIR = path.join(ROOT, ".local-data");
@@ -613,17 +614,18 @@ async function handleRequest(request, response) {
   if (method === "GET" && url.pathname === "/api/anilist/list") {
     const tokens = await readTokens();
     if (!tokens.anilist?.accessToken) return sendJson(response, 401, { error: "AniList ещё не подключён." });
-    const query = "query UserAnimeList($userId: Int!) { Viewer { mediaListOptions { scoreFormat } } MediaListCollection(userId: $userId, type: ANIME) { lists { name isCustomList entries { id status score progress repeat notes updatedAt startedAt { year month day } completedAt { year month day } media { id idMal isFavourite title { romaji english native } synonyms format status episodes seasonYear startDate { year month day } averageScore genres coverImage { extraLarge large } } } } } }";
     try {
-      const data = await anilistRequest(query, { userId: tokens.anilist.userId }, tokens.anilist.accessToken);
-      const lists = data.MediaListCollection?.lists || [];
-      const entries = lists.flatMap((list) => list.entries || []);
-      const scoreFormat = data.Viewer?.mediaListOptions?.scoreFormat || "POINT_100";
+      const { lists, scoreFormat, count } = await fetchAniListAnimeList({
+        request: anilistRequest,
+        userId: tokens.anilist.userId,
+        accessToken: tokens.anilist.accessToken,
+      });
+      const entries = lists.flatMap((list) => list.entries);
       if (tokens.anilist.scoreFormat !== scoreFormat) {
         tokens.anilist.scoreFormat = scoreFormat;
         await writeTokens(tokens);
       }
-      return sendJson(response, 200, { lists, data: entries, count: entries.length, scoreFormat });
+      return sendJson(response, 200, { lists, data: entries, count, scoreFormat });
     } catch (error) {
       return sendJson(response, error.status || 502, { error: error.message });
     }
