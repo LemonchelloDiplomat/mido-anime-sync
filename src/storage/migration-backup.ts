@@ -195,6 +195,161 @@ export function getMigrationBackupDatabaseName(databaseName: string): string {
   return `${databaseName}__migration_backups`;
 }
 
+export async function listMigrationBackups(databaseName: string): Promise<MigrationBackup[]> {
+  const backupDb = await openExistingDatabase(getMigrationBackupDatabaseName(databaseName));
+  if (!backupDb) return [];
+
+  try {
+    if (!backupDb.objectStoreNames.contains("backups")) return [];
+    const transaction = backupDb.transaction("backups", "readonly");
+    const request = transaction.objectStore("backups").getAll();
+    const backups = await new Promise<MigrationBackup[]>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result as MigrationBackup[]);
+      request.onerror = () => reject(request.error ?? new Error("Не удалось прочитать список резервных копий."));
+      transaction.onabort = () => reject(transaction.error ?? new Error("Чтение резервных копий прервано."));
+    });
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onabort = () => reject(transaction.error ?? new Error("Чтение резервных копий прервано."));
+    });
+    for (const backup of backups) validateBackup(backup);
+    return backups.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  } finally {
+    backupDb.close();
+  }
+}
+
+export async function getLatestMigrationBackup(databaseName: string): Promise<MigrationBackup | null> {
+  return (await listMigrationBackups(databaseName))[0] ?? null;
+}
+
+/**
+ * Restores a selected internal backup atomically. The current database is
+ * backed up first. Stores absent from an older backup are left untouched,
+ * while incompatible or missing stores abort before any write.
+ */
+export async function restoreMigrationBackup(
+  databaseName: string,
+  backupId: string,
+): Promise<{ backup: MigrationBackup; safetyBackupId: string; restoredRecordCount: number }> {
+  const candidates = await listMigrationBackups(databaseName);
+  const backup = candidates.find((item) => item.id === backupId);
+  if (!backup) throw new Error("Выбранная автоматическая резервная копия не найдена.");
+  validateBackup(backup);
+
+  const initial = await openExistingDatabase(databaseName);
+  if (!initial) throw new Error("Основная локальная база не найдена.");
+  const currentVersion = initial.version;
+  initial.close();
+
+  if (backup.sourceVersion > currentVersion) {
+    throw new Error("Эта резервная копия создана для более новой версии базы и не может быть восстановлена в текущую.");
+  }
+
+  const safetyBackup = await createMigrationBackupIfNeeded(databaseName, currentVersion + 1);
+  if (!safetyBackup) throw new Error("Не удалось создать защитную копию текущей библиотеки. Восстановление отменено.");
+
+  const database = await openExistingDatabase(databaseName);
+  if (!database) throw new Error("Основная локальная база недоступна.");
+  try {
+    if (database.version !== currentVersion) {
+      throw new Error("Версия локальной базы изменилась во время подготовки восстановления. Повтори попытку.");
+    }
+
+    const currentStoreNames = new Set(Array.from(database.objectStoreNames));
+    for (const store of backup.stores) {
+      if (!currentStoreNames.has(store.name)) {
+        throw new Error(`Хранилище ${store.name} отсутствует в текущей версии приложения. Данные не изменены.`);
+      }
+      const currentStore = database.transaction(store.name, "readonly").objectStore(store.name);
+      if (
+        JSON.stringify(currentStore.keyPath) !== JSON.stringify(store.keyPath) ||
+        currentStore.autoIncrement !== store.autoIncrement
+      ) {
+        throw new Error(`Структура хранилища ${store.name} изменилась. Автоматическое восстановление небезопасно, данные не изменены.`);
+      }
+    }
+
+    const names = backup.stores.map((store) => store.name);
+    if (names.length === 0) throw new Error("Резервная копия не содержит хранилищ.");
+
+    const restoredStores = backup.stores.map((store) => ({
+      name: store.name,
+      records: store.records.map((record) => structuredClone(record)) as Array<Record<string, unknown>>,
+    }));
+
+    const operations = restoredStores.find((store) => store.name === "syncOperations");
+    const sessions = restoredStores.find((store) => store.name === "syncSessions");
+    const interruptedSessionIds = new Set<string>();
+    const restoredAt = new Date().toISOString();
+
+    if (operations) {
+      operations.records = operations.records.map((operation) => {
+        if (operation.status !== "pending" && operation.status !== "in_progress") return operation;
+        if (typeof operation.sessionId === "string") interruptedSessionIds.add(operation.sessionId);
+        return {
+          ...operation,
+          status: "cancelled",
+          error: "Операция прервана восстановлением автоматической резервной копии. Запусти новую синхронизацию.",
+          updatedAt: restoredAt,
+        };
+      });
+    }
+
+    if (sessions && interruptedSessionIds.size > 0) {
+      const operationRecords = operations?.records ?? [];
+      sessions.records = sessions.records.map((session) => {
+        if (typeof session.sessionId !== "string" || !interruptedSessionIds.has(session.sessionId)) return session;
+        const sessionOperations = operationRecords.filter((operation) => operation.sessionId === session.sessionId);
+        return {
+          ...session,
+          status: "cancelled",
+          finishedAt: restoredAt,
+          operationCount: sessionOperations.length,
+          succeededCount: sessionOperations.filter((operation) => operation.status === "succeeded").length,
+          failedCount: sessionOperations.filter((operation) => operation.status === "failed").length,
+          pendingCount: 0,
+          error: "Сессия прервана восстановлением автоматической резервной копии.",
+        };
+      });
+    }
+
+    const metadata = restoredStores.find((store) => store.name === "appMetadata");
+    if (metadata) {
+      metadata.records = metadata.records.map((record) =>
+        record.key === "schemaVersion"
+          ? { ...record, value: currentVersion, updatedAt: restoredAt }
+          : record,
+      );
+    }
+
+    const transaction = database.transaction(names, "readwrite");
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onabort = () => reject(transaction.error ?? new Error("Восстановление отменено: транзакция прервана."));
+      transaction.onerror = () => reject(transaction.error ?? new Error("Ошибка транзакции восстановления."));
+      try {
+        for (const store of restoredStores) {
+          const objectStore = transaction.objectStore(store.name);
+          objectStore.clear();
+          for (const record of store.records) objectStore.put(record);
+        }
+      } catch (error) {
+        try { transaction.abort(); } catch {}
+        reject(error instanceof Error ? error : new Error("Не удалось записать данные резервной копии."));
+      }
+    });
+
+    return {
+      backup,
+      safetyBackupId: safetyBackup.id,
+      restoredRecordCount: restoredStores.reduce((sum, store) => sum + store.records.length, 0),
+    };
+  } finally {
+    database.close();
+  }
+}
+
 /**
  * Captures every object store before an IndexedDB schema upgrade.
  * If the backup cannot be committed and read back, the caller must not
