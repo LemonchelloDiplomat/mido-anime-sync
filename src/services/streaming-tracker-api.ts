@@ -1,6 +1,6 @@
 import type { AnimeIdentity, AnimeListEntry, AnimeStatus } from "../core/types.js";
 export interface YummyAccountStatus { configured:boolean; connected:boolean; username:string|null; userId:number|null; }
-export interface YummyRawLists { profile:Record<string,unknown>; lists:Array<Record<string,unknown>>; entries:Array<Record<string,unknown>>; count:number; }
+export interface YummyRawLists { profile:Record<string,unknown>; lists:Array<Record<string,unknown>>; entries:Array<Record<string,unknown>>; count:number; diagnostics?:{definitionsCount:number;fetchedRows:number;lists:Array<{listId:number|null;label:string;rowCount:number;skipped?:string;firstRowKeys?:string[];firstAnimeKeys?:string[];firstUserKeys?:string[];firstListKeys?:string[];definitionKeys?:string[];responseKeys?:string[]}>;definitionsKeys:string[];definitionsPayloadKeys:string[]}; }
 async function requestJson<T>(url:string,init?:RequestInit):Promise<T>{
  const response=await fetch(url,{credentials:"same-origin",cache:"no-store",...init,headers:{Accept:"application/json",...(init?.headers||{})}});
  const payload=await response.json().catch(()=>({})) as {error?:string};
@@ -28,7 +28,7 @@ function statusFor(list:Record<string,unknown>,row:Record<string,unknown>,userLi
  const rowStatus=objectValue(row.status);
  const listValue=objectValue(row.list);
  const label=textValue(
-  list.name,list.title,list.label,list.slug,
+  list.name,list.title,list.label,list.status_name,list.slug,
   row.list_name,row.status_name,row.status,
   rowStatus.name,rowStatus.title,rowStatus.label,
   listValue.name,listValue.title,listValue.label,
@@ -41,7 +41,7 @@ function statusFor(list:Record<string,unknown>,row:Record<string,unknown>,userLi
 /** Normalizes both the API's nested account rows and the local server's flattened list_id rows. */
 export function normalizeYummyLists(payload:YummyRawLists):Array<{anime:AnimeIdentity;entry:AnimeListEntry}>{
  const definitions=new Map<string,Record<string,unknown>>();
- for(const list of payload.lists){const id=String(list.id??"");if(id)definitions.set(id,list);}
+ for(const list of payload.lists){const id=String(list.id??list.list_id??list.listId??"");if(id)definitions.set(id,list);}
  const result:Array<{anime:AnimeIdentity;entry:AnimeListEntry}>=[];
  for(const row of payload.entries){
   const nested=objectValue(row.anime);
