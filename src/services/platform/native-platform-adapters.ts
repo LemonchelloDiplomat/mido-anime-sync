@@ -87,8 +87,12 @@ export class TauriWindowsStreamingHttpTransport implements StreamingHttpTranspor
 
   async request<T>(request: StreamingHttpRequest): Promise<StreamingHttpResponse<T>> {
     if (request.signal?.aborted) throw new DOMException("Request aborted", "AbortError");
-    if (request.body instanceof FormData || request.body instanceof URLSearchParams) {
-      throw new Error("Tauri transport requires a serialized request body.");
+    if (request.body instanceof FormData) {
+      throw new Error("Tauri transport requires FormData to be serialized by a provider adapter.");
+    }
+    const headers = { ...(request.headers ?? {}) };
+    if (request.body instanceof URLSearchParams && !Object.keys(headers).some(key => key.toLowerCase() === "content-type")) {
+      headers["Content-Type"] = "application/x-www-form-urlencoded;charset=UTF-8";
     }
     const response = await this.invoke<StreamingHttpResponse<unknown>>(
       "streaming_http_request",
@@ -96,8 +100,9 @@ export class TauriWindowsStreamingHttpTransport implements StreamingHttpTranspor
         request: {
           url: request.url,
           method: request.method ?? "GET",
-          headers: request.headers ?? {},
+          headers,
           ...(typeof request.body === "string" ? { body: request.body } : {}),
+          ...(request.body instanceof URLSearchParams ? { body: request.body.toString() } : {}),
           ...(request.body instanceof ArrayBuffer ? { bodyBase64: toBase64(request.body) } : {}),
           responseType: request.responseType ?? "json",
           withCredentials: request.withCredentials ?? false,
@@ -147,8 +152,12 @@ function normalizeHeaders(headers?: Record<string, string>): Record<string, stri
 }
 
 function isMissingSecureValue(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return /not.?found|missing|no.?entry|does.?not.?exist/i.test(error.message);
+  if (error instanceof Error && /not.?found|missing|no.?entry|does.?not.?exist/i.test(error.message)) return true;
+  if (error && typeof error === "object" && "code" in error) {
+    const code = String((error as { code?: unknown }).code ?? "");
+    return /NOT_FOUND|MISSING|NO_ENTRY/i.test(code);
+  }
+  return false;
 }
 
 function toBase64(value: ArrayBuffer): string {
@@ -163,4 +172,11 @@ function fromBase64(value: string): ArrayBuffer {
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
   return bytes.buffer;
+}
+
+/** Resolve the public Tauri v2 invoke bridge exposed by withGlobalTauri. */
+export function getTauriNativeInvoke(): NativeInvoke {
+  const bridge = (window as Window & { __TAURI__?: { core?: { invoke?: NativeInvoke } } }).__TAURI__?.core?.invoke;
+  if (!bridge) throw new Error("Tauri native bridge is unavailable in this runtime.");
+  return bridge;
 }
