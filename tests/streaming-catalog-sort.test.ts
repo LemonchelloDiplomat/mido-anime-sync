@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { sortStreamingTitles, type StreamingTitle } from "../src/services/streaming-provider.js";
 
-function title(externalId: string, name: string, rating?: number | null, year?: number | null): StreamingTitle {
+function title(externalId: string, name: string, rating: number | null = null, year: number | null = null): StreamingTitle {
   return {
     provider: "animego",
     externalId,
