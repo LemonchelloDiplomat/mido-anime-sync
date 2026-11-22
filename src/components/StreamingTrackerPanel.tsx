@@ -27,7 +27,7 @@ export function StreamingTrackerPanel({ items, onImport }: {
   const [importCount,setImportCount]=useState<number|null>(null);
   const options=useMemo(()=>lists.flatMap(list=>{
     const id=String(list.id??""); const label=String(list.name??list.title??list.label??("Список "+id));
-    return id?[{value:id,label}]:[];
+    return ["0","1","2","3","5"].includes(id)?[{value:id,label}]:[];
   }),[lists]);
   async function refresh(){
     const next=await yummyTrackerApi.status(); setStatus(next);
