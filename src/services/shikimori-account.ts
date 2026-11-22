@@ -9,7 +9,7 @@ import type {
 interface ShikimoriAnime {
   id: number;
   name: string;
-  myanimelist_id?: number | null;
+  myanimelist_id?: number | string | null;\n  mal_id?: number | string | null;\n  malId?: number | string | null;
   russian?: string | null;
   kind?: string | null;
   episodes?: number | null;
@@ -85,6 +85,13 @@ function finiteNumber(value: number | string | null | undefined): number | null 
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function normalizeMyAnimeListId(value: unknown): number | null {
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  if (typeof value === "string" && !/^\\d+$/.test(value.trim())) return null;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 export function parseShikimoriAccountList(
   input: unknown,
   exportedAt = new Date().toISOString(),
@@ -122,6 +129,9 @@ export function parseShikimoriAccountList(
       ? new Date(raw.updated_at).toISOString()
       : exportedAt;
     const averageScore = finiteNumber(animeData.score);
+    const myanimelistId = normalizeMyAnimeListId(
+      animeData.myanimelist_id ?? animeData.mal_id ?? animeData.malId,
+    );
     const identity: AnimeIdentity = {
       id,
       titles: {
@@ -130,9 +140,7 @@ export function parseShikimoriAccountList(
       },
       externalIds: {
         shikimori: String(animeData.id),
-        ...(Number.isSafeInteger(animeData.myanimelist_id) && Number(animeData.myanimelist_id) > 0
-          ? { myanimelist: String(animeData.myanimelist_id) }
-          : {}),
+        ...(myanimelistId !== null ? { myanimelist: String(myanimelistId) } : {}),
       },
       ...(airedOn ? { startDate: airedOn, year: Number(airedOn.slice(0, 4)) } : {}),
       ...(mapFormat(animeData.kind) ? { format: mapFormat(animeData.kind)! } : {}),
