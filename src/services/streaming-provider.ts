@@ -69,6 +69,8 @@ export interface StreamingTitle {
   description?: string | null;
   year?: number | null;
   episodeCount?: number | null;
+  /** Source-native catalog rating, normalized to a 0–10 scale when available. */
+  rating?: number | null;
   /** Optional canonical identity candidate. Never auto-merge on title alone. */
   identity?: AnimeIdentity;
 }
