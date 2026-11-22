@@ -158,10 +158,15 @@ function validateBackup(backup: MigrationBackup): void {
   if (
     backup.format !== MIGRATION_BACKUP_FORMAT ||
     backup.formatVersion !== MIGRATION_BACKUP_FORMAT_VERSION ||
+    !backup.id ||
     !backup.sourceDatabaseName ||
     !Number.isInteger(backup.sourceVersion) ||
+    backup.sourceVersion < 1 ||
     !Number.isInteger(backup.targetVersion) ||
+    backup.targetVersion <= backup.sourceVersion ||
+    !Number.isFinite(Date.parse(backup.createdAt)) ||
     !Array.isArray(backup.stores) ||
+    !backup.integrity ||
     backup.integrity.storeCount !== backup.stores.length
   ) {
     throw new Error("Резервная копия миграции имеет неверный формат.");
@@ -236,6 +241,9 @@ export async function restoreMigrationBackup(
   const backup = candidates.find((item) => item.id === backupId);
   if (!backup) throw new Error("Выбранная автоматическая резервная копия не найдена.");
   validateBackup(backup);
+  if (backup.sourceDatabaseName !== databaseName) {
+    throw new Error("Резервная копия относится к другой локальной библиотеке. Восстановление отменено.");
+  }
 
   const initial = await openExistingDatabase(databaseName);
   if (!initial) throw new Error("Основная локальная база не найдена.");
@@ -257,16 +265,37 @@ export async function restoreMigrationBackup(
     }
 
     const currentStoreNames = new Set(Array.from(database.objectStoreNames));
+    const backupStoresByName = new Map(backup.stores.map((store) => [store.name, store]));
     for (const store of backup.stores) {
       if (!currentStoreNames.has(store.name)) {
         throw new Error(`Хранилище ${store.name} отсутствует в текущей версии приложения. Данные не изменены.`);
       }
       const currentStore = database.transaction(store.name, "readonly").objectStore(store.name);
+      const currentIndexes = Array.from(currentStore.indexNames).map((indexName) => {
+        const index = currentStore.index(indexName);
+        return {
+          name: index.name,
+          keyPath: index.keyPath,
+          unique: index.unique,
+          multiEntry: index.multiEntry,
+        };
+      }).sort((a, b) => a.name.localeCompare(b.name));
+      const backupIndexes = [...store.indexes].sort((a, b) => a.name.localeCompare(b.name));
       if (
         JSON.stringify(currentStore.keyPath) !== JSON.stringify(store.keyPath) ||
-        currentStore.autoIncrement !== store.autoIncrement
+        currentStore.autoIncrement !== store.autoIncrement ||
+        JSON.stringify(currentIndexes) !== JSON.stringify(backupIndexes)
       ) {
         throw new Error(`Структура хранилища ${store.name} изменилась. Автоматическое восстановление небезопасно, данные не изменены.`);
+      }
+    }
+
+    // A v7 backup can be restored into v8 while preserving the v8-only
+    // schema metadata. Unknown stores introduced by later migrations are
+    // rejected rather than silently retaining potentially dangling data.
+    for (const currentStoreName of currentStoreNames) {
+      if (!backupStoresByName.has(currentStoreName) && currentStoreName !== "appMetadata") {
+        throw new Error(`Резервная копия не содержит новое хранилище ${currentStoreName}. Восстановление в эту версию небезопасно.`);
       }
     }
 
@@ -296,10 +325,12 @@ export async function restoreMigrationBackup(
       });
     }
 
-    if (sessions && interruptedSessionIds.size > 0) {
+    if (sessions) {
       const operationRecords = operations?.records ?? [];
       sessions.records = sessions.records.map((session) => {
-        if (typeof session.sessionId !== "string" || !interruptedSessionIds.has(session.sessionId)) return session;
+        const interrupted = session.status === "running" ||
+          (typeof session.sessionId === "string" && interruptedSessionIds.has(session.sessionId));
+        if (!interrupted || typeof session.sessionId !== "string") return session;
         const sessionOperations = operationRecords.filter((operation) => operation.sessionId === session.sessionId);
         return {
           ...session,
