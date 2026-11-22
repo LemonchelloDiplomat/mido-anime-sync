@@ -33,6 +33,7 @@ import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidi
 import { detectRemoteDeletions } from "./core/safe-deletions.js";
 import { executeRemoteDeletions, resolvePendingRemoteDeletionIntents } from "./core/remote-deletion.js";
 import { reconcileUnfinishedSyncOperations } from "./core/sync-recovery.js";
+import { mergeSharedMetadataIntoProviderMetadata } from "./core/shared-entry-metadata.js";
 import { reconcileInterruptedSyncSessions } from "./core/sync-session-recovery.js";
 import { findExactIdentityDuplicatePairs } from "./core/identity-reconciliation.js";
 import { getProviderLabel, getProviderServiceId } from "./core/provider-capabilities.js";
@@ -1329,10 +1330,11 @@ function App() {
           ? remoteSnapshot.entries.find((entry) => entry.animeId === existingRemoteAnime.id)
           : undefined;
         const entryForJournal = structuredClone(change.entry);
-        delete entryForJournal.sourceMetadata;
-        if (existingRemoteEntry?.sourceMetadata) {
-          entryForJournal.sourceMetadata = structuredClone(existingRemoteEntry.sourceMetadata);
-        }
+        entryForJournal.sourceMetadata = mergeSharedMetadataIntoProviderMetadata(
+          provider,
+          change.entry.sharedMetadata,
+          existingRemoteEntry?.sourceMetadata ?? {},
+        );
         return {
           id: `${sessionId}-remote-${index}`,
           sessionId,
@@ -1424,7 +1426,11 @@ function App() {
             progress: change.entry.progress,
             score: change.entry.score,
             ...(provider === "anilist" ? { favorite: change.entry.favorite } : {}),
-            ...(existingRemoteEntry?.sourceMetadata ? { sourceMetadata: existingRemoteEntry.sourceMetadata } : {}),
+            sourceMetadata: mergeSharedMetadataIntoProviderMetadata(
+              provider,
+              change.entry.sharedMetadata,
+              existingRemoteEntry?.sourceMetadata ?? {},
+            ),
             ...(shikimoriRateId !== undefined ? { entryId: shikimoriRateId } : {}),
           });
         } catch (err) {
