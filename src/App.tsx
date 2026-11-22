@@ -839,6 +839,56 @@ function App() {
     }
   }
 
+  async function handleRestoreAutomaticBackup() {
+    if (!repository || restoring || restoreInProgressRef.current) return;
+    if (syncInProgressRef.current || accountSyncing || metadataEnriching || importing || saving || addingCatalogId) {
+      setError("Перед восстановлением дождись завершения синхронизации и других операций с библиотекой.");
+      return;
+    }
+
+    try {
+      const backups = await repository.getMigrationBackups();
+      const latest = backups[0];
+      if (!latest) {
+        setError("Автоматических резервных копий миграций пока нет. Они создаются перед обновлением схемы локальной базы.");
+        return;
+      }
+
+      const confirmed = window.confirm(
+        "Восстановить автоматическую резервную копию?\n\n" +
+        "Создана: " + new Date(latest.createdAt).toLocaleString() +
+        "\nВерсия базы: v" + latest.sourceVersion + " → v" + latest.targetVersion +
+        "\nХранилищ: " + latest.integrity.storeCount +
+        "\nЗаписей: " + latest.integrity.totalRecordCount +
+        "\n\nТекущая библиотека будет заменена данными копии. Перед восстановлением приложение создаст ещё одну защитную копию текущего состояния. Незавершённые операции синхронизации будут отменены, автоматическая отправка изменений не выполняется. Продолжить?"
+      );
+      if (!confirmed) return;
+
+      restoreInProgressRef.current = true;
+      setRestoring(true);
+      setError("");
+
+      const result = await repository.restoreMigrationBackup(latest.id);
+      await refreshLibrary();
+      const [operations, sessions] = await Promise.all([
+        repository.getSyncOperations(),
+        repository.getSyncSessions(),
+      ]);
+      setHistoryOperations(operations);
+      setHistorySessionRecords(sessions);
+      window.alert(
+        "Автоматическая резервная копия восстановлена.\n" +
+        "Восстановлено записей: " + result.restoredRecordCount +
+        "\nПеред восстановлением сохранена защитная копия текущего состояния."
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось восстановить автоматическую резервную копию.");
+    } finally {
+      restoreInProgressRef.current = false;
+      setRestoring(false);
+    }
+  }
+
   async function handleReconcileIdentityDuplicates() {
     if (!repository || reconcilingDuplicates) return;
     const activeRepository = repository;
@@ -2552,6 +2602,14 @@ function App() {
               disabled={loading || !repository || importing || restoring || accountSyncing !== null || metadataEnriching || saving || addingCatalogId !== null}
             >
               ↻ Восстановить резервную копию
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => void handleRestoreAutomaticBackup()}
+              disabled={loading || !repository || importing || restoring || accountSyncing !== null || metadataEnriching || saving || addingCatalogId !== null}
+            >
+              ↶ Восстановить автоматическую копию
             </button>
             <input
               ref={restoreFileInputRef}
