@@ -76,16 +76,16 @@ describe("import preview", () => {
   it("matches all six MAL, AniList and Shikimori import orders through accumulated exact IDs", () => {
     const providers = {
       mal: createAnime({
-        id: "mal:32998",
-        externalIds: { myanimelist: "32998" },
+        id: "mal:1001",
+        externalIds: { myanimelist: "1001" },
       }),
       anilist: createAnime({
         id: "anilist:9876",
-        externalIds: { anilist: "9876", myanimelist: "32998" },
+        externalIds: { anilist: "9876", myanimelist: "1001" },
       }),
       shikimori: createAnime({
         id: "shikimori:32998",
-        externalIds: { shikimori: "32998", myanimelist: "32998" },
+        externalIds: { shikimori: "32998", myanimelist: "1001" },
       }),
     };
     const orders = [
@@ -117,7 +117,7 @@ describe("import preview", () => {
       }
 
       expect(merged.externalIds).toEqual({
-        myanimelist: "32998",
+        myanimelist: "1001",
         anilist: "9876",
         shikimori: "32998",
       });
