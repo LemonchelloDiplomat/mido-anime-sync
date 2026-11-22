@@ -2855,7 +2855,7 @@ function App() {
                             <option
                               key={suggestion.anime.id}
                               value={suggestion.anime.id}
-                              disabled={Object.entries(importManualMappings).some(([otherId, targetId]) => otherId !== importedId && targetId === suggestion.anime.id)}
+                              disabled={Object.entries(importManualMappings).some(([otherId, targetId]) => otherId !== importedId && targetId === suggestion.anime.id) || importAnalysis.items.some((item) => item.imported.id !== importedId && item.matchedAnime?.id === suggestion.anime.id)}
                             >
                               {suggestion.anime.titles.english ?? suggestion.anime.titles.romaji ?? suggestion.anime.id}
                               {" · совпадение "}{Math.round(suggestion.score * 100)}%
