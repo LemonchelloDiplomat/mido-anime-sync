@@ -1773,69 +1773,13 @@ export class BrowserAnimeRepository {
    * Полностью восстанавливает библиотеку из резервной копии.
    * В отличие от mergeSnapshot, заменяет существующие данные.
    */
+  /**
+   * Полностью заменяет библиотеку из резервной копии.
+   * Использует тот же атомарный restore-путь, чтобы незавершённые
+   * операции и сессии не оставались привязанными к удалённым anime ID.
+   */
   async importSnapshot(value: unknown): Promise<void> {
-    const snapshot = validateSnapshot(value);
-
-    const conflictResolutions = mergeConflictResolutions(
-      snapshot.sourceEntries,
-      snapshot.conflictResolutions,
-    );
-
-    const entries = buildMergedEntries(
-      snapshot.sourceEntries,
-      conflictResolutions,
-    );
-
-    assertRelationsReferenceExistingAnime(
-      snapshot.animeRelations,
-      new Set(snapshot.anime.map((anime) => anime.id)),
-    );
-
-    const transaction = this.db.transaction(
-      [
-        "anime",
-        "entries",
-        "sourceEntries",
-        "conflictResolutions",
-        "animeRelations",
-        "deletionIntents",
-      ],
-      "readwrite",
-    );
-
-    const animeStore = transaction.objectStore("anime");
-    const entriesStore = transaction.objectStore("entries");
-    const sourceEntriesStore = transaction.objectStore("sourceEntries");
-    const resolutionStore = transaction.objectStore("conflictResolutions");
-    const relationStore = transaction.objectStore("animeRelations");
-    const deletionIntentsStore = transaction.objectStore("deletionIntents");
-
-    const requests = [
-      animeStore.clear(),
-      entriesStore.clear(),
-      sourceEntriesStore.clear(),
-      resolutionStore.clear(),
-      relationStore.clear(),
-      deletionIntentsStore.clear(),
-
-      ...snapshot.anime.map((item) => animeStore.put(structuredClone(item))),
-      ...entries.map((item) => entriesStore.put(structuredClone(item))),
-      ...snapshot.sourceEntries.map((item) =>
-        sourceEntriesStore.put(structuredClone(item)),
-      ),
-      ...conflictResolutions.map((item) =>
-        resolutionStore.put(structuredClone(item)),
-      ),
-      ...snapshot.animeRelations.map((item) =>
-        relationStore.put(structuredClone(item)),
-      ),
-      ...(snapshot.deletionIntents ?? []).map((item) =>
-        deletionIntentsStore.put(structuredClone(item)),
-      ),
-    ];
-
-    await Promise.all(requests);
-    await transaction.done;
+    await this.restoreSnapshot(value);
   }
 
   /**
