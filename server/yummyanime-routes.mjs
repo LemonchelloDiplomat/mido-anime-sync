@@ -194,12 +194,62 @@ export async function handleYummyAnimeRequest(request, response, url, deps) {
       const authApi = await authorizedApi();
       const profile = unwrap(await authApi("/profile"));
       const userId = requireId(profile?.id || profile?.user_id || tokens.yummyanime?.userId, "пользователя");
-      const definitionsPayload = unwrap(await authApi("/users/" + userId + "/lists"));
-      const definitions = extractListRows(definitionsPayload);
-      if (!definitions) throw new Error("YummyAnime вернул списки в неожиданном формате (ожидался массив или data/items/list).");
+      // The documented endpoint returns the user's anime rows directly. Each row
+      // carries its personal list status under user.list.list.
+      const payload = unwrap(await authApi("/users/" + userId + "/lists"));
+      const sourceRows = extractListRows(payload);
+      if (!sourceRows) throw new Error("YummyAnime вернул список пользователя в неожиданном формате.");
+      const isAnimeRow = (row) => row && typeof row === "object" &&
+        (row.anime_id !== undefined || row.anime_url) && typeof row.title === "string";
+      const animeRows = sourceRows.filter(isAnimeRow);
+      if (animeRows.length) {
+        const statusLists = new Map();
+        const entries = animeRows.map((row) => {
+          const user = row.user && typeof row.user === "object" ? row.user : {};
+          const userList = user.list && typeof user.list === "object" ? user.list : {};
+          const status = userList.list && typeof userList.list === "object" ? userList.list : {};
+          const listId = status.id;
+          const listName = String(status.title || "");
+          if (listId !== undefined && listId !== null && listName) {
+            const key = String(listId);
+            const current = statusLists.get(key) || { id: listId, name: listName, title: listName, href: status.href || "" };
+            current.rowCount = (current.rowCount || 0) + 1;
+            statusLists.set(key, current);
+          }
+          return {
+            ...row,
+            list_id: listId ?? null,
+            list_name: listName,
+            favorite: typeof userList.is_fav === "boolean" ? userList.is_fav : undefined,
+            score: row.score ?? user.rating ?? null,
+          };
+        });
+        const lists = [...statusLists.values()];
+        const diagnosticsLists = lists.map((list) => ({
+          listId: Number.isSafeInteger(Number(list.id)) ? Number(list.id) : null,
+          label: list.name,
+          rowCount: list.rowCount,
+        }));
+        return sendJson(response, 200, {
+          profile, lists, entries, count: entries.length,
+          diagnostics: {
+            definitionsCount: lists.length,
+            fetchedRows: entries.length,
+            lists: diagnosticsLists,
+            definitionsKeys: objectKeys(sourceRows[0]),
+            definitionsPayloadKeys: objectKeys(payload),
+            firstUserKeys: objectKeys(sourceRows[0]?.user),
+            firstUserListKeys: objectKeys(sourceRows[0]?.user?.list),
+            firstStatusKeys: objectKeys(sourceRows[0]?.user?.list?.list),
+          },
+        });
+      }
+
+      // Compatibility fallback for API variants that expose list definitions
+      // and require a second request for each numeric list ID.
       const rows = [];
       const diagnostics = [];
-      for (const definition of definitions) {
+      for (const definition of sourceRows) {
         const rawId = definition?.id ?? definition?.list_id ?? definition?.listId;
         const listId = Number(rawId);
         if (!Number.isSafeInteger(listId) || listId < 0) {
@@ -213,11 +263,7 @@ export async function handleYummyAnimeRequest(request, response, url, deps) {
           continue;
         }
         const listName = String(definition?.name || definition?.title || definition?.label || definition?.status_name || definition?.slug || "");
-        diagnostics.push({
-          listId, label: listName, rowCount: pageRows.length,
-          firstRowKeys: objectKeys(pageRows[0]), firstAnimeKeys: objectKeys(pageRows[0]?.anime),
-          firstUserKeys: objectKeys(pageRows[0]?.user), firstListKeys: objectKeys(pageRows[0]?.list),
-        });
+        diagnostics.push({ listId, label: listName, rowCount: pageRows.length, firstRowKeys: objectKeys(pageRows[0]) });
         rows.push(...pageRows.map((row) => ({
           ...row,
           anime_id: row?.anime_id ?? row?.animeId ?? row?.anime?.anime_id ?? row?.anime?.id,
@@ -226,9 +272,9 @@ export async function handleYummyAnimeRequest(request, response, url, deps) {
         })));
       }
       return sendJson(response, 200, {
-        profile, lists: definitions, entries: rows, count: rows.length,
-        diagnostics: { definitionsCount: definitions.length, fetchedRows: rows.length, lists: diagnostics,
-          definitionsKeys: objectKeys(definitions[0]), definitionsPayloadKeys: objectKeys(definitionsPayload) },
+        profile, lists: sourceRows, entries: rows, count: rows.length,
+        diagnostics: { definitionsCount: sourceRows.length, fetchedRows: rows.length, lists: diagnostics,
+          definitionsKeys: objectKeys(sourceRows[0]), definitionsPayloadKeys: objectKeys(payload) },
       });
     } catch (error) { return sendJson(response, error.status || 502, { error: error.message }); }
   }
