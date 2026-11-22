@@ -110,7 +110,14 @@ export function normalizeYummyLists(payload:YummyRawLists):Array<{anime:AnimeIde
   const episodeInfo=objectValue(nested.episodes);
   const year=numberValue(nested.year,row.year);
   const episodes=numberValue(episodeInfo.count,nested.episode_count,nested.episodes,row.episode_count,row.episodes);
-  const rawProgress=numberValue(row.progress,row.episodes_watched,row.watched_episodes,userList.progress,userList.watched_episodes,nested.progress);
+  const nestedUser=objectValue(nested.user);
+  const rawProgress=numberValue(
+   row.progress,row.episodes_watched,row.watched_episodes,row.watchedEpisodes,
+   user.progress,user.episodes_watched,user.watched_episodes,
+   userList.progress,userList.episodes_watched,userList.watched_episodes,
+   nestedList.progress,nestedList.episodes_watched,nestedList.watched_episodes,
+   nestedUser.progress,nestedUser.episodes_watched,nested.progress,
+  );
   const progress=Math.max(0,rawProgress??0);
   const rawScore=numberValue(row.score,row.rating,user.rating,user.rate,nested.user&&objectValue(nested.user).rating);
   const score=rawScore===null?null:Math.max(0,Math.min(100,rawScore<=10?rawScore*10:rawScore));
