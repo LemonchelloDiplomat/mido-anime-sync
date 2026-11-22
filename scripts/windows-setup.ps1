@@ -1,4 +1,5 @@
 ﻿$ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "windows-node.ps1")
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
@@ -12,13 +13,15 @@ function Show-Message([string]$Message, [string]$Title = "mido-anime-sync") {
 }
 
 try {
-  $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
-  if (-not $nodeCommand) { throw "Node.js 22 или новее не найден. Установи Node.js LTS и повтори настройку." }
-  $nodeMajor = [int]((& node -p "Number(process.versions.node.split('.')[0])").Trim())
+  $nodePath = Initialize-MidoNodeEnvironment
+  $nodeMajor = Get-MidoNodeMajorVersion $nodePath
   if ($nodeMajor -lt 22) { throw "Нужен Node.js 22 или новее. Сейчас установлен Node.js $nodeMajor." }
 
+  $npmCommand = Get-Command npm -ErrorAction SilentlyContinue
+  if (-not $npmCommand) { throw "npm не найден после активации Node.js через FNM." }
+
   Write-Host "Установка зависимостей mido-anime-sync..."
-  & npm install
+  & $npmCommand.Source install
   if ($LASTEXITCODE -ne 0) { throw "npm install завершился с ошибкой. Проверь подключение к интернету и повтори Setup." }
 
   $envFile = Join-Path $Root ".env.local"
