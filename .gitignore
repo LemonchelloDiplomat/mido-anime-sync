@@ -5,3 +5,11 @@ build/
 .env.local
 .local-data/
 .DS_Store
+
+# Native build outputs
+src-tauri/target/
+src-tauri/gen/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties

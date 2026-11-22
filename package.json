@@ -13,7 +13,12 @@
     "dev:api": "node server/index.mjs",
     "build": "tsc --noEmit && vite build",
     "start": "node server/index.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "setup:platforms": "node scripts/setup-platforms.mjs",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "cap:sync": "npm run build && cap sync android",
+    "cap:open:android": "cap open android"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

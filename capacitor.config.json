@@ -1,0 +1,10 @@
+{
+  "appId": "com.mido.animesync",
+  "appName": "Mido Anime Sync",
+  "webDir": "dist",
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}
