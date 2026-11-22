@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { enrichShikimoriAnimeRates } from "../server/shikimori-enrichment.mjs";
 
-function rate(id, overrides = {}) {
+function rate(id: number, overrides: Record<string, unknown> = {}) {
   return {
     id: id + 1000,
     status: "completed",
@@ -14,7 +14,7 @@ describe("Shikimori anime_rates enrichment", () => {
   it("adds MAL IDs from full anime details without mutating the original rates", async () => {
     const input = [rate(10), rate(20, { myanimelist_id: 200 })];
     const before = structuredClone(input);
-    const fetchBatch = vi.fn(async (ids) => ids.map((id) => ({
+    const fetchBatch = vi.fn(async (ids: number[]) => ids.map((id) => ({
       id,
       myanimelist_id: id * 10,
     })));
@@ -30,7 +30,7 @@ describe("Shikimori anime_rates enrichment", () => {
   it("fetches unique anime IDs in batches of at most 50", async () => {
     const input = Array.from({ length: 103 }, (_, index) => rate(index + 1));
     input.push(rate(1), rate(2));
-    const fetchBatch = vi.fn(async (ids) => ids.map((id) => ({
+    const fetchBatch = vi.fn(async (ids: number[]) => ids.map((id) => ({
       id,
       myanimelist_id: id + 10000,
     })));
