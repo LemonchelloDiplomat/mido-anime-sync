@@ -244,3 +244,40 @@ it("keeps older valid backups available when the newest copy is damaged", async 
   expect(available.map((backup) => backup.id)).toContain(first!.id);
   expect(available.map((backup) => backup.id)).not.toContain(second!.id);
 });
+
+
+it("keeps the source database and its backup when a schema upgrade aborts", async () => {
+  const name = `migration-backup-aborted-upgrade-${Date.now()}-${Math.random()}`;
+  const backupName = getMigrationBackupDatabaseName(name);
+  databaseNames.push(name, backupName);
+
+  const legacy = await openDB(name, 7, {
+    upgrade(database) {
+      database.createObjectStore("anime", { keyPath: "id" });
+    },
+  });
+  await legacy.put("anime", { id: "anime-1", title: "Must survive" });
+  legacy.close();
+
+  const backup = await createMigrationBackupIfNeeded(name, 8);
+  expect(backup).not.toBeNull();
+
+  await expect(openDB(name, 8, {
+    upgrade(database) {
+      database.createObjectStore("partialMigration", { keyPath: "id" });
+      throw new Error("Simulated migration failure");
+    },
+  })).rejects.toThrow("Simulated migration failure");
+
+  const stillLegacy = await openDB(name, 7);
+  expect(stillLegacy.version).toBe(7);
+  expect(await stillLegacy.get("anime", "anime-1")).toEqual({
+    id: "anime-1",
+    title: "Must survive",
+  });
+  expect(stillLegacy.objectStoreNames.contains("partialMigration")).toBe(false);
+  stillLegacy.close();
+
+  const available = await listMigrationBackups(name);
+  expect(available.map((item) => item.id)).toContain(backup!.id);
+});
