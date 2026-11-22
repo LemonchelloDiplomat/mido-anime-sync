@@ -21,7 +21,7 @@ const CAPABILITIES: Record<StreamingProviderId, StreamingTrackerCapabilities> = 
   },
   animego: {
     accountConnection:false,listImport:false,listStatusWrite:false,progressWrite:false,scoreWrite:false,favoriteWrite:false,
-    reason:"Не подтверждены login flow, CSRF/cookie contract и AJAX-маршруты пользовательских списков.",
+    reason:"Импорт доступен через расширение на открытой странице профиля, по одному статусу за раз. Пароль не запрашивается. Запись в AnimeGO пока не реализована.",
   },
   anixart: {
     accountConnection:false,listImport:false,listStatusWrite:false,progressWrite:false,scoreWrite:false,favoriteWrite:false,
