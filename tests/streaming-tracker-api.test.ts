@@ -12,6 +12,30 @@ describe("YummyAnime tracker normalization",()=>{
   expect(result[0]?.anime).toMatchObject({id:"yummyanime:77",titles:{romaji:"Nested title"},year:2025,posterUrl:"https://img.example/poster.jpg"});
   expect(result[0]?.entry).toMatchObject({status:"WATCHING",progress:6,score:80,favorite:true});
  });
+ it("maps full YummyAnime card metadata including nested poster, type, genres, rating and episode count",()=>{
+  const result=normalizeYummyLists({profile:{},lists:[],entries:[{
+   anime_id:31,title:"Card title",list_id:0,
+   anime:{
+    anime_id:31,title:"Card title",year:2024,
+    poster:{huge:"//img.example/card.webp"},
+    type:{name:"ТВ",shortname:"tv"},
+    min_age:{value:5,title:"R+"},
+    anime_status:{alias:"ongoing",title:"Онгоинг"},
+    rating:{average:8.4},
+    genres:[{title:"Фэнтези"},{title:"Приключения"}],
+    episodes:{aired:8,count:12},
+    original:"Original title",other_titles:["Alt title"],
+   },
+   user:{rating:9,list:{list:{id:0,title:"Смотрю"},is_fav:false}},
+  }],count:1});
+  expect(result).toHaveLength(1);
+  expect(result[0]?.anime).toMatchObject({
+   posterUrl:"https://img.example/card.webp",format:"TV",ageRating:"R+",
+   releaseStatus:"ONGOING",averageScore:8.4,genres:["Фэнтези","Приключения"],
+   episodes:12,year:2024,titles:{synonyms:["Original title","Alt title"]},
+  });
+  expect(result[0]?.entry.score).toBe(90);
+ });
  it("does not guess statuses from numeric IDs when list labels are unknown",()=>{
   const result=normalizeYummyLists({profile:{},lists:[{id:3,name:"Custom shelf"}],entries:[
    {anime_id:21,list_id:3,title:"Custom list entry"},
