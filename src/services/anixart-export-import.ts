@@ -18,13 +18,13 @@ function detectDelimiter(line: string): string {
   const counts = new Map([[",", 0], [";", 0], ["\t", 0]]);
   let quoted = false;
   for (let i = 0; i < line.length; i += 1) {
-    const char = line[i];
+    const char = line[i] ?? "";
     if (char === '"') {
       if (quoted && line[i + 1] === '"') i += 1;
       else quoted = !quoted;
     } else if (!quoted && counts.has(char)) counts.set(char, counts.get(char)! + 1);
   }
-  return [...counts].sort((a, b) => b[1] - a[1])[0]![0];
+  return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? ",";
 }
 
 function parseCsv(text: string): string[][] {
