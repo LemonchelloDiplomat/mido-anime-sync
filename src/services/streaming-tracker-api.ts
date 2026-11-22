@@ -24,7 +24,7 @@ const STATUS_ALIASES:Array<[RegExp,AnimeStatus]>=[
 const textValue=(...values:unknown[])=>{const value=values.find(v=>typeof v==="string"&&v.trim());return typeof value==="string"?value.trim():"";};
 const numberValue=(...values:unknown[])=>{for(const value of values){const n=Number(value);if(value!==null&&value!==undefined&&value!==""&&Number.isFinite(n))return n;}return null;};
 const objectValue=(value:unknown):Record<string,unknown>=>value&&typeof value==="object"&&!Array.isArray(value)?value as Record<string,unknown>:{};
-function statusFor(list:Record<string,unknown>,row:Record<string,unknown>,userList:Record<string,unknown>):AnimeStatus|null{
+function statusFor(list:Record<string,unknown>,row:Record<string,unknown>,userList:Record<string,unknown>,listId:string):AnimeStatus|null{
  const rowStatus=objectValue(row.status);
  const listValue=objectValue(row.list);
  const label=textValue(
@@ -35,7 +35,9 @@ function statusFor(list:Record<string,unknown>,row:Record<string,unknown>,userLi
   userList.list_name,
  );
  for(const [pattern,status] of STATUS_ALIASES) if(pattern.test(label)) return status;
- return null;
+ // YummyAnime system list IDs are stable in its account API. Custom/favorites lists stay unmapped.
+ const systemStatus:Record<string,AnimeStatus>={"0":"WATCHING","1":"PLANNING","2":"COMPLETED","3":"DROPPED","5":"ON_HOLD"};
+ return systemStatus[listId]||null;
 }
 /** Normalizes both the API's nested account rows and the local server's flattened list_id rows. */
 export function normalizeYummyLists(payload:YummyRawLists):Array<{anime:AnimeIdentity;entry:AnimeListEntry}>{
@@ -51,7 +53,7 @@ export function normalizeYummyLists(payload:YummyRawLists):Array<{anime:AnimeIde
   const id=String(row.anime_id??row.animeId??nested.anime_id??nested.id??row.id??"").trim();
   const title=textValue(nested.title,nested.name,nested.anime_title,row.title,row.name,row.anime_title);
   const listId=String(row.list_id??row.listId??listValue.id??nested.list_id??nestedList.id??"");
-  const status=statusFor(definitions.get(listId)||{},row,userList);
+  const status=statusFor(definitions.get(listId)||{},row,userList,listId);
   if(!/^\d+$/.test(id)||!title||!status)continue;
   const year=numberValue(nested.year,row.year);
   const episodes=numberValue(nested.episodes,nested.episode_count,row.episodes,row.episode_count);
