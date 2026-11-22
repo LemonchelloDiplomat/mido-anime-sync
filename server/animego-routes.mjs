@@ -187,10 +187,9 @@ function ratingFromCard(card) {
     .map((tag) => {
       const name = tag.match(/^<([a-z][\w:-]*)/i)?.[1];
       if (!name) return "";
-      const closing = new RegExp("<\/" + name + "\s*>", "i");
       const start = source.indexOf(tag);
-      const tail = source.slice(start + tag.length);
-      return tail.slice(0, tail.search(closing) < 0 ? 0 : tail.search(closing));
+      const closeIndex = source.toLowerCase().indexOf("</" + name.toLowerCase() + ">", start + tag.length);
+      return closeIndex < 0 ? "" : source.slice(start + tag.length, closeIndex);
     }).join(" ");
   const textMatch = stripTags(ratingText).replace(",", ".").match(/(?:^|[^\d])(10(?:\.0+)?|[0-9](?:\.[0-9]+)?)(?:\s*(?:\/\s*10|из\s*10))?/i);
   if (textMatch) candidates.push(Number(textMatch[1]));
