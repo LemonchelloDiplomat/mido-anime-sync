@@ -41,6 +41,10 @@ export class StreamingAccountManager {
     this.adapters.set(adapter.provider, adapter);
   }
 
+  hasAdapter(provider: StreamingProviderId): boolean {
+    return this.adapters.has(provider);
+  }
+
   getStatus(provider: StreamingProviderId): StreamingAccountStatus {
     return { ...(this.states.get(provider) ?? disconnectedStatus(provider)) };
   }
