@@ -17,6 +17,6 @@ export { streamingRuntime };
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <App streamingRuntime={streamingRuntime} />
   </React.StrictMode>,
 );
