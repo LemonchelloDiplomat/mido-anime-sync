@@ -257,6 +257,45 @@ describe("Shikimori sync recovery", () => {
     expect(update).toHaveBeenCalledWith(updateOperation.id, expect.objectContaining({ status: "failed" }));
   });
 
+  it("recovers an AniList update after explicit date clearing", async () => {
+    const remoteAnime: AnimeIdentity = {
+      id: "anilist:200",
+      titles: { english: "Example anime", synonyms: [] },
+      externalIds: { anilist: "200" },
+    };
+    const expected: AnimeListEntry = {
+      ...entry(remoteAnime.id, "anilist"),
+      sharedMetadata: { rewatchCount: 0, startedAt: null, completedAt: null },
+      sourceMetadata: { repeat: 0, notes: "", startedAt: null, completedAt: null },
+    };
+    const updateOperation = operation({
+      id: "sync-anilist-cleared-dates",
+      sessionId: "sync-anilist-cleared-dates",
+      provider: "anilist",
+      kind: "update",
+      externalId: "200",
+      entry: expected,
+    });
+    const update = vi.fn(async () => undefined);
+    const result = await reconcileUnfinishedSyncOperations(
+      [updateOperation],
+      "anilist",
+      {
+        schemaVersion: 4,
+        exportedAt: "2026-11-17T10:00:00.000Z",
+        anime: [remoteAnime],
+        entries: [expected],
+        sourceEntries: [expected],
+        conflictResolutions: [],
+        animeRelations: [],
+      },
+      { getSourceEntries: vi.fn(async () => []), updateSyncOperation: update },
+    );
+
+    expect(result.recoveredOperations).toBe(1);
+    expect(update).toHaveBeenCalledWith(updateOperation.id, { status: "succeeded" });
+  });
+
   it("compares scores at Shikimori's ten-point precision", async () => {
     const remoteAnime: AnimeIdentity = {
       id: "shikimori:41",
