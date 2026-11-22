@@ -45,8 +45,8 @@ describe("Anixart official bookmark export import", () => {
 
   it("keeps same-named rows distinct when original titles differ", () => {
     const result = parseAnixartBookmarkExport(
-      "Название;Оригинальное название;Статус просмотра\\n" +
-      "Одинаковое название;Original A;Смотрю\\n" +
+      "Название;Оригинальное название;Статус просмотра\n" +
+      "Одинаковое название;Original A;Смотрю\n" +
       "Одинаковое название;Original B;Просмотрено",
       "anixart.csv",
     );
@@ -56,7 +56,7 @@ describe("Anixart official bookmark export import", () => {
 
   it("marks blank optional fields unknown so previous source values can be preserved", () => {
     const result = parseAnixartBookmarkExport(
-      "Название;Статус просмотра;Моя оценка;Избранное\\n" +
+      "Название;Статус просмотра;Моя оценка;Избранное\n" +
       "Тайтл;Смотрю;;",
       "anixart.csv",
     );
