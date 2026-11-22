@@ -123,7 +123,7 @@ export function StreamingTrackerPanel({ items, onImport }: {
         <p>{status?.connected?"Подключён аккаунт: "+(status.username||"пользователь"):"Авторизация через API YummyAnime."}{!status?.configured?" Добавь YUMMY_APPLICATION_TOKEN в .env.local.":""}</p>
       </div>
       <div className={"integration-state "+(status?.connected?"connected":"")}>
-        {status?.connected?"Подключён":status?.configured?"Не подключён":"Не настроен"}
+        {!status?"Проверка...":status.connected?"Подключён":status.configured?"Не подключён":"Не настроен"}
       </div>
       {status?.connected ? <div className="streaming-provider-actions">
         <button className="add-button" disabled={busy} onClick={()=>void importList()}>{busy?"Подождите...":"Импорт списка"}</button>
@@ -144,11 +144,6 @@ export function StreamingTrackerPanel({ items, onImport }: {
         </label>)}
       </div>
       <p className="integration-security-note">Отправляются статусы по выбранной карте и добавление в избранное для тайтлов с точным YummyAnime ID. Снятие избранного, прогресс и оценка пока не синхронизируются.</p>
-      {!status?.connected && <div className="streaming-tracker-login">
-        <input value={login} onChange={event=>setLogin(event.target.value)} placeholder="Логин YummyAnime" autoComplete="username"/>
-        <input value={password} onChange={event=>setPassword(event.target.value)} placeholder="Пароль" type="password" autoComplete="current-password"/>
-        <input value={captcha} onChange={event=>setCaptcha(event.target.value)} placeholder="Ответ hCaptcha, если запрошен" autoComplete="off"/>
-      </div>}
     </div>}
     {!status?.connected && <div className="streaming-provider-login">
       <input value={login} onChange={event=>setLogin(event.target.value)} placeholder="Логин YummyAnime" autoComplete="username"/>
