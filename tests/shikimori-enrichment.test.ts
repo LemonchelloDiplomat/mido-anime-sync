@@ -57,8 +57,8 @@ describe("Shikimori anime_rates enrichment", () => {
     await expect(enrichShikimoriAnimeRates(
       [rate(10), rate(20)],
       async () => [{ id: 10, myanimelist_id: 100 }],
-      async (id: number) => ({ id }),
-    )).rejects.toThrow("не вернул подробные данные для ID аниме: 20");
+      async () => ({ id: 999 }),
+    )).rejects.toThrow("не вернул подробные данные для ID аниме 20");
   });
 
   it("rejects malformed detail responses instead of returning an unsafe partial list", async () => {
