@@ -9,6 +9,7 @@ import type {
 interface ShikimoriAnime {
   id: number;
   name: string;
+  myanimelist_id?: number | null;
   russian?: string | null;
   kind?: string | null;
   episodes?: number | null;
@@ -127,7 +128,12 @@ export function parseShikimoriAccountList(
         romaji: animeData.name,
         synonyms: animeData.russian ? [animeData.russian] : [],
       },
-      externalIds: { shikimori: String(animeData.id) },
+      externalIds: {
+        shikimori: String(animeData.id),
+        ...(Number.isSafeInteger(animeData.myanimelist_id) && Number(animeData.myanimelist_id) > 0
+          ? { myanimelist: String(animeData.myanimelist_id) }
+          : {}),
+      },
       ...(airedOn ? { startDate: airedOn, year: Number(airedOn.slice(0, 4)) } : {}),
       ...(mapFormat(animeData.kind) ? { format: mapFormat(animeData.kind)! } : {}),
       episodes: typeof animeData.episodes === "number" && Number.isInteger(animeData.episodes)
