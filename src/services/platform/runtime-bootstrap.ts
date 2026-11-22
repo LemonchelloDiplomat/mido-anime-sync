@@ -91,8 +91,8 @@ async function loadCapacitorAndroidModules(): Promise<CapacitorAndroidModules> {
   const corePackage = "@capacitor/core";
   const secureStoragePackage = "@capnative/capacitor-secure-storage";
   const [core, secureStorage] = await Promise.all([
-    import(corePackage),
-    import(secureStoragePackage),
+    import("@capacitor/core"),
+    import("@capnative/capacitor-secure-storage"),
   ]);
 
   if (!core.CapacitorHttp || !secureStorage.SecureStorage) {
