@@ -66,6 +66,8 @@ function titleFrom(rawValue: unknown): StreamingTitle | null {
   const id = number(raw.anime_id ?? raw.id);
   const title = text(raw.title);
   const url = safeHttpUrl(raw.anime_url || raw.url || (text(raw.alias) ? "/catalog/item/" + text(raw.alias) : id ? "/catalog/item/" + id : ""));
+  const rawRating = number(record(raw.rating)?.average ?? raw.rating);
+  const rating = rawRating !== null && rawRating >= 0 && rawRating <= 10 ? rawRating : null;
   if (!id || !title || !url) return null;
   const alternatives = Array.isArray(raw.other_titles)
     ? raw.other_titles.map(text).filter(Boolean)
@@ -80,6 +82,7 @@ function titleFrom(rawValue: unknown): StreamingTitle | null {
     description: text(raw.description) || null,
     year: number(raw.year),
     episodeCount: number(record(raw.episodes)?.count),
+    ...(rating !== null ? { rating } : {}),
   };
 }
 
