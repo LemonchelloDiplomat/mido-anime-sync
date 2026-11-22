@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Безопасное клонирование IndexedDB</title>
+  <style>
+    body { max-width: 760px; margin: 40px auto; padding: 0 20px; font: 16px/1.5 system-ui, sans-serif; color: #202124; }
+    code { background: #f1f3f4; padding: 2px 5px; border-radius: 4px; }
+    button { padding: 10px 16px; cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .55; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f6f8fa; padding: 14px; border-radius: 8px; }
+    .warning { border-left: 4px solid #b45309; padding: 10px 14px; background: #fff7ed; }
+  </style>
+</head>
+<body>
+  <h1>Клонирование диагностической базы</h1>
+  <p>Инструмент создаёт отдельную базу <code>midahoshi-anime-sync-test-pr36</code> на этом же локальном origin. Исходная <code>midahoshi-anime-sync</code> не открывается для записи и никак не изменяется.</p>
+  <p class="warning"><strong>Защита:</strong> если целевая тестовая база уже существует, импорт будет остановлен. Инструмент не очищает и не перезаписывает существующие базы.</p>
+  <p>Выбери файл <code>mido-indexeddb-diagnostic.json</code>, который был получен диагностическим скриптом.</p>
+  <input id="file" type="file" accept="application/json,.json">
+  <p><button id="clone" disabled>Создать изолированную копию</button></p>
+  <pre id="status">Ожидаю JSON-файл.</pre>
+  <script type="module">
+    const SOURCE_NAME = "midahoshi-anime-sync";
+    const TARGET_NAME = "midahoshi-anime-sync-test-pr36";
+    const EXPECTED_STORES = {
+      anime: { keyPath: "id", indexes: {} },
+      entries: { keyPath: "animeId", indexes: {} },
+      sourceEntries: { keyPath: ["animeId", "source"], indexes: {} },
+      conflictResolutions: { keyPath: "animeId", indexes: {} },
+      animeRelations: { keyPath: "id", indexes: {} },
+      syncOperations: {
+        keyPath: "id",
+        indexes: {
+          "by-session": "sessionId",
+          "by-status": "status",
+          "by-provider": "provider",
+        },
+      },
+      syncSessions: {
+        keyPath: "sessionId",
+        indexes: {
+          "by-started-at": "startedAt",
+          "by-provider": "provider",
+          "by-status": "status",
+        },
+      },
+      deletionIntents: {
+        keyPath: "id",
+        indexes: {
+          "by-provider": "provider",
+          "by-created-at": "createdAt",
+        },
+      },
+    };
+
+    const fileInput = document.querySelector("#file");
+    const cloneButton = document.querySelector("#clone");
+    const status = document.querySelector("#status");
+    let selectedFile = null;
+
+    function report(message) {
+      status.textContent = message;
+    }
+
+    function sameKeyPath(actual, expected) {
+      return JSON.stringify(actual) === JSON.stringify(expected);
+    }
+
+    function validateDump(dump) {
+      if (
+        dump?.diagnosticFormat !== "mido-anime-sync-indexeddb-dump-v1" ||
+        dump.databaseName !== SOURCE_NAME ||
+        dump.databaseVersion !== 7 ||
+        !dump.stores ||
+        typeof dump.stores !== "object"
+      ) {
+        throw new Error("Формат файла или исходная база не соответствуют ожидаемому дампу v1 / IndexedDB v7.");
+      }
+
+      const actualNames = Object.keys(dump.stores).sort();
+      const expectedNames = Object.keys(EXPECTED_STORES).sort();
+      if (JSON.stringify(actualNames) !== JSON.stringify(expectedNames)) {
+        throw new Error("Набор object stores в JSON не совпадает с ожидаемой схемой v7.");
+      }
+
+      for (const [name, expected] of Object.entries(EXPECTED_STORES)) {
+        const store = dump.stores[name];
+        if (
+          !store ||
+          !sameKeyPath(store.keyPath, expected.keyPath) ||
+          !Array.isArray(store.records) ||
+          !Array.isArray(store.indexes)
+        ) {
+          throw new Error(`Некорректная структура object store: ${name}`);
+        }
+
+        const actualIndexNames = [...store.indexes].sort();
+        const expectedIndexNames = Object.keys(expected.indexes).sort();
+        if (JSON.stringify(actualIndexNames) !== JSON.stringify(expectedIndexNames)) {
+          throw new Error(`Набор индексов не совпадает для store: ${name}`);
+        }
+      }
+
+      return Object.fromEntries(
+        Object.entries(dump.stores).map(([name, store]) => [name, store.records.length]),
+      );
+    }
+
+    async function verifyOriginalIsPresent() {
+      if (typeof indexedDB.databases !== "function") {
+        throw new Error("Этот браузер не поддерживает безопасную проверку списка IndexedDB. Используй актуальный Chrome или Edge.");
+      }
+      const databases = await indexedDB.databases();
+      const sourceDatabase = databases.find((database) => database.name === SOURCE_NAME);
+      if (!sourceDatabase || sourceDatabase.version !== 7) {
+        throw new Error("Оригинальная база не найдена на текущем origin или её версия не равна 7. Открой инструмент через тот же адрес, что и приложение.");
+      }
+      if (databases.some((database) => database.name === TARGET_NAME)) {
+        throw new Error(`Целевая база ${TARGET_NAME} уже существует. Ничего не перезаписано.`);
+      }
+    }
+
+    function createTargetDatabase() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(TARGET_NAME, 7);
+        let createdInThisRequest = false;
+        request.onupgradeneeded = (event) => {
+          if (event.oldVersion !== 0) {
+            request.transaction?.abort();
+            return;
+          }
+          createdInThisRequest = true;
+          const database = request.result;
+          for (const [name, definition] of Object.entries(EXPECTED_STORES)) {
+            const store = database.createObjectStore(name, { keyPath: definition.keyPath });
+            for (const [indexName, keyPath] of Object.entries(definition.indexes)) {
+              store.createIndex(indexName, keyPath);
+            }
+          }
+        };
+        request.onsuccess = () => {
+          if (!createdInThisRequest) {
+            request.result.close();
+            reject(new Error("Целевая база появилась до создания копии. Существующая база не изменена."));
+            return;
+          }
+          resolve(request.result);
+        };
+        request.onerror = () => reject(request.error ?? new Error("Не удалось создать тестовую базу."));
+        request.onblocked = () => reject(new Error("Создание заблокировано другой вкладкой. Закрой вкладки приложения и повтори."));
+      });
+    }
+
+    function writeAndVerify(database, dump, expectedCounts) {
+      return new Promise((resolve, reject) => {
+        const storeNames = Object.keys(EXPECTED_STORES);
+        const transaction = database.transaction(storeNames, "readwrite");
+        for (const name of storeNames) {
+          const store = transaction.objectStore(name);
+          for (const record of dump.stores[name].records) {
+            store.add(record);
+          }
+        }
+        transaction.oncomplete = async () => {
+          try {
+            const verify = database.transaction(storeNames, "readonly");
+            const counts = await Promise.all(storeNames.map((name) =>
+              new Promise((resolveCount, rejectCount) => {
+                const request = verify.objectStore(name).count();
+                request.onsuccess = () => resolveCount([name, request.result]);
+                request.onerror = () => rejectCount(request.error);
+              }),
+            ));
+            const actualCounts = Object.fromEntries(counts);
+            const countsMatch = storeNames.every(
+              (name) => actualCounts[name] === expectedCounts[name],
+            );
+            if (!countsMatch) {
+              reject(new Error("Проверка количества записей после импорта не прошла."));
+              return;
+            }
+            resolve(actualCounts);
+          } catch (error) {
+            reject(error);
+          }
+        };
+        transaction.onerror = () => reject(transaction.error ?? new Error("Ошибка записи транзакции."));
+        transaction.onabort = () => reject(transaction.error ?? new Error("Транзакция импорта отменена."));
+      });
+    }
+
+    fileInput.addEventListener("change", () => {
+      selectedFile = fileInput.files?.[0] ?? null;
+      cloneButton.disabled = !selectedFile;
+      report(selectedFile ? `Выбран файл: ${selectedFile.name} (${selectedFile.size.toLocaleString()} байт). Нажми кнопку для проверки и клонирования.` : "Ожидаю JSON-файл.");
+    });
+
+    cloneButton.addEventListener("click", async () => {
+      cloneButton.disabled = true;
+      let createdDatabase = null;
+      try {
+        if (location.hostname !== "127.0.0.1" || location.port !== "5173") {
+          throw new Error("Инструмент разрешён только на http://127.0.0.1:5173.");
+        }
+        if (!selectedFile) throw new Error("Сначала выбери JSON-файл.");
+        report("Проверяю JSON и состояние IndexedDB…");
+        const dump = JSON.parse(await selectedFile.text());
+        const expectedCounts = validateDump(dump);
+        await verifyOriginalIsPresent();
+
+        const summary = Object.entries(expectedCounts)
+          .map(([name, count]) => `${name}: ${count}`)
+          .join("\n");
+        if (!confirm(`Будет создана новая база ${TARGET_NAME}.\n\nКоличество записей:\n${summary}\n\nОригинальная база не изменяется. Продолжить?`)) {
+          report("Отменено пользователем. Изменений нет.");
+          cloneButton.disabled = false;
+          return;
+        }
+
+        report("Создаю новую тестовую базу и копирую записи…");
+        createdDatabase = await createTargetDatabase();
+        const counts = await writeAndVerify(createdDatabase, dump, expectedCounts);
+        createdDatabase.close();
+        createdDatabase = null;
+        report(`Готово. Тестовая база создана и проверена:\n${JSON.stringify(counts, null, 2)}\n\nОригинальная база ${SOURCE_NAME} не изменялась.\nТеперь открой приложение с параметром ?database=${TARGET_NAME}.`);
+      } catch (error) {
+        if (createdDatabase) {
+          createdDatabase.close();
+          createdDatabase = null;
+          await new Promise((resolve) => {
+            const deletion = indexedDB.deleteDatabase(TARGET_NAME);
+            deletion.onsuccess = resolve;
+            deletion.onerror = resolve;
+            deletion.onblocked = resolve;
+          });
+        }
+        report(`ОШИБКА: ${error instanceof Error ? error.message : String(error)}\n\nИсходная база не изменялась. Если создание тестовой копии завершилось ошибкой, созданная этим запуском тестовая база удалена, если браузер разрешил удаление.`);
+        cloneButton.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
