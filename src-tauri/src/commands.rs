@@ -218,6 +218,9 @@ pub async fn streaming_http_request(request: NativeHttpRequest) -> Result<Native
     let method = reqwest::Method::from_bytes(method.as_bytes())
         .map_err(|_| "Unsupported HTTP method.".to_string())?;
     let body = if let Some(encoded) = request.body_base64 {
+        if encoded.len() > (MAX_HTTP_BODY_BYTES * 4 / 3) + 8 {
+            return Err("Provider request body is too large.".to_string());
+        }
         STANDARD.decode(encoded).map_err(|_| "Invalid binary request body.".to_string())?
     } else {
         request.body.unwrap_or_default().into_bytes()
@@ -267,8 +270,11 @@ pub async fn streaming_http_request(request: NativeHttpRequest) -> Result<Native
         outgoing = outgoing.body(body);
     }
 
-    let response = outgoing.send().await
+    let mut response = outgoing.send().await
         .map_err(|_| "Provider HTTP request failed.".to_string())?;
+    if response.content_length().map(|length| length > MAX_HTTP_RESPONSE_BYTES as u64).unwrap_or(false) {
+        return Err("Provider response is too large.".to_string());
+    }
     let status = response.status().as_u16();
     let final_url = response.url().to_string();
     if !response.url().host_str().map(allowed_provider_host).unwrap_or(false) {
@@ -281,10 +287,13 @@ pub async fn streaming_http_request(request: NativeHttpRequest) -> Result<Native
             safe_headers.insert(name.to_string(), value.to_string());
         }
     }
-    let bytes = response.bytes().await
-        .map_err(|_| "Could not read provider response.".to_string())?;
-    if bytes.len() > MAX_HTTP_RESPONSE_BYTES {
-        return Err("Provider response is too large.".to_string());
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await
+        .map_err(|_| "Could not read provider response.".to_string())? {
+        if bytes.len() + chunk.len() > MAX_HTTP_RESPONSE_BYTES {
+            return Err("Provider response is too large.".to_string());
+        }
+        bytes.extend_from_slice(&chunk);
     }
 
     let response_type = request.response_type.as_deref().unwrap_or("json");
