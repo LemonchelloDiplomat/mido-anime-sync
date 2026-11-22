@@ -231,7 +231,11 @@ describe("Shikimori GraphQL userRates import", () => {
         kind: "tv",
         episodes: 12,
         score: "8.1",
-        airedOn: "2020-01-01",
+        airedOn: { date: "2020-01-01", year: 2020, month: 1, day: 1 },
+        poster: {
+          originalUrl: "/uploads/poster/animes/101500001/original.jpg",
+          mainUrl: "/uploads/poster/animes/101500001/main.jpg",
+        },
       },
     }));
     const secondPage = [{
@@ -249,6 +253,8 @@ describe("Shikimori GraphQL userRates import", () => {
     expect(result).toHaveLength(51);
     expect(result[0]?.anime.id).toBe(101500001);
     expect(result[0]?.anime.malId).toBe("1000");
+    expect(result[0]?.anime.aired_on).toBe("2020-01-01");
+    expect(result[0]?.anime.image.original).toBe("/uploads/poster/animes/101500001/original.jpg");
     expect(result[50]?.anime.malId).toBeNull();
     expect(getShikimoriIdentityCoverage(result)).toMatchObject({
       total: 51, withMyAnimeListId: 50, withoutMyAnimeListId: 1,
