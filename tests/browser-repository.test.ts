@@ -1699,6 +1699,99 @@ describe("BrowserAnimeRepository sync operation journal", () => {
     ).rejects.toThrow("Unknown sync session: missing-session");
   });
 
+  it("upgrades a version 1 database through every schema version and preserves legacy entries", async () => {
+    const name = `anime-sync-v1-upgrade-${Date.now()}-${Math.random()}`;
+    const request = indexedDB.open(name, 1);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      database.createObjectStore("anime", { keyPath: "id" });
+      database.createObjectStore("entries", { keyPath: "animeId" });
+    };
+    const oldDatabase = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const anime = makeAnime("legacy-v1-anime");
+    const entry = {
+      ...makeEntry("legacy-v1-anime", 9, "2026-11-17T12:00:00.000Z"),
+      score: 85,
+      favorite: true,
+      sourceMetadata: { legacyNote: "must survive migration" },
+    };
+    await new Promise<void>((resolve, reject) => {
+      const transaction = oldDatabase.transaction(["anime", "entries"], "readwrite");
+      transaction.objectStore("anime").put(anime);
+      transaction.objectStore("entries").put(entry);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    oldDatabase.close();
+
+    const upgraded = await BrowserAnimeRepository.open(name);
+    repositories.push(upgraded);
+
+    expect(await upgraded.getAnime("legacy-v1-anime")).toEqual(anime);
+    expect(await upgraded.getEntry("legacy-v1-anime")).toEqual(entry);
+    expect(await upgraded.getSourceEntries("legacy-v1-anime")).toEqual([entry]);
+    expect(await upgraded.getSyncOperations()).toEqual([]);
+    expect(await upgraded.getSyncSessions()).toEqual([]);
+    expect(await upgraded.getDeletionIntents()).toEqual([]);
+  });
+
+  it("adds the version 7 deletion-intent store without changing version 6 sync history", async () => {
+    const name = `anime-sync-v6-upgrade-${Date.now()}-${Math.random()}`;
+    const request = indexedDB.open(name, 6);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      database.createObjectStore("anime", { keyPath: "id" });
+      database.createObjectStore("entries", { keyPath: "animeId" });
+      database.createObjectStore("sourceEntries", { keyPath: ["animeId", "source"] });
+      database.createObjectStore("conflictResolutions", { keyPath: "animeId" });
+      database.createObjectStore("animeRelations", { keyPath: "id" });
+      const operations = database.createObjectStore("syncOperations", { keyPath: "id" });
+      operations.createIndex("by-session", "sessionId");
+      operations.createIndex("by-status", "status");
+      operations.createIndex("by-provider", "provider");
+      const sessions = database.createObjectStore("syncSessions", { keyPath: "sessionId" });
+      sessions.createIndex("by-started-at", "startedAt");
+      sessions.createIndex("by-provider", "provider");
+      sessions.createIndex("by-status", "status");
+    };
+    const oldDatabase = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const session: SyncSession = {
+      sessionId: "v6-session",
+      provider: "anilist",
+      status: "succeeded",
+      startedAt: "2026-11-17T12:00:00.000Z",
+      finishedAt: "2026-11-17T12:00:05.000Z",
+      operationCount: 1,
+      succeededCount: 1,
+      failedCount: 0,
+      pendingCount: 0,
+      unchangedCount: 0,
+      conflictCount: 0,
+      recoveredCount: 0,
+    };
+    await new Promise<void>((resolve, reject) => {
+      const transaction = oldDatabase.transaction("syncSessions", "readwrite");
+      transaction.objectStore("syncSessions").put(session);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    oldDatabase.close();
+
+    const upgraded = await BrowserAnimeRepository.open(name);
+    repositories.push(upgraded);
+
+    expect(await upgraded.getSyncSessions()).toEqual([session]);
+    expect(await upgraded.getDeletionIntents()).toEqual([]);
+  });
+
   it("upgrades a version 5 journal and keeps unfinished operations readable", async () => {
     const name = `anime-sync-v5-upgrade-${Date.now()}-${Math.random()}`;
     const request = indexedDB.open(name, 5);
