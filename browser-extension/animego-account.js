@@ -51,7 +51,7 @@
     let attempts = 0;
     while (attempts < 180 && stable < 5) {
       attempts += 1;
-      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" });
+      window.scrollTo(0, document.documentElement.scrollHeight);
       await sleep(650);
       const count = document.querySelectorAll(".user-mylist__item").length;
       status.textContent = "Загружаем список: " + count + (expected ? " / " + expected : "") + "…";
