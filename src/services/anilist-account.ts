@@ -134,8 +134,8 @@ export function parseAniListAccountList(
       source: "anilist",
       sharedMetadata: {
         rewatchCount: Math.max(0, Number(raw.repeat) || 0),
-        startedAt: formatDate(raw.startedAt),
-        completedAt: formatDate(raw.completedAt),
+        ...(formatDate(raw.startedAt) ? { startedAt: formatDate(raw.startedAt) } : {}),
+        ...(formatDate(raw.completedAt) ? { completedAt: formatDate(raw.completedAt) } : {}),
       },
       sourceMetadata: {
         anilistEntryId: raw.id,
