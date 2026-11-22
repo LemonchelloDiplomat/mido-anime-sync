@@ -10,7 +10,7 @@ function anime(id: string, mal = "10", al = "20"): AnimeIdentity {
   };
 }
 
-function entry(animeId: string, source: "local" | "myanimelist" | "anilist", updatedAt: string, overrides: Partial<AnimeListEntry> = {}): AnimeListEntry {
+function entry(animeId: string, source: "local" | "myanimelist" | "anilist" | "shikimori", updatedAt: string, overrides: Partial<AnimeListEntry> = {}): AnimeListEntry {
   return {
     animeId, source, status: "WATCHING", progress: 3, score: 80, favorite: false,
     updatedAt, ...overrides,
