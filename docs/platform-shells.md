@@ -60,6 +60,10 @@ npm run cap:sync
 npm run cap:open:android
 ```
 
+## Data migration warning
+
+Tauri WebView2 and Android WebView have separate application storage origins/profiles. The current browser IndexedDB library will not automatically appear inside the packaged Tauri or Capacitor app. Before asking users to switch to a native build, implement and test a one-time, non-destructive library migration from the browser build, preserving IDs, sync baselines, operation history, and schema versions.
+
 ## Important integration gap
 
 The existing application still has a Node.js local API server (`server/index.mjs`) used by several existing integrations. Tauri's development command starts it through `npm run dev`, but a production Tauri bundle does not yet package or supervise that Node process. Android also cannot run the Node server as-is. Do not treat the native shells as feature-complete until the local API responsibilities have been moved into native commands or a properly packaged sidecar and the existing integrations have regression coverage.
