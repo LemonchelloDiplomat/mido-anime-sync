@@ -245,8 +245,9 @@ async function handleAnimeGoListExport(message, sender, sendResponse) {
       throw new Error("Некорректный список AnimeGO или превышен лимит 5000 записей.");
     }
     const sourceUrl = new URL(String(payload.sourceUrl || ""));
-    if (sourceUrl.origin !== senderUrl.origin || sourceUrl.pathname !== senderUrl.pathname) {
-      throw new Error("Адрес списка не совпадает с открытой страницей профиля.");
+    if (sourceUrl.origin !== senderUrl.origin || sourceUrl.pathname !== senderUrl.pathname ||
+        Number(sourceUrl.searchParams.get("type") || 1) !== Number(payload.listType)) {
+      throw new Error("Адрес списка не совпадает с открытой страницей профиля или выбранным статусом.");
     }
     const entries = payload.entries.flatMap((row) => {
       if (!row || typeof row !== "object") return [];
