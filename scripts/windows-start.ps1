@@ -1,4 +1,5 @@
 ﻿$ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "windows-node.ps1")
 $Root = Split-Path -Parent $PSScriptRoot
 $DataDir = Join-Path $Root ".local-data"
 $PidFile = Join-Path $DataDir "windows-launcher.json"
@@ -42,16 +43,15 @@ try {
     Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
   }
 
-  $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
-  if (-not $nodeCommand) { throw "Node.js 22+ не найден. Запусти Setup-Windows.bat после установки Node.js." }
-  $nodeMajor = [int]((& node -p "Number(process.versions.node.split('.')[0])").Trim())
-  if ($nodeMajor -lt 22) { throw "Для запуска требуется Node.js 22 или новее." }
+  $nodePath = Initialize-MidoNodeEnvironment
+  $nodeMajor = Get-MidoNodeMajorVersion $nodePath
+  if ($nodeMajor -lt 22) { throw "Для запуска требуется Node.js 22 или новее. Сейчас установлена версия $nodeMajor." }
   if (-not (Test-Path (Join-Path $Root "node_modules\vite\bin\vite.js"))) {
     throw "Зависимости не установлены. Один раз запусти Setup-Windows.bat."
   }
   if (Test-Port 5173) { throw "Порт 5173 уже занят. Закрой другой экземпляр приложения или проверь, какая программа использует этот порт." }
 
-  $process = Start-Process -FilePath $nodeCommand.Source -ArgumentList "scripts/dev.mjs" -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardOutput $StdoutLog -RedirectStandardError $StderrLog -PassThru
+  $process = Start-Process -FilePath $nodePath -ArgumentList "scripts/dev.mjs" -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardOutput $StdoutLog -RedirectStandardError $StderrLog -PassThru
 
   $ready = $false
   for ($i = 0; $i -lt 60; $i++) {
