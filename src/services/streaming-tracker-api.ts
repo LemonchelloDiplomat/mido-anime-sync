@@ -17,9 +17,10 @@ export const yummyTrackerApi={
  setFavorite:(animeId:string,favorite:boolean)=>requestJson<{ok:true}>("/api/yummyanime/favorite",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({animeId,favorite})}),
 };
 const STATUS_ALIASES:Array<[RegExp,AnimeStatus]>=[
- [/watch|смотр|просмотр/i,"WATCHING"],[/complete|заверш|просмотрено/i,"COMPLETED"],
+ [/complete|заверш|просмотрен|completed/i,"COMPLETED"],
+ [/watch|смотрю|смотрит|смотрим|watching/i,"WATCHING"],
  [/plan|later|заплан|буду смотреть|в планах/i,"PLANNING"],[/hold|pause|postpon|отлож|пауз|приостанов/i,"ON_HOLD"],
- [/drop|брос|заброш/i,"DROPPED"],[/rewatch|пересмотр/i,"REWATCHING"],
+ [/drop|брос|заброш/i,"DROPPED"],[/rewatch|пересматриваю|пересмотр/i,"REWATCHING"],
 ];
 const textValue=(...values:unknown[])=>{const value=values.find(v=>typeof v==="string"&&v.trim());return typeof value==="string"?value.trim():"";};
 const numberValue=(...values:unknown[])=>{for(const value of values){const n=Number(value);if(value!==null&&value!==undefined&&value!==""&&Number.isFinite(n))return n;}return null;};
