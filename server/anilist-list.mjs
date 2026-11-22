@@ -12,6 +12,7 @@ export async function fetchAniListAnimeList({ request, userId, accessToken }) {
       lists {
         name
         isCustomList
+        isSplitCompletedList
         entries {
           id status score progress repeat notes updatedAt
           startedAt { year month day }
@@ -52,7 +53,7 @@ export async function fetchAniListAnimeList({ request, userId, accessToken }) {
       if (!list || typeof list.name !== "string" || !Array.isArray(list.entries)) {
         throw new Error("AniList вернул некорректную группу списка.");
       }
-      const key = JSON.stringify([list.name, Boolean(list.isCustomList)]);
+      const key = JSON.stringify([list.name, Boolean(list.isCustomList), Boolean(list.isSplitCompletedList)]);
       let target = listsByKey.get(key);
       if (!target) {
         target = { ...list, entries: [] };
