@@ -10,6 +10,28 @@ function rate(id: number, overrides: { myanimelist_id?: number | null } = {}) {
   };
 }
 
+describe("Shikimori GraphQL batch safety", () => {
+  it("does not issue hundreds of individual lookups when batch results omit IDs", async () => {
+    const fetchAnimeById = vi.fn(async (id: number) => ({ id, malId: String(id) }));
+    const rates = Array.from({ length: 120 }, (_, index) => ({
+      id: index + 1,
+      anime: { id: index + 1 },
+    }));
+
+    const result = await enrichShikimoriAnimeRates(
+      rates,
+      async () => [],
+      fetchAnimeById,
+      50,
+      { resolveMissingIndividually: false },
+    );
+
+    expect(fetchAnimeById).not.toHaveBeenCalled();
+    expect(result).toHaveLength(120);
+    expect(result.every((rate) => rate.anime.myanimelist_id === null)).toBe(true);
+  });
+});
+
 describe("Shikimori GraphQL identity lookup", () => {
   it("requests canonical malId values by native Shikimori IDs", async () => {
     const requestGraphql = vi.fn(async () => ({
