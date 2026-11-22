@@ -156,6 +156,9 @@ function App() {
   const [watchEventSaving, setWatchEventSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [isOnline, setIsOnline] = useState(
+    () => typeof navigator === "undefined" || navigator.onLine,
+  );
 
   const [filters, setFilters] = useState<LibraryFilters>(DEFAULT_LIBRARY_FILTERS);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -219,6 +222,16 @@ function App() {
   const [historyError, setHistoryError] = useState("");
   const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | SyncProvider>("all");
   const [historyStatusFilter, setHistoryStatusFilter] = useState<"all" | SyncOperation["status"]>("all");
+
+  useEffect(() => {
+    const updateOnlineStatus = () => setIsOnline(navigator.onLine);
+    window.addEventListener("online", updateOnlineStatus);
+    window.addEventListener("offline", updateOnlineStatus);
+    return () => {
+      window.removeEventListener("online", updateOnlineStatus);
+      window.removeEventListener("offline", updateOnlineStatus);
+    };
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -565,6 +578,10 @@ function App() {
 
   async function runMetadataEnrichment() {
     if (!repository || metadataEnriching) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setMetadataEnrichmentError("Нет подключения к интернету. Локальная библиотека доступна, обогащение метаданных можно повторить позже.");
+      return;
+    }
 
     const db = repository;
     setMetadataEnriching(true);
@@ -948,6 +965,10 @@ function App() {
 
   async function handleImportFromAccount(provider: SyncProvider) {
     if (!repository || importing) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setIntegrationStatusError("Нет подключения к интернету. Локальная библиотека доступна, импорт возобновится после подключения.");
+      return;
+    }
     setImporting(true);
     setError("");
     try {
@@ -1006,6 +1027,10 @@ function App() {
 
   async function handleSyncToAccount(provider: SyncProvider) {
     if (!repository || accountSyncing || syncInProgressRef.current || restoreInProgressRef.current) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setIntegrationStatusError("Нет подключения к интернету. Все локальные изменения сохранены. Повтори синхронизацию после восстановления связи.");
+      return;
+    }
 
     // Web Locks prevents another tab from running an account sync while this
     // tab reconciles old sessions. Without it, sync remains available but stale
@@ -2096,6 +2121,12 @@ function App() {
         </header>
 
         <div className="content">
+          {!isOnline && (
+            <div className="offline-status" role="status" aria-live="polite">
+              <strong>Офлайн-режим</strong>
+              <span>Локальная библиотека и её редактирование доступны. Внешние каталоги, импорт и синхронизация заработают после восстановления интернета. Изменения останутся на этом устройстве.</span>
+            </div>
+          )}
           {pendingWatchEvent && (
             <section className="watch-event-panel">
               <div className="watch-event-heading">
