@@ -1322,11 +1322,11 @@ function App() {
         const localMatch = localItems.find(
           (item) => item.anime.externalIds[providerSource] === change.externalId,
         );
-        const existingRemoteAnime = snapshot.anime.find(
+        const existingRemoteAnime = remoteSnapshot.anime.find(
           (anime) => anime.externalIds[providerSource] === change.externalId,
         );
         const existingRemoteEntry = existingRemoteAnime
-          ? snapshot.entries.find((entry) => entry.animeId === existingRemoteAnime.id)
+          ? remoteSnapshot.entries.find((entry) => entry.animeId === existingRemoteAnime.id)
           : undefined;
         return {
           id: `${sessionId}-remote-${index}`,
