@@ -539,6 +539,128 @@ describe("BrowserAnimeRepository merge", () => {
   });
 });
 
+describe("BrowserAnimeRepository real-world two-title backup round-trip", () => {
+  it("preserves Sankarea provider entries and YummyAnime watch metadata alongside a local-only title", async () => {
+    const sourceRepo = await createRepository();
+    const targetRepo = await createRepository();
+    const exportedAt = "2026-11-22T13:22:41.593Z";
+
+    const sankarea: AnimeIdentity = {
+      ...makeAnime("anilist:11499"),
+      titles: { english: "Sankarea", synonyms: [] },
+      externalIds: { anilist: "11499", myanimelist: "11499" },
+      year: 2012,
+      format: "TV",
+      episodes: 12,
+      genres: ["Comedy", "Romance", "Supernatural"],
+      averageScore: 7,
+      startDate: "2012-04-06",
+      releaseStatus: "RELEASED",
+    };
+    const blackClover: AnimeIdentity = {
+      ...makeAnime("anilist:195604"),
+      titles: { english: "Black Clover 2nd Season", synonyms: [] },
+      externalIds: { anilist: "195604", myanimelist: "61967" },
+      year: 2026,
+      format: "TV",
+      episodes: null,
+      genres: ["Action", "Adventure", "Fantasy"],
+      averageScore: 8.8,
+      startDate: "2026-10-03",
+      releaseStatus: "ONGOING",
+    };
+
+    await sourceRepo.saveAnime(sankarea);
+    await sourceRepo.saveAnime(blackClover);
+    await sourceRepo.saveSourceEntries([
+      {
+        animeId: sankarea.id,
+        source: "local",
+        status: "PLANNING",
+        progress: 0,
+        score: null,
+        favorite: false,
+        updatedAt: "2026-11-20T02:05:37.795Z",
+      },
+      {
+        animeId: sankarea.id,
+        source: "yummyanime",
+        status: "WATCHING",
+        progress: 4,
+        score: null,
+        favorite: false,
+        updatedAt: "2026-11-20T02:05:37.795Z",
+        sourceMetadata: {
+          lastEpisode: 4,
+          lastWatchedUrl: "https://old.yummyani.me/",
+          lastWatchedAt: "2026-11-20T02:05:37.795Z",
+          lastPositionSeconds: 1331,
+          lastDurationSeconds: 1451,
+        },
+      },
+      {
+        animeId: blackClover.id,
+        source: "local",
+        status: "PLANNING",
+        progress: 0,
+        score: null,
+        favorite: false,
+        updatedAt: exportedAt,
+      },
+    ]);
+
+    const exported = await sourceRepo.snapshot();
+    exported.exportedAt = exportedAt;
+
+    expect(exported.schemaVersion).toBe(4);
+    expect(exported.anime).toHaveLength(2);
+    expect(exported.entries).toHaveLength(2);
+    expect(exported.sourceEntries).toHaveLength(3);
+
+    await targetRepo.importSnapshot(exported);
+
+    const restored = await targetRepo.snapshot();
+    expect(restored.anime).toEqual(exported.anime);
+    expect(restored.sourceEntries).toEqual(exported.sourceEntries);
+    expect(restored.entries).toEqual(exported.entries);
+    expect(await targetRepo.getSourceEntries(sankarea.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: "local", status: "PLANNING", progress: 0 }),
+        expect.objectContaining({
+          source: "yummyanime",
+          status: "WATCHING",
+          progress: 4,
+          sourceMetadata: {
+            lastEpisode: 4,
+            lastWatchedUrl: "https://old.yummyani.me/",
+            lastWatchedAt: "2026-11-20T02:05:37.795Z",
+            lastPositionSeconds: 1331,
+            lastDurationSeconds: 1451,
+          },
+        }),
+      ]),
+    );
+    expect(await targetRepo.getEntry(sankarea.id)).toMatchObject({
+      source: "yummyanime",
+      status: "WATCHING",
+      progress: 4,
+    });
+    expect(await targetRepo.getEntry(blackClover.id)).toMatchObject({
+      source: "local",
+      status: "PLANNING",
+      progress: 0,
+    });
+
+    const secondExport = await targetRepo.snapshot();
+    await targetRepo.importSnapshot(secondExport);
+    expect(await targetRepo.snapshot()).toMatchObject({
+      anime: exported.anime,
+      entries: exported.entries,
+      sourceEntries: exported.sourceEntries,
+    });
+  });
+});
+
 describe("BrowserAnimeRepository V3 backups", () => {
   it("exports manual conflict resolutions in schema version 3", async () => {
     const repo = await createRepository();
