@@ -9,6 +9,7 @@ describe("AniList account list importer", () => {
       score: 8.5,
       progress: 12,
       repeat: 1,
+      notes: "Rewatch with director commentary",
       updatedAt: 1794830400,
       startedAt: { year: 2026, month: 1, day: 2 },
       completedAt: { year: 2026, month: 2, day: 3 },
@@ -48,6 +49,7 @@ describe("AniList account list importer", () => {
       sourceMetadata: {
         anilistEntryId: 77,
         repeat: 1,
+        notes: "Rewatch with director commentary",
         scoreFormat: "POINT_10_DECIMAL",
         startedAt: "2026-01-02",
         completedAt: "2026-02-03",
