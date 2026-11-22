@@ -39,6 +39,7 @@ describe("YummyAnime adapter", () => {
       title: "Sample Chronicle",
       year: 2024,
       episodeCount: 24,
+      posterUrl: "https://img.example/poster.jpg",
       rating: 8.2,
     });
     expect(result.items[0]?.url).toContain("yummyani.me");
