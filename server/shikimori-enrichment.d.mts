@@ -15,6 +15,6 @@ export interface ShikimoriAnimeDetails {
 
 export function enrichShikimoriAnimeRates(
   rates: ShikimoriAnimeRate[],
-  fetchAnimeBatch: (ids: number[]) => Promise<ShikimoriAnimeDetails[]>,
+  fetchAnimeBatch: (ids: number[]) => Promise<unknown>,
   batchSize?: number,
 ): Promise<ShikimoriAnimeRate[]>;
