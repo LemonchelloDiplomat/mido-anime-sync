@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { enrichShikimoriAnimeRates, getShikimoriIdentityCoverage } from "../server/shikimori-enrichment.mjs";
+import { enrichShikimoriAnimeRates, fetchShikimoriAnimeIdentityBatch, getShikimoriIdentityCoverage, SHIKIMORI_ANIME_IDENTITY_QUERY } from "../server/shikimori-enrichment.mjs";
 
 function rate(id: number, overrides: { myanimelist_id?: number | null } = {}) {
   return {
@@ -9,6 +9,50 @@ function rate(id: number, overrides: { myanimelist_id?: number | null } = {}) {
     anime: { id, name: "Anime " + id, ...overrides },
   };
 }
+
+describe("Shikimori GraphQL identity lookup", () => {
+  it("requests canonical malId values by native Shikimori IDs", async () => {
+    const requestGraphql = vi.fn(async () => ({
+      animes: [
+        { id: "32998", malId: "32998" },
+        { id: "60058", malId: "60058" },
+      ],
+    }));
+
+    const result = await fetchShikimoriAnimeIdentityBatch([32998, 60058], requestGraphql);
+
+    expect(requestGraphql).toHaveBeenCalledExactlyOnceWith(
+      SHIKIMORI_ANIME_IDENTITY_QUERY,
+      { ids: "32998,60058" },
+    );
+    expect(result).toEqual([
+      { id: "32998", malId: "32998" },
+      { id: "60058", malId: "60058" },
+    ]);
+  });
+
+  it("preserves a null MAL mapping instead of deriving it from the Shikimori ID", async () => {
+    const result = await fetchShikimoriAnimeIdentityBatch(
+      [101500001],
+      async () => ({ animes: [{ id: "101500001", malId: null }] }),
+    );
+
+    expect(result).toEqual([{ id: "101500001", malId: null }]);
+  });
+
+  it("rejects malformed GraphQL responses", async () => {
+    await expect(fetchShikimoriAnimeIdentityBatch(
+      [10],
+      async () => ({ animes: null }),
+    )).rejects.toThrow("GraphQL вернул список аниме в неожиданном формате");
+  });
+
+  it("does not issue GraphQL requests for an empty ID list", async () => {
+    const requestGraphql = vi.fn();
+    await expect(fetchShikimoriAnimeIdentityBatch([], requestGraphql)).resolves.toEqual([]);
+    expect(requestGraphql).not.toHaveBeenCalled();
+  });
+});
 
 describe("Shikimori anime_rates enrichment", () => {
   it("adds MAL IDs from full anime details without mutating the original rates", async () => {
