@@ -24,13 +24,16 @@ describe("streaming provider contracts", () => {
       accountConnection: true, listImport: true, listWrite: true,
       watchProgressRead: true, watchProgressWrite: true,
     });
-    for (const provider of ["animego", "anixart"] as const) {
-      expect(getStreamingProviderCapabilities(provider)).toMatchObject({
-        catalogSearch: true, titleDetails: true,
-        accountConnection: false, listImport: false, listWrite: false,
-        watchProgressRead: true, watchProgressWrite: false,
-      });
-    }
+    expect(getStreamingProviderCapabilities("animego")).toMatchObject({
+      catalogSearch: true, titleDetails: true,
+      accountConnection: false, listImport: true, listWrite: false,
+      watchProgressRead: true, watchProgressWrite: false,
+    });
+    expect(getStreamingProviderCapabilities("anixart")).toMatchObject({
+      catalogSearch: true, titleDetails: true,
+      accountConnection: false, listImport: true, listWrite: false,
+      watchProgressRead: true, watchProgressWrite: false,
+    });
     const copy = getStreamingProviderCapabilities("animego");
     copy.limitations?.push("mutated");
     expect(STREAMING_PROVIDER_CAPABILITIES.animego.limitations).not.toContain("mutated");
