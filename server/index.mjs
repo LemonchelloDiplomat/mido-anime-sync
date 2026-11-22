@@ -525,9 +525,26 @@ async function handleRequest(request, response) {
       while (next && pages < 100) {
         const parsed = new URL(next);
         if (parsed.hostname !== "api.myanimelist.net" || !parsed.pathname.startsWith("/v2/users/")) throw new Error("MyAnimeList вернул недопустимую ссылку пагинации.");
+        if (
+          parsed.protocol !== "https:" ||
+          parsed.hostname !== "api.myanimelist.net" ||
+          (parsed.port && parsed.port !== "443") ||
+          parsed.username ||
+          parsed.password ||
+          !parsed.pathname.startsWith("/v2/users/")
+        ) {
+          throw new Error("MyAnimeList вернул недопустимую ссылку пагинации.");
+        }
         const page = await malRequest(parsed.toString(), tokens);
-        items.push(...(page.data || []));
-        next = page.paging?.next || null;
+        if (!page || !Array.isArray(page.data)) {
+          throw new Error("MyAnimeList вернул некорректную страницу списка.");
+        }
+        items.push(...page.data);
+        const nextPage = page.paging?.next;
+        if (nextPage != null && typeof nextPage !== "string") {
+          throw new Error("MyAnimeList вернул некорректный указатель следующей страницы.");
+        }
+        next = nextPage || null;
         pages += 1;
       }
       if (next) throw new Error("Список MyAnimeList слишком большой: достигнут лимит страниц.");
