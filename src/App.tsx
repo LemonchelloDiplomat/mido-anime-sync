@@ -1413,6 +1413,7 @@ function App() {
             progress: change.entry.progress,
             score: change.entry.score,
             ...(provider === "anilist" ? { favorite: change.entry.favorite } : {}),
+            ...(existingRemoteEntry?.sourceMetadata ? { sourceMetadata: existingRemoteEntry.sourceMetadata } : {}),
             ...(shikimoriRateId !== undefined ? { entryId: shikimoriRateId } : {}),
           });
         } catch (err) {
