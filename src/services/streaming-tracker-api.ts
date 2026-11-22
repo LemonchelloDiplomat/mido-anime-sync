@@ -120,7 +120,7 @@ export function normalizeYummyLists(payload:YummyRawLists):Array<{anime:AnimeIde
   );
   const progress=Math.max(0,rawProgress??0);
   const rawScore=numberValue(row.score,row.rating,user.rating,user.rate,nested.user&&objectValue(nested.user).rating);
-  const score=rawScore===null?null:Math.max(0,Math.min(100,rawScore<=10?rawScore*10:rawScore));
+  const score=rawScore===null||rawScore<=0?null:Math.min(100,rawScore<=10?rawScore*10:rawScore);
   const favoriteValue=row.favorite??nested.favorite??userList.is_fav;
   const favoriteKnown=typeof favoriteValue==="boolean";
   const poster=posterUrl(nested.poster,nested.poster_url,row.poster,row.poster_url);
@@ -136,7 +136,8 @@ export function normalizeYummyLists(payload:YummyRawLists):Array<{anime:AnimeIde
   const format=mapFormat(type.shortname??type.name??nested.format??row.format);
   const ageRating=mapAgeRating(minAge.value,minAge.title??minAge.title_long??minAge.titleLong);
   const releaseStatus=mapReleaseStatus(animeStatus.alias??animeStatus.title??nested.release_status);
-  const averageScore=numberValue(rating.average,nested.average_score,nested.mean);
+  const rawAverageScore=numberValue(rating.average,nested.average_score,nested.mean);
+  const averageScore=rawAverageScore!==null&&rawAverageScore>0?rawAverageScore:null;
   const anime:AnimeIdentity={
    id:"yummyanime:"+id,
    titles:{romaji:title,synonyms:[originalTitle,...otherTitles].filter(Boolean)},
@@ -153,7 +154,7 @@ export function normalizeYummyLists(payload:YummyRawLists):Array<{anime:AnimeIde
    ...(startDate?{startDate}:{}),
    ...(releaseStatus?{releaseStatus}:{}),
   };
-  const entry:AnimeListEntry={animeId:anime.id,status,progress,score,favorite:Boolean(favoriteValue),updatedAt:textValue(row.updated_at,row.updatedAt,row.date)||new Date(0).toISOString(),source:"yummyanime",sourceMetadata:{progressKnown:rawProgress!==null,scoreKnown:rawScore!==null,favoriteKnown}};
+  const entry:AnimeListEntry={animeId:anime.id,status,progress,score,favorite:Boolean(favoriteValue),updatedAt:textValue(row.updated_at,row.updatedAt,row.date)||new Date(0).toISOString(),source:"yummyanime",sourceMetadata:{progressKnown:rawProgress!==null,scoreKnown:rawScore!==null&&rawScore>0,favoriteKnown}};
   result.push({anime,entry});
  }
  return result;
