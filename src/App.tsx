@@ -2806,6 +2806,38 @@ function App() {
                 <span>Записей библиотеки: {importSnapshot.entries.length}</span>
               </div>
 
+              {importFormat === "Anixart export" && Object.keys(importSuggestions).length > 0 && (
+                <div className="import-title-suggestions">
+                  <strong>Ручное сопоставление похожих названий</strong>
+                  <p>Предлагаемые совпадения не применяются автоматически. Выбери правильный тайтл или оставь запись отдельной.</p>
+                  {Object.entries(importSuggestions).map(([importedId, suggestions]) => {
+                    const imported = importSnapshot.anime.find((anime) => anime.id === importedId);
+                    if (!imported) return null;
+                    return (
+                      <label key={importedId}>
+                        <span>{imported.titles.english ?? imported.titles.romaji ?? imported.id}</span>
+                        <select
+                          value={importManualMappings[importedId] ?? ""}
+                          onChange={(event) => setImportManualMappings((previous) => ({
+                            ...previous,
+                            [importedId]: event.target.value,
+                          }))}
+                          disabled={importing}
+                        >
+                          <option value="">Оставить отдельной записью</option>
+                          {suggestions.map((suggestion) => (
+                            <option key={suggestion.anime.id} value={suggestion.anime.id}>
+                              {suggestion.anime.titles.english ?? suggestion.anime.titles.romaji ?? suggestion.anime.id}
+                              {" · совпадение "}{Math.round(suggestion.score * 100)}%
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+
               {importIdentityDiagnostics?.provider === "shikimori" && (
                 <div className="import-safety-note">
                   <strong>Проверка связей Shikimori ↔ MyAnimeList</strong>
