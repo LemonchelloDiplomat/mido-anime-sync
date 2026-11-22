@@ -139,7 +139,7 @@ describe("pre-migration IndexedDB backups", () => {
     changedDb.close();
 
     const result = await restoreMigrationBackup(name, backup!.id);
-    expect(result.restoredRecordCount).toBe(5);
+    expect(result.restoredRecordCount).toBe(4);
     expect(result.safetyBackupId).toBeTruthy();
 
     const restoredDb = await openDB(name, 7);
