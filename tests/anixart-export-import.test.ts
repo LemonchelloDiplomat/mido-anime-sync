@@ -43,6 +43,28 @@ describe("Anixart official bookmark export import", () => {
     expect(a.snapshot.anime[0]?.externalIds).toEqual({});
   });
 
+  it("keeps same-named rows distinct when original titles differ", () => {
+    const result = parseAnixartBookmarkExport(
+      "Название;Оригинальное название;Статус просмотра\\n" +
+      "Одинаковое название;Original A;Смотрю\\n" +
+      "Одинаковое название;Original B;Просмотрено",
+      "anixart.csv",
+    );
+    expect(result.snapshot.anime).toHaveLength(2);
+    expect(result.snapshot.anime[0]?.id).not.toBe(result.snapshot.anime[1]?.id);
+  });
+
+  it("marks blank optional fields unknown so previous source values can be preserved", () => {
+    const result = parseAnixartBookmarkExport(
+      "Название;Статус просмотра;Моя оценка;Избранное\\n" +
+      "Тайтл;Смотрю;;",
+      "anixart.csv",
+    );
+    expect(result.snapshot.sourceEntries[0]?.sourceMetadata).toMatchObject({
+      progressKnown: false, scoreKnown: false, favoriteKnown: false,
+    });
+  });
+
   it("skips unsupported status rows and rejects unknown CSV layouts", () => {
     const result = parseAnixartBookmarkExport(
       "Название;Статус просмотра\nИзбранное без статуса;Избранное\nОбычное аниме;Смотрю",
