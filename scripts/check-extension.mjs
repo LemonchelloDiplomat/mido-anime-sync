@@ -15,7 +15,7 @@ assert.ok(manifest.permissions.includes("tabs"));
 assert.ok(!manifest.permissions.includes("cookies"), "Extension must not request cookies access");
 assert.ok(!manifest.host_permissions.some((host) => host.includes("<all_urls>")), "Extension must not request broad host access");
 
-for (const file of ["content.js", "cvh-page.js", "anixart-page.js", "popup.js", "options.js", "background.js", "bridge.js"]) {
+for (const file of ["content.js", "cvh-page.js", "anixart-page.js", "popup.js", "options.js", "background.js", "bridge.js", "animego-account.js"]) {
   const source = await read("browser-extension/" + file);
   new vm.Script(source, { filename: file });
 }
@@ -29,6 +29,17 @@ assert.ok(bridgeScript, "Local app acknowledgement bridge must be injected");
 for (const port of [":5173", ":3001", ":4173"]) {
   assert.ok(bridgeScript.matches.some((pattern) => pattern.includes(port)), `Missing local app bridge port: ${port}`);
 }
+
+const animeGoAccountScript = manifest.content_scripts.find((script) =>
+  script.js.includes("animego-account.js"),
+);
+assert.ok(animeGoAccountScript, "AnimeGO profile list importer must be registered");
+assert.equal(animeGoAccountScript.all_frames, false, "AnimeGO list importer must run only in the top frame");
+assert.ok(
+  animeGoAccountScript.matches.some((pattern) => pattern.includes("/profile/")) &&
+  animeGoAccountScript.matches.some((pattern) => pattern.includes("/user/")),
+  "AnimeGO list importer must support profile and user list routes",
+);
 
 const cvhContentScript = manifest.content_scripts.find((script) =>
   script.js.includes("content.js"),
