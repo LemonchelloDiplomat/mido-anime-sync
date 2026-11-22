@@ -52,7 +52,7 @@ function objectKeys(value) {
 
 async function enrichAnimeRows(authApi, rows) {
   const cache = new Map();
-  const ids = [...new Set(rows.map((row) => String(row?.anime_id ?? row?.animeId ?? row?.id ?? "")).filter((id) => /^\\d+$/.test(id)))];
+  const ids = [...new Set(rows.map((row) => String(row?.anime_id ?? row?.animeId ?? row?.id ?? "")).filter((id) => /^\d+$/.test(id)))];
   let cursor = 0;
   const workers = Array.from({ length: Math.min(4, ids.length) }, async () => {
     while (cursor < ids.length) {
