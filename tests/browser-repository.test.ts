@@ -2208,3 +2208,34 @@ describe("BrowserAnimeRepository duplicate merge idempotency", () => {
     expect(secondSnapshot.deletionIntents).toEqual(firstSnapshot.deletionIntents);
   });
 });
+
+
+describe("BrowserAnimeRepository duplicate conflict safety", () => {
+  it("keeps records separate when one shared provider ID hides a conflicting external ID", async () => {
+    const repo = await createRepository();
+    const first = makeAnime("first-record");
+    first.externalIds = { myanimelist: "100", anilist: "200" };
+    const second = makeAnime("second-record");
+    second.externalIds = { myanimelist: "100", anilist: "999" };
+    await repo.saveAnime(first);
+    await repo.saveAnime(second);
+    const firstEntry = {
+      ...makeEntry(first.id, 5, "2026-11-18T10:00:00.000Z"),
+      source: "myanimelist" as const,
+    };
+    const secondEntry = {
+      ...makeEntry(second.id, 7, "2026-11-18T11:00:00.000Z"),
+      source: "anilist" as const,
+    };
+    await repo.saveSourceEntry(firstEntry);
+    await repo.saveSourceEntry(secondEntry);
+
+    const result = await repo.reconcileExactIdentityDuplicates();
+
+    expect(result).toEqual({ mergedPairs: 0, skippedPairs: 1 });
+    expect(await repo.getAnime(first.id)).toEqual(first);
+    expect(await repo.getAnime(second.id)).toEqual(second);
+    expect(await repo.getSourceEntries(first.id)).toEqual([firstEntry]);
+    expect(await repo.getSourceEntries(second.id)).toEqual([secondEntry]);
+  });
+});
