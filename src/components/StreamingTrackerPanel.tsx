@@ -52,7 +52,7 @@ export function StreamingTrackerPanel({ items, onImport, onImportAnixart }: {
         setMessage("Импортировано записей: "+rows.length+" из "+(payload.diagnostics?.fetchedRows??payload.entries.length)+" полученных записей.");
       }else{
         const diagnostics=payload.diagnostics;
-        const summary=diagnostics?.lists.map(list=>"#"+(list.listId??"?")+" "+(list.label||"без названия")+": "+list.rowCount+(list.skipped?" ("+list.skipped+")":"")).join("; ");
+        const summary=diagnostics?.lists.map(list=>"#"+(list.listId??"?")+" "+(list.label||"без названия")+": "+list.rowCount+(list.skipped?" ("+list.skipped+")":"")+(list.firstRowKeys?.length?" [поля: "+list.firstRowKeys.join(", ")+(list.firstAnimeKeys?.length?"; anime: "+list.firstAnimeKeys.join(", "):"")+(list.firstUserKeys?.length?"; user: "+list.firstUserKeys.join(", "):"")+"]":"")).join("; ");
         setMessage("Распознано 0 записей. API вернуло "+(diagnostics?.fetchedRows??payload.entries.length)+" записей в "+(diagnostics?.definitionsCount??payload.lists.length)+" списках. "+(summary?"Диагностика: "+summary:"Проверь локальный API и формат ответа."));
         console.info("[Mido] YummyAnime safe import diagnostics",diagnostics??{listCount:payload.lists.length,entryCount:payload.entries.length});
       }
