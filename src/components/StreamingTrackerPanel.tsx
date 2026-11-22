@@ -102,16 +102,20 @@ export function StreamingTrackerPanel({ items, onImport, onImportAnixart }: {
     finally{setBusy(false);}
   }
   return <section className="integration-provider streaming-tracker-provider">
-    <div className="integration-provider-info">
+    <div className="streaming-tracker-account-header">
+      <div className="integration-provider-mark integration-provider-mark--yummyanime" aria-hidden="true"><span>YA</span></div>
+      <div className="integration-provider-info">
       <h3>YummyAnime · синхронизация списков</h3>
       <p>{status?.connected?"Подключён аккаунт: "+(status.username||"пользователь"):"Подключение через локальный API. Пароль не сохраняется в интерфейсе."}</p>
       {!status?.configured&&<p>Для работы добавь YUMMY_APPLICATION_TOKEN в .env.local.</p>}
+      </div>
+      {status?.connected&&<div className="integration-state connected">Подключён</div>}
+      {status&&!status.connected&&<div className="integration-state">{status.configured?"Не подключён":"Не настроен"}</div>}
     </div>
     {status?.connected?<>
-      <div className="integration-state connected">Подключён</div>
       <div className="streaming-tracker-actions">
-        <button className="add-button" disabled={busy} onClick={()=>void importList()}>{busy?"Подождите...":"Импортировать список"}</button>
-        <button className="secondary-button" disabled={busy||options.length===0} onClick={()=>void syncStatuses()}>Отправить статусы и избранное</button>
+        <button className="add-button" disabled={busy} onClick={()=>void importList()}>{busy?"Подождите...":"Импорт списка"}</button>
+        <button className="secondary-button" disabled={busy||options.length===0} onClick={()=>void syncStatuses()}>Синхронизировать</button>
         <button className="secondary-button" disabled={busy} onClick={()=>void disconnect()}>Отключить</button>
       </div>
       <p>Найдено распознанных записей: {importCount??"не проверено"}. {importCount ? "Чтобы отправлять статусы на сайт, вручную сопоставь статусы приложения со списками YummyAnime ниже." : "Нажми «Импортировать список», чтобы получить записи из аккаунта."}</p>
