@@ -59,12 +59,15 @@ describe("AnixART public website catalog adapter", () => {
         <a href="/7362-naruto.html">9.5 7.98 Наруто 2002, экшен,</a>
         <a href="/7363-naruto-movie.html">10 6.54 Наруто: Найти тёмно-красный четырёхлистный клевер! 2003, сёнен,</a>
       </div>`;
-    expect(parseAnixArtSearch(html).map((item) => item.title)).toEqual([
+    const items = parseAnixArtSearch(html);
+    expect(items.map((item) => item.title)).toEqual([
       "Путь Наруто",
       "Боруто: Новое поколение Наруто",
       "Наруто",
       "Наруто: Найти тёмно-красный четырёхлистный клевер!",
     ]);
+    expect(items.map((item) => item.rating)).toEqual([8.5, 5.8, 9.5, 10]);
+    expect(items.map((item) => item.year)).toEqual([2022, 2017, 2002, 2003]);
   });
 
   it("extracts AnixART posters from lazy attributes and CSS background wrappers", () => {

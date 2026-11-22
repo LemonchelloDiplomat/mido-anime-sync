@@ -9,11 +9,13 @@ import { AnixArtCatalogProvider } from "../services/anixart.js";
 import { getYummyAnimeTitle, searchYummyAnime } from "../services/yummyanime-api.js";
 import type {
   StreamingProviderId,
+  StreamingCatalogSort,
   StreamingSearchResult,
   StreamingTitle,
   StreamingTitleDetails,
   StreamingVoice,
 } from "../services/streaming-provider.js";
+import { sortStreamingTitles } from "../services/streaming-provider.js";
 
 type Props = {
   query: string;
@@ -61,6 +63,7 @@ async function loadDetails(provider: StreamingProviderId, title: StreamingTitle,
 
 export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, locale = "ru" }: Props) {
   const [provider, setProvider] = useState<StreamingProviderId>("yummyanime");
+  const [sort, setSort] = useState<StreamingCatalogSort>("source");
   const [results, setResults] = useState<StreamingTitle[]>([]);
   const [selected, setSelected] = useState<StreamingTitle | null>(null);
   const [details, setDetails] = useState<StreamingTitleDetails | null>(null);
@@ -85,6 +88,7 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
   const [accountMessage, setAccountMessage] = useState("");
 
   const normalizedQuery = useMemo(() => normalizeCatalogQuery(query), [query]);
+  const sortedResults = useMemo(() => sortStreamingTitles(results, sort, locale), [results, sort, locale]);
 
   useEffect(() => {
     if (!activePlayer || playerLoaded || playerError) return;
@@ -305,15 +309,26 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
         <p className="catalog-hint">{t(locale, "noResults")}</p>
       ) : (
         <div className="streaming-catalog-results">
-          <div className="streaming-catalog-list">
-            {results.map((item) => (
+          <div className="streaming-catalog-list-panel">
+            <label className="streaming-catalog-sort">
+              <span>{t(locale, "sortLabel")}</span>
+              <select aria-label={t(locale, "sortLabel")} value={sort} onChange={(event) => setSort(event.target.value as StreamingCatalogSort)}>
+                <option value="source">{t(locale, "sortSource")}</option>
+                <option value="title">{t(locale, "sortTitle")}</option>
+                <option value="rating">{t(locale, "sortRating")}</option>
+                <option value="year">{t(locale, "sortYear")}</option>
+              </select>
+            </label>
+            <div className="streaming-catalog-list">
+              {sortedResults.map((item) => (
               <button type="button" className={selected?.externalId === item.externalId ? "streaming-result selected" : "streaming-result"} key={item.externalId} onClick={() => setSelected(item)}>
                 {item.posterUrl && !failedPosters[provider + ":" + item.externalId]
                   ? <img src={provider === "animego" ? "/api/animego/poster?url=" + encodeURIComponent(item.posterUrl) : item.posterUrl} alt="" loading="lazy" onError={() => setFailedPosters((current) => ({ ...current, [provider + ":" + item.externalId]: true }))} />
                   : <span className="streaming-poster-placeholder" title={t(locale, "noPoster")}>✦</span>}
-                <span><strong>{item.title}</strong>{item.year ? <small>{item.year}</small> : null}</span>
+                <span><strong>{item.title}</strong><span className="streaming-result-meta">{item.year ? <small>{item.year}</small> : null}{item.rating !== null && item.rating !== undefined ? <small className="streaming-result-rating" aria-label={"Рейтинг " + item.rating.toFixed(1) + " из 10"}>★ {item.rating.toFixed(1)}</small> : null}</span></span>
               </button>
-            ))}
+              ))}
+            </div>
           </div>
           <div className="streaming-catalog-detail">
             {!selected ? (

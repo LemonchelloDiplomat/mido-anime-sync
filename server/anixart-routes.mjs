@@ -106,6 +106,20 @@ function posterFromMarkup(markup) {
   return null;
 }
 
+function ratingFromSearchText(value) {
+  // Search cards place the AnixART score before the title. Some cards also
+  // include a second external score, so deliberately keep the first value.
+  const match = String(value || "").match(/^\s*(\d{1,2}(?:[.,]\d{1,2})?)(?=\s)/);
+  if (!match) return null;
+  const rating = Number(match[1].replace(",", "."));
+  return Number.isFinite(rating) && rating >= 0 && rating <= 10 ? rating : null;
+}
+
+function yearFromSearchText(value) {
+  const match = String(value || "").match(/\b(19\d{2}|20\d{2})\b(?=\s*,|\s*$)/);
+  return match ? Number(match[1]) : null;
+}
+
 function cleanSearchTitle(value) {
   return String(value || "")
     .replace(/^\s*(?:\d{1,2}(?:[.,]\d{1,2})?\s+){1,2}/, "")
@@ -127,7 +141,8 @@ export function parseAnixArtSearch(html) {
     if (!/^\d+-[\p{L}\p{N}-]+\.html$/u.test(slug)) continue;
     const inner = match[4];
     const image = inner.match(/<img\b[^>]*>/i)?.[0] || "";
-    const title = cleanSearchTitle(stripTags(inner)) || cleanSearchTitle(attr(image, "alt"));
+    const cardText = stripTags(inner);
+    const title = cleanSearchTitle(cardText) || cleanSearchTitle(attr(image, "alt"));
     if (!title) continue;
     const prefix = html.slice(Math.max(0, match.index - 1400), match.index);
     const images = [...prefix.matchAll(/<img\b[^>]*>/gi)];
@@ -135,6 +150,8 @@ export function parseAnixArtSearch(html) {
     // Posters may live on a lazy-loaded image, picture/source srcset, or a CSS
     // background wrapper rather than the title anchor itself.
     const poster = posterFromMarkup(inner) || posterFromMarkup(posterTag);
+    const rating = ratingFromSearchText(cardText);
+    const year = yearFromSearchText(cardText);
     items.push({
       provider: "anixart",
       externalId: slug,
@@ -142,6 +159,8 @@ export function parseAnixArtSearch(html) {
       title,
       alternativeTitles: [],
       posterUrl: poster,
+      ...(rating !== null ? { rating } : {}),
+      ...(year !== null ? { year } : {}),
     });
     seen.add(url);
   }

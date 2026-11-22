@@ -39,9 +39,18 @@ describe("YummyAnime adapter", () => {
       title: "Sample Chronicle",
       year: 2024,
       episodeCount: 24,
+      posterUrl: "https://img.example/poster.jpg",
+      rating: 8.2,
     });
     expect(result.items[0]?.url).toContain("yummyani.me");
     expect(result.hasNextPage).toBe(false);
+  });
+
+  it("does not invent a catalog rating when the API omits or returns an invalid value", () => {
+    const withoutRating = parseYummySearch({ response: { anime: [{ anime_id: 1, title: "No rating" }], total: 1, limit: 20, offset: 0 } });
+    const invalidRating = parseYummySearch({ response: { anime: [{ anime_id: 2, title: "Invalid rating", rating: { average: 12 } }], total: 1, limit: 20, offset: 0 } });
+    expect(withoutRating.items[0]?.rating).toBeUndefined();
+    expect(invalidRating.items[0]?.rating).toBeUndefined();
   });
 
   it("maps episode variants and retains player URLs only in live catalog details", () => {

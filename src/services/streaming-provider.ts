@@ -69,6 +69,8 @@ export interface StreamingTitle {
   description?: string | null;
   year?: number | null;
   episodeCount?: number | null;
+  /** Source-native catalog rating, normalized to a 0–10 scale when available. */
+  rating?: number | null;
   /** Optional canonical identity candidate. Never auto-merge on title alone. */
   identity?: AnimeIdentity;
 }
@@ -108,6 +110,27 @@ export interface StreamingSearchResult {
   items: StreamingTitle[];
   page: number;
   hasNextPage: boolean;
+}
+
+export type StreamingCatalogSort = "source" | "title" | "rating" | "year";
+
+/** Sort a copy of provider results; unknown metadata always stays at the end. */
+export function sortStreamingTitles(items: readonly StreamingTitle[], sort: StreamingCatalogSort, locale = "ru"): StreamingTitle[] {
+  if (sort === "source") return [...items];
+  return items.map((item, index) => ({ item, index })).sort((left, right) => {
+    let comparison = 0;
+    if (sort === "title") {
+      comparison = left.item.title.localeCompare(right.item.title, locale, { numeric: true, sensitivity: "base" });
+    } else {
+      const leftValue = sort === "rating" ? left.item.rating : left.item.year;
+      const rightValue = sort === "rating" ? right.item.rating : right.item.year;
+      const leftKnown = typeof leftValue === "number" && Number.isFinite(leftValue);
+      const rightKnown = typeof rightValue === "number" && Number.isFinite(rightValue);
+      if (leftKnown !== rightKnown) return leftKnown ? -1 : 1;
+      if (leftKnown && rightKnown) comparison = rightValue! - leftValue!;
+    }
+    return comparison || left.index - right.index;
+  }).map(({ item }) => item);
 }
 
 export interface StreamingCatalogProvider {
