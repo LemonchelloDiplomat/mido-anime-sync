@@ -76,6 +76,16 @@ describe("Anixart official bookmark export import", () => {
     });
   });
 
+  it("parses quoted slash-delimited TXT fields without shifting status and score", () => {
+    const result = parseAnixartBookmarkExport(
+      '/"Название / с разделителем"/"Original / title"/2020/12/Просмотрено/5 из 5',
+      "anixart.txt",
+    );
+    expect(result.snapshot.anime[0]?.titles.romaji).toBe("Название / с разделителем");
+    expect(result.snapshot.anime[0]?.titles.synonyms).toEqual(["Original / title"]);
+    expect(result.snapshot.sourceEntries[0]).toMatchObject({ status: "COMPLETED", score: 100 });
+  });
+
   it("extracts an exact Anixart release ID from a release URL column", () => {
     const result = parseAnixartBookmarkExport(
       "Название;Статус просмотра;Ссылка на релиз\nТайтл;Смотрю;https://anixart.site/7004-title.html",
