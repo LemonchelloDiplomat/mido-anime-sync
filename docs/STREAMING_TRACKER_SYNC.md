@@ -26,7 +26,7 @@ Configure YUMMY_APPLICATION_TOKEN in .env.local. The local server provides login
 
 ## Remaining provider research
 
-AnimeGO account integration requires verified login, CSRF/cookie handling and list AJAX contracts. Anixart requires a maintained, permitted API contract and fixture coverage. CAPTCHA or anti-bot challenges must remain user-mediated and must not be bypassed.
+AnimeGO read-only list import now uses the authenticated profile DOM in the browser extension. It does not scrape cookies, submit credentials, or call private AJAX routes. Reverse writes remain disabled until the actual site mutation contract is verified. Anixart requires a maintained, permitted API contract and fixture coverage. CAPTCHA or anti-bot challenges must remain user-mediated and must not be bypassed.
 
 ## Eight implementation workstreams
 
@@ -38,3 +38,15 @@ AnimeGO account integration requires verified login, CSRF/cookie handling and li
 6. AnimeGO account write integration: blocked until stage 5 is verified. No speculative AJAX mutations are sent.
 7. Account UI and explicit sequential write flow: implemented for YummyAnime; unsupported providers display their exact blockers.
 8. Regression coverage: pure sync, matching, normalization and write-queue tests have been added. Full test/typecheck/build verification is intentionally deferred to the requested final branch check.
+
+## AnimeGO profile import
+
+1. Install/reload the browser extension from `browser-extension/`.
+2. Sign in to AnimeGO normally in the browser.
+3. Open one of your profile list pages: `/profile/<user>?type=1..6` or `/user/<user>?type=1..6`.
+4. Click **Передать список в Mido** in the floating panel. The extension scrolls until the lazy-loaded list stabilizes, then opens the local app.
+5. The app validates the sender, exact numeric AnimeGO IDs and list type, then merges provider source entries into IndexedDB. Repeat for other list types.
+
+List type mapping follows the site's profile export structure: 1 watching, 2 completed, 3 on hold, 4 dropped, 5 planned, 6 rewatching. Import is read-only. Missing progress/favorite fields remain unknown and preserve existing AnimeGO source values. Invalid or duplicate rows are skipped; absent remote rows never delete local data.
+
+The import payload is relayed through extension-local storage and a same-origin app bridge. No AnimeGO password, session cookie or auth token is copied to the local server.
