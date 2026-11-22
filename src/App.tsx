@@ -3076,15 +3076,20 @@ function App() {
                     "Без названия";
 
                   const totalEpisodes = anime.episodes;
-                  const progress = entry?.progress ?? 0;
+                  const progressKnown = entry?.sourceMetadata?.progressKnown !== false;
+                  const progress = progressKnown ? entry?.progress ?? 0 : null;
 
                   const percent =
-                    typeof totalEpisodes === "number" && totalEpisodes > 0
-                      ? Math.min(
-                          100,
-                          Math.round((progress / totalEpisodes) * 100),
-                        )
+                    progress !== null && typeof totalEpisodes === "number" && totalEpisodes > 0
+                      ? Math.min(100, Math.round((progress / totalEpisodes) * 100))
                       : 0;
+                  const releaseStatusLabel = anime.releaseStatus === "ONGOING"
+                    ? "Выходит"
+                    : anime.releaseStatus === "ANNOUNCED"
+                      ? "Анонсировано"
+                      : anime.releaseStatus === "RELEASED"
+                        ? "Завершено"
+                        : null;
 
                   return (
                     <article className="anime-card" key={anime.id}>
@@ -3093,7 +3098,9 @@ function App() {
                       <div className="anime-details">
                         <h3>{title}</h3>
                         <p className="anime-subtitle">{anime.titles.romaji ?? " "}</p>
-                        <div className="anime-catalog-meta">{anime.format ?? "Формат не указан"}{anime.year ? ` · ${anime.year}` : ""}{anime.genres?.length ? ` · ${anime.genres.join(", ")}` : ""}</div>
+                        <div className="anime-catalog-meta">
+                          {[anime.format, anime.year, anime.ageRating, anime.startDate, releaseStatusLabel, anime.episodes != null ? `${anime.episodes} эп.` : null, ...(anime.genres ?? [])].filter(Boolean).join(" · ") || "Метаданные пока не добавлены"}
+                        </div>
 
                         {entry && (
                           <>
@@ -3115,21 +3122,19 @@ function App() {
 
                             <div className="progress-info">
                               <span>
-                                {typeof totalEpisodes === "number" &&
-                                totalEpisodes > 0
-                                  ? `Эпизод ${progress} из ${totalEpisodes}`
-                                  : `Просмотрено ${progress} эпизодов`}
+                                {progress === null
+                                  ? `Прогресс просмотра не предоставлен${typeof totalEpisodes === "number" ? ` · всего ${totalEpisodes} эп.` : ""}`
+                                  : typeof totalEpisodes === "number" && totalEpisodes > 0
+                                    ? `Эпизод ${progress} из ${totalEpisodes}`
+                                    : `Просмотрено ${progress} эпизодов`}
                               </span>
 
                               <span>
-                                {typeof totalEpisodes === "number" &&
-                                totalEpisodes > 0
-                                  ? `${percent}%`
-                                  : ""}
+                                {progress !== null && typeof totalEpisodes === "number" && totalEpisodes > 0 ? `${percent}%` : ""}
                               </span>
                             </div>
 
-                            {typeof totalEpisodes === "number" &&
+                            {progress !== null && typeof totalEpisodes === "number" &&
                               totalEpisodes > 0 && (
                                 <div className="progress-track">
                                   <div
