@@ -37,6 +37,19 @@ function createApi(applicationToken, token) {
   };
 }
 
+function extractListRows(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return null;
+  for (const key of ["data", "items", "list", "animes", "anime", "results", "entries"]) {
+    if (Array.isArray(payload[key])) return payload[key];
+  }
+  return null;
+}
+
+function objectKeys(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? Object.keys(value).slice(0, 30) : [];
+}
+
 function requireId(value, label) {
   const id = String(value || "");
   if (!/^\d+$/.test(id)) throw new Error("Некорректный " + label + " ID.");
@@ -181,26 +194,42 @@ export async function handleYummyAnimeRequest(request, response, url, deps) {
       const authApi = await authorizedApi();
       const profile = unwrap(await authApi("/profile"));
       const userId = requireId(profile?.id || profile?.user_id || tokens.yummyanime?.userId, "пользователя");
-      const definitions = unwrap(await authApi("/users/" + userId + "/lists"));
-      if (!Array.isArray(definitions)) throw new Error("YummyAnime вернул списки в неожиданном формате.");
+      const definitionsPayload = unwrap(await authApi("/users/" + userId + "/lists"));
+      const definitions = extractListRows(definitionsPayload);
+      if (!definitions) throw new Error("YummyAnime вернул списки в неожиданном формате (ожидался массив или data/items/list).");
       const rows = [];
+      const diagnostics = [];
       for (const definition of definitions) {
-        const listId = Number(definition?.id);
-        if (!Number.isSafeInteger(listId) || listId < 0 || listId > 5) continue;
-        const page = unwrap(await authApi("/users/" + userId + "/lists/" + listId));
-        const pageRows = Array.isArray(page) ? page
-          : Array.isArray(page?.data) ? page.data
-          : Array.isArray(page?.items) ? page.items
-          : null;
-        if (!pageRows) throw new Error("YummyAnime вернул страницу списка в неожиданном формате.");
-        const listName = String(definition?.name || definition?.title || definition?.label || "");
+        const rawId = definition?.id ?? definition?.list_id ?? definition?.listId;
+        const listId = Number(rawId);
+        if (!Number.isSafeInteger(listId) || listId < 0) {
+          diagnostics.push({ listId: null, label: String(definition?.name || definition?.title || definition?.label || ""), skipped: "non-numeric-list-id", definitionKeys: objectKeys(definition), rowCount: 0 });
+          continue;
+        }
+        const pagePayload = unwrap(await authApi("/users/" + userId + "/lists/" + encodeURIComponent(String(rawId))));
+        const pageRows = extractListRows(pagePayload);
+        if (!pageRows) {
+          diagnostics.push({ listId, label: String(definition?.name || definition?.title || definition?.label || ""), skipped: "unexpected-list-response", definitionKeys: objectKeys(definition), responseKeys: objectKeys(pagePayload), rowCount: 0 });
+          continue;
+        }
+        const listName = String(definition?.name || definition?.title || definition?.label || definition?.status_name || definition?.slug || "");
+        diagnostics.push({
+          listId, label: listName, rowCount: pageRows.length,
+          firstRowKeys: objectKeys(pageRows[0]), firstAnimeKeys: objectKeys(pageRows[0]?.anime),
+          firstUserKeys: objectKeys(pageRows[0]?.user), firstListKeys: objectKeys(pageRows[0]?.list),
+        });
         rows.push(...pageRows.map((row) => ({
           ...row,
-          list_id: row?.list_id ?? listId,
+          anime_id: row?.anime_id ?? row?.animeId ?? row?.anime?.anime_id ?? row?.anime?.id,
+          list_id: row?.list_id ?? row?.listId ?? row?.list?.id ?? listId,
           ...(listName && !row?.list_name ? { list_name: listName } : {}),
         })));
       }
-      return sendJson(response, 200, { profile, lists: definitions, entries: rows, count: rows.length });
+      return sendJson(response, 200, {
+        profile, lists: definitions, entries: rows, count: rows.length,
+        diagnostics: { definitionsCount: definitions.length, fetchedRows: rows.length, lists: diagnostics,
+          definitionsKeys: objectKeys(definitions[0]), definitionsPayloadKeys: objectKeys(definitionsPayload) },
+      });
     } catch (error) { return sendJson(response, error.status || 502, { error: error.message }); }
   }
 
