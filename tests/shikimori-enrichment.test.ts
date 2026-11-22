@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { enrichShikimoriAnimeRates } from "../server/shikimori-enrichment.mjs";
+import { enrichShikimoriAnimeRates, getShikimoriIdentityCoverage } from "../server/shikimori-enrichment.mjs";
 
 function rate(id: number, overrides: { myanimelist_id?: number | null } = {}) {
   return {
@@ -109,6 +109,34 @@ describe("Shikimori anime_rates enrichment", () => {
       async () => [],
       async () => ({ id: 11, myanimelist_id: 111 }),
     )).rejects.toThrow("не вернул подробные данные для ID аниме 10");
+  });
+
+  it("reads numeric-string and alternate MAL ID fields", async () => {
+    const result = await enrichShikimoriAnimeRates(
+      [
+        rate(10, { myanimelist_id: "101" as unknown as number }),
+        { ...rate(20), anime: { id: 20, name: "Anime 20", malId: "202" } },
+      ],
+      async () => [],
+      async (id) => ({ id }),
+    );
+
+    expect(result.map((item) => item.anime.myanimelist_id)).toEqual([101, 202]);
+  });
+
+  it("reports MAL identity coverage without guessing missing IDs", () => {
+    const coverage = getShikimoriIdentityCoverage([
+      rate(10, { myanimelist_id: 100 }),
+      rate(20),
+      { ...rate(30), anime: { id: 30, name: "Anime 30", malId: "300" } },
+    ]);
+
+    expect(coverage).toEqual({
+      total: 3,
+      withMyAnimeListId: 2,
+      withoutMyAnimeListId: 1,
+      sampleMissingAnimeIds: [20],
+    });
   });
 
   it("accepts an empty list without making API requests", async () => {
