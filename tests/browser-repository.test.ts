@@ -610,6 +610,64 @@ describe("BrowserAnimeRepository V3 backups", () => {
     });
   });
 
+  it("cancels unfinished sync operations and sessions when importing a replacement snapshot", async () => {
+    const repo = await createRepository();
+    const now = "2026-11-17T12:00:00.000Z";
+
+    await repo.saveAnime(makeAnime("old-anime"));
+    await repo.saveSourceEntry(makeEntry("old-anime", 4, now));
+
+    const session: SyncSession = {
+      sessionId: "import-session",
+      provider: "anilist",
+      status: "running",
+      startedAt: now,
+      operationCount: 1,
+      succeededCount: 0,
+      failedCount: 0,
+      pendingCount: 1,
+      unchangedCount: 0,
+      conflictCount: 0,
+      recoveredCount: 0,
+    };
+    const operation: SyncOperation = {
+      id: "pending-import-operation",
+      sessionId: session.sessionId,
+      provider: "anilist",
+      direction: "remote",
+      kind: "update",
+      animeId: "old-anime",
+      entry: { ...makeEntry("old-anime", 4, now), source: "anilist" },
+      status: "pending",
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await repo.saveSyncSession(session);
+    await repo.saveSyncOperations([operation]);
+
+    await repo.importSnapshot(makeSnapshot(["new-anime"], 7));
+
+    expect(await repo.getAnime("old-anime")).toBeUndefined();
+    expect(await repo.getAnime("new-anime")).toBeDefined();
+    expect(await repo.getUnfinishedSyncOperations()).toEqual([]);
+    expect(await repo.getSyncOperations()).toEqual([
+      expect.objectContaining({
+        id: operation.id,
+        animeId: "old-anime",
+        status: "cancelled",
+      }),
+    ]);
+    expect(await repo.getSyncSessions()).toEqual([
+      expect.objectContaining({
+        sessionId: session.sessionId,
+        status: "cancelled",
+        pendingCount: 0,
+      }),
+    ]);
+  });
+
   it("imports a V2 backup without conflict resolutions", async () => {
     const repo = await createRepository();
 
