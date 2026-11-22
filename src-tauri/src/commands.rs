@@ -172,6 +172,7 @@ pub fn streaming_secret_remove(key: String) -> Result<(), String> {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeHttpRequest {
+    provider: String,
     url: String,
     method: Option<String>,
     headers: Option<HashMap<String, String>>,
@@ -191,17 +192,18 @@ pub struct NativeHttpResponse {
     url: String,
 }
 
-fn allowed_provider_host(host: &str) -> bool {
-    host == "animego.me"
-        || host.ends_with(".animego.me")
-        || host == "anixart.site"
-        || host.ends_with(".anixart.site")
+fn allowed_provider_host(provider: &str, host: &str) -> bool {
+    match provider {
+        "animego" => host == "animego.me" || host.ends_with(".animego.me"),
+        "anixart" => host == "anixart.site" || host.ends_with(".anixart.site"),
+        _ => false,
+    }
 }
 
-fn validate_request_url(raw: &str) -> Result<reqwest::Url, String> {
+fn validate_request_url(provider: &str, raw: &str) -> Result<reqwest::Url, String> {
     let url = reqwest::Url::parse(raw).map_err(|_| "Invalid provider URL.".to_string())?;
     if url.scheme() != "https"
-        || !url.host_str().map(allowed_provider_host).unwrap_or(false)
+        || !url.host_str().map(|host| allowed_provider_host(provider, host)).unwrap_or(false)
         || url.username() != ""
         || url.password().is_some()
     {
@@ -212,7 +214,8 @@ fn validate_request_url(raw: &str) -> Result<reqwest::Url, String> {
 
 #[tauri::command]
 pub async fn streaming_http_request(request: NativeHttpRequest) -> Result<NativeHttpResponse, String> {
-    let url = validate_request_url(&request.url)?;
+    let provider = request.provider.clone();
+    let url = validate_request_url(&provider, &request.url)?;
     let method = request.method.as_deref().unwrap_or("GET").to_uppercase();
     let method = reqwest::Method::from_bytes(method.as_bytes())
         .map_err(|_| "Unsupported HTTP method.".to_string())?;
@@ -230,11 +233,11 @@ pub async fn streaming_http_request(request: NativeHttpRequest) -> Result<Native
 
     let mut builder = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+        .redirect(reqwest::redirect::Policy::custom(move |attempt| {
             if attempt.previous().len() >= 5 {
                 attempt.stop()
             } else if attempt.url().scheme() == "https"
-                && attempt.url().host_str().map(allowed_provider_host).unwrap_or(false)
+                && attempt.url().host_str().map(|host| allowed_provider_host(&provider, host)).unwrap_or(false)
                 && attempt.previous().last().and_then(|previous| previous.host_str()) == attempt.url().host_str()
             {
                 attempt.follow()
@@ -276,7 +279,7 @@ pub async fn streaming_http_request(request: NativeHttpRequest) -> Result<Native
     }
     let status = response.status().as_u16();
     let final_url = response.url().to_string();
-    if !response.url().host_str().map(allowed_provider_host).unwrap_or(false) {
+    if !response.url().host_str().map(|host| allowed_provider_host(&provider, host)).unwrap_or(false) {
         return Err("Provider redirected outside the allowed domains.".to_string());
     }
 
