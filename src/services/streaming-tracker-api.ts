@@ -79,7 +79,7 @@ function safeDate(...values:unknown[]):string|null{
  return null;
 }
 function posterUrl(...values:unknown[]):string|null{
- const fields=["huge","fullsize","big","large","medium","original","url"];
+ const fields=["mega","huge","fullsize","big","large","medium","original","url"];
  for(const value of values){
   const candidates=[typeof value==="string"?value:"",...fields.map(field=>objectValue(value)[field])];
   for(const candidate of candidates){
@@ -126,7 +126,7 @@ export function normalizeYummyLists(payload:YummyRawLists):Array<{anime:AnimeIde
   const otherTitles=Array.isArray(nested.other_titles)?nested.other_titles.filter((value):value is string=>typeof value==="string"&&Boolean(value.trim())):[];
   const startDate=safeDate(nested.start_date,nested.startDate,nested.premiere_date,nested.aired_from,row.start_date);
   const format=mapFormat(type.shortname??type.name??nested.format??row.format);
-  const ageRating=mapAgeRating(minAge.value,minAge.title??minAge.titleLong);
+  const ageRating=mapAgeRating(minAge.value,minAge.title??minAge.title_long??minAge.titleLong);
   const releaseStatus=mapReleaseStatus(animeStatus.alias??animeStatus.title??nested.release_status);
   const averageScore=numberValue(rating.average,nested.average_score,nested.mean);
   const anime:AnimeIdentity={
