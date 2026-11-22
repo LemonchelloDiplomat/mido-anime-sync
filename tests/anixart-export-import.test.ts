@@ -36,6 +36,67 @@ describe("Anixart official bookmark export import", () => {
     expect(result.snapshot.sourceEntries[0]).toMatchObject({ status: "COMPLETED", score: 100 });
   });
 
+  it("accepts a tab-delimited TXT export with headers", () => {
+    const result = parseAnixartBookmarkExport(
+      "Название\tОригинальное название\tАльтернативные названия\tСтатус просмотра\tМоя оценка\n" +
+      "Тайтл\tOriginal\tAlias A; Alias B\tСмотрю\t4",
+      "anixart.txt",
+    );
+    expect(result.snapshot.anime[0]?.titles.synonyms).toEqual(["Original", "Alias A", "Alias B"]);
+    expect(result.snapshot.sourceEntries[0]).toMatchObject({ status: "WATCHING", score: 80 });
+  });
+
+  it("imports favorite-only rows without inventing a watch status", () => {
+    const result = parseAnixartBookmarkExport(
+      "Название;Избранное;Моя оценка\nТайтл;Да;5",
+      "anixart.csv",
+    );
+    expect(result.snapshot.anime).toHaveLength(1);
+    expect(result.snapshot.sourceEntries[0]).toMatchObject({
+      status: "PLANNING",
+      favorite: true,
+      score: 100,
+      sourceMetadata: { statusKnown: false, favoriteKnown: true },
+    });
+  });
+
+  it("combines duplicate rows from separate watch and favorite lists", () => {
+    const result = parseAnixartBookmarkExport(
+      "ID;Название;Статус просмотра;Моя оценка\n" +
+      "777;Один тайтл;Смотрю;4\n" +
+      "777;Один тайтл;Избранное;4",
+      "anixart.csv",
+    );
+    expect(result.snapshot.anime).toHaveLength(1);
+    expect(result.snapshot.sourceEntries[0]).toMatchObject({
+      status: "WATCHING",
+      favorite: true,
+      score: 80,
+      sourceMetadata: { statusKnown: true, favoriteKnown: true },
+    });
+  });
+
+  it("parses quoted slash-delimited TXT fields without shifting status and score", () => {
+    const result = parseAnixartBookmarkExport(
+      '/"Название / с разделителем"/"Original / title"/2020/12/Просмотрено/5 из 5',
+      "anixart.txt",
+    );
+    expect(result.snapshot.anime[0]?.titles.romaji).toBe("Название / с разделителем");
+    expect(result.snapshot.anime[0]?.titles.synonyms).toEqual(["Original / title"]);
+    expect(result.snapshot.sourceEntries[0]).toMatchObject({ status: "COMPLETED", score: 100 });
+  });
+
+  it("extracts an exact Anixart release ID from a release URL column", () => {
+    const result = parseAnixartBookmarkExport(
+      "Название;Статус просмотра;Ссылка на релиз\nТайтл;Смотрю;https://anixart.site/7004-title.html",
+      "anixart.csv",
+    );
+    expect(result.snapshot.anime[0]).toMatchObject({
+      id: "anixart:7004",
+      externalIds: { anixart: "7004" },
+    });
+  });
+
   it("uses deterministic title identities when the export has no release IDs", () => {
     const a = parseAnixartBookmarkExport("Title;Watch status\nExample;Watching", "anixart.csv");
     const b = parseAnixartBookmarkExport("Title;Watch status\nExample;Watching", "anixart.csv");
@@ -67,7 +128,7 @@ describe("Anixart official bookmark export import", () => {
 
   it("skips unsupported status rows and rejects unknown CSV layouts", () => {
     const result = parseAnixartBookmarkExport(
-      "Название;Статус просмотра\nИзбранное без статуса;Избранное\nОбычное аниме;Смотрю",
+      "Название;Статус просмотра\nСтрока с неизвестным статусом;Неизвестно\nОбычное аниме;Смотрю",
       "anixart.csv",
     );
     expect(result.snapshot.anime).toHaveLength(1);

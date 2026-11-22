@@ -1851,6 +1851,7 @@ function App() {
           return {
             ...entry,
             ...(entry.sourceMetadata?.progressKnown === false ? { progress: previous.progress } : {}),
+            ...(entry.sourceMetadata?.statusKnown === false ? { status: previous.status } : {}),
             ...(entry.sourceMetadata?.scoreKnown === false ? { score: previous.score } : {}),
             ...(entry.sourceMetadata?.favoriteKnown === false ? { favorite: previous.favorite } : {}),
           };
@@ -3149,7 +3150,7 @@ function App() {
                           <>
                             <div className="anime-meta">
                               <span className="status-label">
-                                {statusLabels[entry.status]}
+                                {entry.source === "anixart" && entry.sourceMetadata?.statusKnown === false && entry.favorite ? "Избранное" : statusLabels[entry.status]}
                               </span>
 
                               {entry.favorite && (

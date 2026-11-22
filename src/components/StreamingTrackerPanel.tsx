@@ -144,7 +144,7 @@ export function StreamingTrackerPanel({ items, onImport, onImportAnixart }: {
         <span>{busy?"Обработка файла...":"Выбрать экспорт Anixart (.csv или .txt)"}</span>
         <input type="file" accept=".csv,.txt,text/csv,text/plain" disabled={busy} onChange={event=>{const file=event.target.files?.[0];if(file)void importAnixartFile(file);event.currentTarget.value="";}}/>
       </label>
-      <p className="integration-security-note">В Anixart: Настройки → Данные и память → Экспорт закладок. Включи «Статус просмотра» и «Моя оценка», если эти поля доступны в настройках экспорта.</p>
+      <p className="integration-security-note">В Anixart: Настройки → Данные и память → Экспорт закладок. Выбери нужные списки и включи «Оригинальное название», «Альтернативные названия», «Статус просмотра» и «Моя оценка». Избранное переносится отдельной отметкой. Официальный экспорт не содержит прогресс по эпизодам.</p>
     </div>
     {message&&<p role="status">{message}</p>}
     {error&&<p className="error-message" role="alert">{error}</p>}
