@@ -1190,6 +1190,91 @@ describe("BrowserAnimeRepository relations", () => {
     expect(await repo.getAnime(anime.id)).toMatchObject({ externalIds: { shikimori: "42" } });
   });
 
+  it("cancels unfinished sync sessions that reference an anime being deleted", async () => {
+    const repo = await createRepository();
+    const now = "2026-11-20T12:00:00.000Z";
+    const animeIds = ["deleted-anime", "same-session-anime", "unrelated-anime"];
+
+    for (const id of animeIds) {
+      await repo.saveAnime(makeAnime(id));
+    }
+
+    const createOperation = (id: string, sessionId: string): SyncOperation => ({
+      id: `operation-${id}`,
+      sessionId,
+      provider: "anilist",
+      direction: "remote",
+      kind: "update",
+      animeId: id,
+      entry: { ...makeEntry(id, 4, now), source: "anilist" },
+      status: "pending",
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const createSession = (sessionId: string, operationCount: number): SyncSession => ({
+      sessionId,
+      provider: "anilist",
+      status: "running",
+      startedAt: now,
+      operationCount,
+      succeededCount: 0,
+      failedCount: 0,
+      pendingCount: operationCount,
+      unchangedCount: 0,
+      conflictCount: 0,
+      recoveredCount: 0,
+    });
+
+    await repo.saveSyncSession(createSession("affected-session", 2));
+    await repo.saveSyncSession(createSession("unrelated-session", 1));
+    await repo.saveSyncOperations([
+      createOperation("deleted-anime", "affected-session"),
+      createOperation("same-session-anime", "affected-session"),
+      createOperation("unrelated-anime", "unrelated-session"),
+    ]);
+
+    await repo.deleteAnime("deleted-anime");
+
+    const operations = await repo.getSyncOperations();
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "operation-deleted-anime",
+          animeId: "deleted-anime",
+          status: "cancelled",
+        }),
+        expect.objectContaining({
+          id: "operation-same-session-anime",
+          animeId: "same-session-anime",
+          status: "cancelled",
+        }),
+        expect.objectContaining({
+          id: "operation-unrelated-anime",
+          animeId: "unrelated-anime",
+          status: "pending",
+        }),
+      ]),
+    );
+    expect(await repo.getUnfinishedSyncOperations()).toEqual([
+      expect.objectContaining({ id: "operation-unrelated-anime" }),
+    ]);
+    expect(await repo.getSyncSessions()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sessionId: "affected-session",
+          status: "cancelled",
+          pendingCount: 0,
+        }),
+        expect.objectContaining({
+          sessionId: "unrelated-session",
+          status: "running",
+          pendingCount: 1,
+        }),
+      ]),
+    );
+  });
+
   it("removes anime relations when deleting an anime", async () => {
     const repo = await createRepository();
 
