@@ -129,4 +129,30 @@ describe("IndexedDB schema migrations", () => {
     });
     upgradedDb.close();
   });
+
+  it("closes stale app connections so an IndexedDB upgrade is not blocked", async () => {
+    const name = `anime-sync-blocked-upgrade-${Date.now()}-${Math.random()}`;
+    let blockingCalled = false;
+    const legacyDb = await openDB(name, 7, {
+      upgrade(database) {
+        database.createObjectStore("anime", { keyPath: "id" });
+      },
+      blocking() {
+        blockingCalled = true;
+        legacyDb.close();
+      },
+    });
+    await legacyDb.put("anime", { id: "anime-1", titles: { english: "Keep me" } });
+
+    const repository = await BrowserAnimeRepository.open(name);
+    repositories.push(repository);
+
+    expect(blockingCalled).toBe(true);
+    expect(await repository.getAnime("anime-1")).toMatchObject({
+      id: "anime-1",
+      titles: { english: "Keep me" },
+    });
+    repository.close();
+    repositories.splice(repositories.indexOf(repository), 1);
+  });
 });
