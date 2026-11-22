@@ -18,7 +18,8 @@ export const SHIKIMORI_USER_ANIME_RATES_QUERY = `
         kind
         episodes
         score
-        airedOn
+        airedOn { date year month day }
+        poster { originalUrl mainUrl }
       }
     }
   }
@@ -79,7 +80,11 @@ export async function fetchShikimoriAnimeRates(
           kind: rate.anime.kind ?? null,
           episodes: rate.anime.episodes ?? null,
           score: rate.anime.score ?? null,
-          aired_on: rate.anime.airedOn ?? null,
+          aired_on: rate.anime.airedOn?.date ?? null,
+          image: {
+            original: rate.anime.poster?.originalUrl ?? null,
+            preview: rate.anime.poster?.mainUrl ?? null,
+          },
         },
       });
     }
