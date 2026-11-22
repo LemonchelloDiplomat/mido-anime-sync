@@ -88,6 +88,8 @@ export interface AccountEntryUpdate {
   score: number | null;
   favorite?: boolean;
   entryId?: number;
+  /** Provider-specific metadata from that provider's own remote baseline. */
+  sourceMetadata?: Record<string, unknown>;
 }
 
 
