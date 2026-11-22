@@ -6,8 +6,8 @@ function run(command, args) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-console.log("Installing Tauri and Capacitor platform dependencies...");
-run("npm", ["install", "@capacitor/core@^8", "@capacitor/android@^8", "@capnative/capacitor-secure-storage@^8"]);
+console.log("Installing native platform tooling...");
+run("npm", ["install", "@capacitor/android@^8"]);
 run("npm", ["install", "--save-dev", "@capacitor/cli@^8", "@tauri-apps/cli@^2"]);
 
 if (!existsSync("android")) {
@@ -17,4 +17,4 @@ if (!existsSync("android")) {
   console.log("Android project already exists; leaving it intact.");
 }
 
-console.log("Platform dependencies are installed. Run 'npx cap sync android' before opening Android Studio.");
+console.log("Platform tooling is installed. Build the web assets, then run 'npx cap sync android'.");
