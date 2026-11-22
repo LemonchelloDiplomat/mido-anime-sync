@@ -188,7 +188,17 @@ export async function handleYummyAnimeRequest(request, response, url, deps) {
         const listId = Number(definition?.id);
         if (!Number.isSafeInteger(listId) || listId < 0 || listId > 5) continue;
         const page = unwrap(await authApi("/users/" + userId + "/lists/" + listId));
-        if (Array.isArray(page)) rows.push(...page);
+        const pageRows = Array.isArray(page) ? page
+          : Array.isArray(page?.data) ? page.data
+          : Array.isArray(page?.items) ? page.items
+          : null;
+        if (!pageRows) throw new Error("YummyAnime вернул страницу списка в неожиданном формате.");
+        const listName = String(definition?.name || definition?.title || definition?.label || "");
+        rows.push(...pageRows.map((row) => ({
+          ...row,
+          list_id: row?.list_id ?? listId,
+          ...(listName && !row?.list_name ? { list_name: listName } : {}),
+        })));
       }
       return sendJson(response, 200, { profile, lists: definitions, entries: rows, count: rows.length });
     } catch (error) { return sendJson(response, error.status || 502, { error: error.message }); }
