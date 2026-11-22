@@ -1303,28 +1303,114 @@ export class BrowserAnimeRepository {
     }
 
     const transaction = this.db.transaction(
-      ["anime", "entries", "sourceEntries", "conflictResolutions", "animeRelations", "deletionIntents"],
+      [
+        "anime",
+        "entries",
+        "sourceEntries",
+        "conflictResolutions",
+        "animeRelations",
+        "deletionIntents",
+        "syncOperations",
+        "syncSessions",
+      ],
       "readwrite",
     );
-    const sourceStore = transaction.objectStore("sourceEntries");
-    const relationStore = transaction.objectStore("animeRelations");
-    const deletionStore = transaction.objectStore("deletionIntents");
-    const [sourceRecords, relations] = await Promise.all([
-      sourceStore.getAll(IDBKeyRange.bound([id, ""], [id, "\uffff"])),
-      relationStore.getAll(),
-    ]);
-    const relatedRelations = relations.filter(
-      (relation) => relation.sourceAnimeId === id || relation.targetAnimeId === id,
-    );
-    await Promise.all([
-      transaction.objectStore("anime").delete(id),
-      transaction.objectStore("entries").delete(id),
-      transaction.objectStore("conflictResolutions").delete(id),
-      ...sourceRecords.map((entry) => sourceStore.delete([entry.animeId, entry.source])),
-      ...relatedRelations.map((relation) => relationStore.delete(relation.id)),
-      ...deletionIntents.map((intent) => deletionStore.put(structuredClone(intent))),
-    ]);
-    await transaction.done;
+    const transactionDone = transaction.done;
+    void transactionDone.catch(() => undefined);
+
+    try {
+      const animeStore = transaction.objectStore("anime");
+      const entriesStore = transaction.objectStore("entries");
+      const sourceStore = transaction.objectStore("sourceEntries");
+      const resolutionStore = transaction.objectStore("conflictResolutions");
+      const relationStore = transaction.objectStore("animeRelations");
+      const deletionStore = transaction.objectStore("deletionIntents");
+      const operationsStore = transaction.objectStore("syncOperations");
+      const sessionsStore = transaction.objectStore("syncSessions");
+
+      const [sourceRecords, relations, operations, sessions] = await Promise.all([
+        sourceStore.getAll(IDBKeyRange.bound([id, ""], [id, "\uffff"])),
+        relationStore.getAll(),
+        operationsStore.getAll(),
+        sessionsStore.getAll(),
+      ]);
+      const relatedRelations = relations.filter(
+        (relation) => relation.sourceAnimeId === id || relation.targetAnimeId === id,
+      );
+
+      // Deleting an anime must not leave unfinished journal entries pointing at
+      // a record that no longer exists. Cancel the whole affected session so
+      // its other pending operations cannot resume as an orphaned partial run.
+      const interruptedSessionIds = new Set(
+        operations
+          .filter(
+            (operation) =>
+              operation.animeId === id &&
+              (operation.status === "pending" || operation.status === "in_progress"),
+          )
+          .map((operation) => operation.sessionId),
+      );
+      const deletedAt = new Date().toISOString();
+      const updatedOperations = operations.map((operation) => {
+        if (
+          !interruptedSessionIds.has(operation.sessionId) ||
+          (operation.status !== "pending" && operation.status !== "in_progress")
+        ) {
+          return operation;
+        }
+        return {
+          ...operation,
+          status: "cancelled" as const,
+          error: "Сеанс прерван удалением аниме из локальной библиотеки.",
+          updatedAt: deletedAt,
+        };
+      });
+      const updatedSessions = sessions.map((session) => {
+        if (!interruptedSessionIds.has(session.sessionId)) return session;
+        const sessionOperations = updatedOperations.filter(
+          (operation) => operation.sessionId === session.sessionId,
+        );
+        return {
+          ...session,
+          status: "cancelled" as const,
+          finishedAt: deletedAt,
+          operationCount: sessionOperations.length,
+          succeededCount: sessionOperations.filter(
+            (operation) => operation.status === "succeeded",
+          ).length,
+          failedCount: sessionOperations.filter(
+            (operation) => operation.status === "failed",
+          ).length,
+          pendingCount: 0,
+          error: "Сеанс прерван удалением аниме из локальной библиотеки.",
+        };
+      });
+
+      await Promise.all([
+        animeStore.delete(id),
+        entriesStore.delete(id),
+        resolutionStore.delete(id),
+        ...sourceRecords.map((entry) => sourceStore.delete([entry.animeId, entry.source])),
+        ...relatedRelations.map((relation) => relationStore.delete(relation.id)),
+        ...deletionIntents.map((intent) => deletionStore.put(structuredClone(intent))),
+        ...updatedOperations
+          .filter((operation, index) => operation !== operations[index])
+          .map((operation) => operationsStore.put(operation)),
+        ...updatedSessions
+          .filter((session, index) => session !== sessions[index])
+          .map((session) => sessionsStore.put(session)),
+      ]);
+
+      await transactionDone;
+    } catch (error) {
+      try {
+        transaction.abort();
+      } catch {
+        // The transaction may already have completed or aborted.
+      }
+      await transactionDone.catch(() => undefined);
+      throw error;
+    }
   }
 
   async getDeletionIntents(provider?: SyncDeletionIntent["provider"]): Promise<SyncDeletionIntent[]> {
