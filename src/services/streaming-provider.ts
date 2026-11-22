@@ -27,6 +27,10 @@ export const STREAMING_PROVIDER_CAPABILITIES: Record<StreamingProviderId, Stream
     catalogSearch: true, titleDetails: true, seasonsAndEpisodes: true, voiceTracks: true,
     accountConnection: true, listImport: true, listWrite: true,
     watchProgressRead: true, watchProgressWrite: true,
+    limitations: [
+      "API заявлен владельцем как personal use only; для коммерческого распространения нужно отдельное разрешение.",
+      "Списки и избранное синхронизируются отдельно; изменение списка не обновляет прогресс и оценку.",
+    ],
   },
   animego: {
     catalogSearch: true, titleDetails: true, seasonsAndEpisodes: true, voiceTracks: true,
