@@ -50,6 +50,37 @@ function objectKeys(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? Object.keys(value).slice(0, 30) : [];
 }
 
+async function enrichAnimeRows(authApi, rows) {
+  const cache = new Map();
+  const ids = [...new Set(rows.map((row) => String(row?.anime_id ?? row?.animeId ?? row?.id ?? "")).filter((id) => /^\\d+$/.test(id)))];
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(4, ids.length) }, async () => {
+    while (cursor < ids.length) {
+      const id = ids[cursor++];
+      try {
+        const detail = unwrap(await authApi("/anime/" + encodeURIComponent(id)));
+        if (detail && typeof detail === "object") cache.set(id, detail);
+      } catch {
+        // A detail endpoint outage must not prevent importing the user's list.
+      }
+    }
+  });
+  await Promise.all(workers);
+  return rows.map((row) => {
+    const id = String(row?.anime_id ?? row?.animeId ?? row?.id ?? "");
+    const detail = cache.get(id);
+    if (!detail) return row;
+    return {
+      ...row,
+      anime: {
+        ...detail,
+        // The account-list row is authoritative for personal score and list state.
+        user: row.user ?? detail.user,
+      },
+    };
+  });
+}
+
 function requireId(value, label) {
   const id = String(value || "");
   if (!/^\d+$/.test(id)) throw new Error("Некорректный " + label + " ID.");
@@ -203,8 +234,9 @@ export async function handleYummyAnimeRequest(request, response, url, deps) {
         (row.anime_id !== undefined || row.anime_url) && typeof row.title === "string";
       const animeRows = sourceRows.filter(isAnimeRow);
       if (animeRows.length) {
+        const enrichedRows = await enrichAnimeRows(authApi, animeRows);
         const statusLists = new Map();
-        const entries = animeRows.map((row) => {
+        const entries = enrichedRows.map((row) => {
           const user = row.user && typeof row.user === "object" ? row.user : {};
           const userList = user.list && typeof user.list === "object" ? user.list : {};
           const status = userList.list && typeof userList.list === "object" ? userList.list : {};
