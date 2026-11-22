@@ -14,6 +14,7 @@ describe("Shikimori account list importer", () => {
       anime: {
         id: 32998,
         name: "91 Days",
+        myanimelist_id: 32998,
         russian: "91 день",
         image: {
           original: "/system/animes/original/32998.jpg?1711937952",
@@ -35,7 +36,7 @@ describe("Shikimori account list importer", () => {
     expect(snapshot.anime).toHaveLength(1);
     expect(snapshot.anime[0]).toMatchObject({
       id: "shikimori:32998",
-      externalIds: { shikimori: "32998" },
+      externalIds: { shikimori: "32998", myanimelist: "32998" },
       titles: { romaji: "91 Days", synonyms: ["91 день"] },
       format: "TV",
       year: 2016,
@@ -51,9 +52,30 @@ describe("Shikimori account list importer", () => {
       score: null,
       source: "shikimori",
       updatedAt: "2026-11-11T14:25:08.296Z",
+      sharedMetadata: { rewatchCount: 0 },
       sourceMetadata: { shikimoriRateId: 219694778, rewatches: 0, text: "" },
     });
     expect(snapshot.sourceEntries).toEqual(snapshot.entries);
+  });
+
+  it("accepts numeric-string MAL IDs and the camelCase API alias", () => {
+    const snapshot = parseShikimoriAccountList([
+      {
+        id: 1,
+        status: "planned",
+        anime: { id: 41, name: "Example", myanimelist_id: "12345" },
+      },
+      {
+        id: 2,
+        status: "planned",
+        anime: { id: 42, name: "Another", malId: "67890" },
+      },
+    ]);
+
+    expect(snapshot.anime.map((anime) => anime.externalIds.myanimelist)).toEqual([
+      "12345",
+      "67890",
+    ]);
   });
 
   it("normalizes all supported statuses and user scores", () => {

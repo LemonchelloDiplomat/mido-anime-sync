@@ -10,7 +10,7 @@ function anime(id: string, mal = "10", al = "20"): AnimeIdentity {
   };
 }
 
-function entry(animeId: string, source: "local" | "myanimelist" | "anilist", updatedAt: string, overrides: Partial<AnimeListEntry> = {}): AnimeListEntry {
+function entry(animeId: string, source: "local" | "myanimelist" | "anilist" | "shikimori", updatedAt: string, overrides: Partial<AnimeListEntry> = {}): AnimeListEntry {
   return {
     animeId, source, status: "WATCHING", progress: 3, score: 80, favorite: false,
     updatedAt, ...overrides,
@@ -257,6 +257,42 @@ describe("Shikimori bidirectional sync", () => {
     expect(plan.localCreates[0]?.entry.source).toBe("shikimori");
   });
 
+  it("keeps the Shikimori source when attaching a remote list entry to an existing catalog anime", () => {
+    const localAnime: AnimeIdentity = {
+      id: "catalog:41",
+      titles: { romaji: "Example", synonyms: [] },
+      externalIds: { shikimori: "41" },
+    };
+    const remoteAnime: AnimeIdentity = {
+      id: "shikimori:41",
+      titles: { romaji: "Example", synonyms: [] },
+      externalIds: { shikimori: "41" },
+    };
+    const remoteEntry: AnimeListEntry = {
+      animeId: remoteAnime.id,
+      source: "shikimori",
+      status: "WATCHING",
+      progress: 4,
+      score: 80,
+      favorite: false,
+      updatedAt: "2026-11-17T10:00:00.000Z",
+      sourceMetadata: { shikimoriRateId: 901 },
+    };
+    const plan = createBidirectionalSyncPlan(
+      [{ anime: localAnime, entry: undefined }],
+      remoteSnapshot([remoteAnime], [remoteEntry]),
+      "shikimori",
+    );
+
+    expect(plan.localCreates).toHaveLength(0);
+    expect(plan.localUpdates).toHaveLength(1);
+    expect(plan.localUpdates[0]?.entry).toMatchObject({
+      animeId: localAnime.id,
+      source: "shikimori",
+      sourceMetadata: { shikimoriRateId: 901 },
+    });
+  });
+
   it("uses the ten-point score precision and does not sync favorites", () => {
     const localAnime: AnimeIdentity = {
       id: "local:41",
@@ -286,6 +322,112 @@ describe("Shikimori bidirectional sync", () => {
     };
     const plan = createBidirectionalSyncPlan(
       [{ anime: localAnime, entry: localEntry }],
+      remoteSnapshot([remoteAnime], [remoteEntry]),
+      "shikimori",
+    );
+
+    expect(plan.conflicts).toHaveLength(0);
+    expect(plan.remoteUpdates).toHaveLength(0);
+    expect(plan.localUpdates).toHaveLength(0);
+    expect(plan.unchanged).toBe(1);
+  });
+});
+
+
+describe("shared metadata bidirectional sync", () => {
+  it("propagates a local-only rewatch count change to the provider", () => {
+    const localAnime = anime("local:rewatch");
+    const baseline = entry(localAnime.id, "myanimelist", "2026-11-15T10:00:00.000Z", {
+      sharedMetadata: { rewatchCount: 1, startedAt: "2025-01-01" },
+    });
+    const localEntry = entry(localAnime.id, "local", "2026-11-17T10:00:00.000Z", {
+      sharedMetadata: { rewatchCount: 3, startedAt: "2025-01-01" },
+    });
+    const remoteEntry = entry("mal:rewatch", "myanimelist", "2026-11-16T10:00:00.000Z", {
+      sharedMetadata: { rewatchCount: 1, startedAt: "2025-01-01" },
+    });
+    const plan = createBidirectionalSyncPlan(
+      [{ anime: localAnime, entry: localEntry, baseline }],
+      remoteSnapshot([anime("mal:rewatch")], [remoteEntry]),
+      "mal",
+    );
+
+    expect(plan.conflicts).toHaveLength(0);
+    expect(plan.remoteUpdates).toHaveLength(1);
+    expect(plan.remoteUpdates[0]?.entry.sharedMetadata?.rewatchCount).toBe(3);
+  });
+
+  it("imports a remote-only completion date change into the local entry", () => {
+    const localAnime = anime("local:date");
+    const baseline = entry(localAnime.id, "anilist", "2026-11-15T10:00:00.000Z", {
+      sharedMetadata: { rewatchCount: 0, completedAt: "2025-01-01" },
+    });
+    const localEntry = entry(localAnime.id, "local", "2026-11-16T10:00:00.000Z", {
+      sharedMetadata: { rewatchCount: 0, completedAt: "2025-01-01" },
+    });
+    const remoteEntry = entry("anilist:date", "anilist", "2026-11-17T10:00:00.000Z", {
+      sharedMetadata: { rewatchCount: 0, completedAt: "2025-02-01" },
+    });
+    const plan = createBidirectionalSyncPlan(
+      [{ anime: localAnime, entry: localEntry, baseline }],
+      remoteSnapshot([anime("anilist:date")], [remoteEntry]),
+      "anilist",
+    );
+
+    expect(plan.conflicts).toHaveLength(0);
+    expect(plan.localUpdates).toHaveLength(1);
+    expect(plan.localUpdates[0]?.entry.sharedMetadata?.completedAt).toBe("2025-02-01");
+  });
+
+  it("blocks concurrent changes to the same shared field", () => {
+    const localAnime = anime("local:conflict");
+    const baseline = entry(localAnime.id, "myanimelist", "2026-11-15T10:00:00.000Z", {
+      sharedMetadata: { rewatchCount: 1 },
+    });
+    const localEntry = entry(localAnime.id, "local", "2026-11-17T10:00:00.000Z", {
+      sharedMetadata: { rewatchCount: 2 },
+    });
+    const remoteEntry = entry("mal:conflict", "myanimelist", "2026-11-16T10:00:00.000Z", {
+      sharedMetadata: { rewatchCount: 4 },
+    });
+    const plan = createBidirectionalSyncPlan(
+      [{ anime: localAnime, entry: localEntry, baseline }],
+      remoteSnapshot([anime("mal:conflict")], [remoteEntry]),
+      "mal",
+    );
+
+    expect(plan.conflicts).toMatchObject([{
+      field: "rewatchCount",
+      localValue: 2,
+      remoteValue: 4,
+      baselineValue: 1,
+      reason: "both_changed",
+    }]);
+    expect(plan.remoteUpdates).toHaveLength(0);
+    expect(plan.localUpdates).toHaveLength(0);
+  });
+
+  it("does not treat unsupported Shikimori dates as sync conflicts", () => {
+    const localAnime: AnimeIdentity = {
+      id: "local:shiki",
+      titles: { english: "Example anime", synonyms: [] },
+      externalIds: { shikimori: "41" },
+    };
+    const remoteAnime: AnimeIdentity = {
+      ...localAnime,
+      id: "shikimori:shiki",
+    };
+    const baseline = entry(localAnime.id, "shikimori", "2026-11-15T10:00:00.000Z", {
+      sharedMetadata: { rewatchCount: 1 },
+    });
+    const localEntry = entry(localAnime.id, "local", "2026-11-17T10:00:00.000Z", {
+      sharedMetadata: { rewatchCount: 1, startedAt: "2025-01-01" },
+    });
+    const remoteEntry = entry("shikimori:shiki", "shikimori", "2026-11-16T10:00:00.000Z", {
+      sharedMetadata: { rewatchCount: 1, completedAt: "2025-02-01" },
+    });
+    const plan = createBidirectionalSyncPlan(
+      [{ anime: localAnime, entry: localEntry, baseline }],
       remoteSnapshot([remoteAnime], [remoteEntry]),
       "shikimori",
     );

@@ -55,6 +55,7 @@ describe("MyAnimeList account list importer", () => {
       progress: 12,
       score: 90,
       source: "myanimelist",
+      sharedMetadata: { rewatchCount: 1 },
       sourceMetadata: { originalStatus: "watching", originalScore: 9, timesRewatched: 1 },
     });
     expect(snapshot.sourceEntries).toEqual(snapshot.entries);

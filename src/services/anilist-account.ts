@@ -6,9 +6,10 @@ interface AniListApiEntry {
   score: number;
   progress: number;
   repeat: number;
+  notes?: string | null;
   updatedAt: number;
-  startedAt?: { year?: number | null; month?: number | null; day?: number | null };
-  completedAt?: { year?: number | null; month?: number | null; day?: number | null };
+  startedAt?: { year?: number | null; month?: number | null; day?: number | null } | null;
+  completedAt?: { year?: number | null; month?: number | null; day?: number | null } | null;
   media: {
     id: number;
     idMal: number | null;
@@ -52,7 +53,7 @@ function normalizeScore(score: number, format: AniListScoreFormat): number | nul
   }
 }
 
-function formatDate(value?: AniListApiEntry["startedAt"]): string | null {
+function formatDate(value?: AniListApiEntry["startedAt"] | null): string | null {
   if (!value?.year || !value.month || !value.day) return null;
   return String(value.year) + "-" + String(value.month).padStart(2, "0") + "-" + String(value.day).padStart(2, "0");
 }
@@ -131,9 +132,17 @@ export function parseAniListAccountList(
       favorite: Boolean(media.isFavourite),
       updatedAt,
       source: "anilist",
+      sharedMetadata: {
+        rewatchCount: Math.max(0, Number(raw.repeat) || 0),
+        // Null is meaningful: it distinguishes an explicitly empty provider date
+        // from metadata that was never present in an older local snapshot.
+        startedAt: formatDate(raw.startedAt),
+        completedAt: formatDate(raw.completedAt),
+      },
       sourceMetadata: {
         anilistEntryId: raw.id,
         repeat: raw.repeat ?? 0,
+        notes: raw.notes ?? "",
         scoreFormat,
         startedAt: formatDate(raw.startedAt),
         completedAt: formatDate(raw.completedAt),

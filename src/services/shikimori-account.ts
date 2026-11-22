@@ -9,6 +9,9 @@ import type {
 interface ShikimoriAnime {
   id: number;
   name: string;
+  myanimelist_id?: number | string | null;
+  mal_id?: number | string | null;
+  malId?: number | string | null;
   russian?: string | null;
   kind?: string | null;
   episodes?: number | null;
@@ -84,6 +87,13 @@ function finiteNumber(value: number | string | null | undefined): number | null 
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function normalizeMyAnimeListId(value: unknown): number | null {
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  if (typeof value === "string" && !/^\d+$/.test(value.trim())) return null;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 export function parseShikimoriAccountList(
   input: unknown,
   exportedAt = new Date().toISOString(),
@@ -121,13 +131,19 @@ export function parseShikimoriAccountList(
       ? new Date(raw.updated_at).toISOString()
       : exportedAt;
     const averageScore = finiteNumber(animeData.score);
+    const myanimelistId = normalizeMyAnimeListId(
+      animeData.myanimelist_id ?? animeData.mal_id ?? animeData.malId,
+    );
     const identity: AnimeIdentity = {
       id,
       titles: {
         romaji: animeData.name,
         synonyms: animeData.russian ? [animeData.russian] : [],
       },
-      externalIds: { shikimori: String(animeData.id) },
+      externalIds: {
+        shikimori: String(animeData.id),
+        ...(myanimelistId !== null ? { myanimelist: String(myanimelistId) } : {}),
+      },
       ...(airedOn ? { startDate: airedOn, year: Number(airedOn.slice(0, 4)) } : {}),
       ...(mapFormat(animeData.kind) ? { format: mapFormat(animeData.kind)! } : {}),
       episodes: typeof animeData.episodes === "number" && Number.isInteger(animeData.episodes)
@@ -147,6 +163,9 @@ export function parseShikimoriAccountList(
       favorite: false,
       updatedAt,
       source: "shikimori",
+      sharedMetadata: {
+        rewatchCount: Math.max(0, Number(raw.rewatches) || 0),
+      },
       sourceMetadata: {
         shikimoriRateId: raw.id,
         rewatches: raw.rewatches ?? 0,

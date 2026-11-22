@@ -18,7 +18,7 @@ export interface LocalSyncItem {
 export interface SyncFieldConflict {
   animeId: string;
   title: string;
-  field: "status" | "progress" | "score" | "favorite";
+  field: "status" | "progress" | "score" | "favorite" | "rewatchCount" | "startedAt" | "completedAt";
   localValue: unknown;
   remoteValue: unknown;
   baselineValue?: unknown;
@@ -51,6 +51,17 @@ export interface SyncPlan {
 
 const SYNC_FIELDS = ["status", "progress", "score"] as const;
 type SyncField = (typeof SYNC_FIELDS)[number];
+type SharedMetadataField = "rewatchCount" | "startedAt" | "completedAt";
+
+function sharedMetadataFields(provider: SyncProvider): SharedMetadataField[] {
+  return provider === "shikimori"
+    ? ["rewatchCount"]
+    : ["rewatchCount", "startedAt", "completedAt"];
+}
+
+function sharedFieldValue(entry: AnimeListEntry, field: SharedMetadataField): unknown {
+  return entry.sharedMetadata?.[field];
+}
 
 function timestamp(value: string): number | null {
   const parsed = Date.parse(value);
@@ -153,6 +164,70 @@ export function createBidirectionalSyncPlan(
     let changed = false;
     let newestChangedTime: number | null = null;
 
+    for (const field of sharedMetadataFields(provider)) {
+      const localValue = sharedFieldValue(local.entry, field);
+      const remoteValue = sharedFieldValue(remote.entry, field);
+      if (localValue === remoteValue) continue;
+
+      if (local.baseline) {
+        const baselineValue = sharedFieldValue(local.baseline, field);
+        const localChanged = localValue !== baselineValue;
+        const remoteChanged = remoteValue !== baselineValue;
+
+        if (localChanged && remoteChanged) {
+          conflicts.push({
+            animeId: local.anime.id,
+            title: titleOf(local.anime),
+            field,
+            localValue,
+            remoteValue,
+            baselineValue,
+            localUpdatedAt: local.entry.updatedAt,
+            remoteUpdatedAt: remote.entry.updatedAt,
+            reason: "both_changed",
+          });
+          continue;
+        }
+
+        changed = true;
+        if (remoteChanged) {
+          desired.sharedMetadata = {
+            ...desired.sharedMetadata,
+            [field]: remoteValue,
+          };
+          if (remoteTime !== null) newestChangedTime = Math.max(newestChangedTime ?? remoteTime, remoteTime);
+        } else if (localChanged) {
+          if (localTime !== null) newestChangedTime = Math.max(newestChangedTime ?? localTime, localTime);
+        }
+        continue;
+      }
+
+      if (localTime === null || remoteTime === null || Math.abs(localTime - remoteTime) <= 1000) {
+        conflicts.push({
+          animeId: local.anime.id,
+          title: titleOf(local.anime),
+          field,
+          localValue,
+          remoteValue,
+          localUpdatedAt: local.entry.updatedAt,
+          remoteUpdatedAt: remote.entry.updatedAt,
+          reason: localTime === null || remoteTime === null ? "unknown_order" : "same_timestamp",
+        });
+        continue;
+      }
+
+      changed = true;
+      if (remoteTime > localTime) {
+        desired.sharedMetadata = {
+          ...desired.sharedMetadata,
+          [field]: remoteValue,
+        };
+        newestChangedTime = Math.max(newestChangedTime ?? 0, remoteTime);
+      } else {
+        newestChangedTime = Math.max(newestChangedTime ?? 0, localTime);
+      }
+    }
+
     for (const field of fields) {
       const localValue = local.entry[field];
       const remoteValue = remote.entry[field];
@@ -230,14 +305,22 @@ export function createBidirectionalSyncPlan(
       desired.updatedAt = new Date(newestChangedTime).toISOString();
     }
 
-    const localDiffers = fields.some((field) =>
-      comparableFieldValue(provider, field, local.entry?.[field]) !==
-      comparableFieldValue(provider, field, desired[field])
-    );
-    const remoteDiffers = fields.some((field) =>
-      comparableFieldValue(provider, field, remote.entry[field]) !==
-      comparableFieldValue(provider, field, desired[field])
-    );
+    const localDiffers =
+      fields.some((field) =>
+        comparableFieldValue(provider, field, local.entry?.[field]) !==
+        comparableFieldValue(provider, field, desired[field])
+      ) ||
+      sharedMetadataFields(provider).some((field) =>
+        sharedFieldValue(local.entry!, field) !== sharedFieldValue(desired, field)
+      );
+    const remoteDiffers =
+      fields.some((field) =>
+        comparableFieldValue(provider, field, remote.entry[field]) !==
+        comparableFieldValue(provider, field, desired[field])
+      ) ||
+      sharedMetadataFields(provider).some((field) =>
+        sharedFieldValue(remote.entry, field) !== sharedFieldValue(desired, field)
+      );
 
     if (localDiffers) {
       plan.localUpdates.push({
@@ -268,7 +351,7 @@ export function createBidirectionalSyncPlan(
         animeId: local.anime.id,
         entry: {
           ...cloneEntry(remote.entry, local.anime.id),
-          source: provider === "mal" ? "myanimelist" : "anilist",
+          source: getProviderServiceId(provider),
         },
       });
     }

@@ -7,6 +7,8 @@ import { handleMalDelete } from "./mal-delete-route.mjs";
 import { handleYummyAnimeRequest } from "./yummyanime-routes.mjs";
 import { handleAnimeGoRequest } from "./animego-routes.mjs";
 import { handleAnixArtRequest } from "./anixart-routes.mjs";
+import { fetchAniListAnimeList } from "./anilist-list.mjs";
+import { fetchShikimoriAnimeRates, getShikimoriIdentityCoverage } from "./shikimori-enrichment.mjs";
 
 const ROOT = process.cwd();
 const DATA_DIR = path.join(ROOT, ".local-data");
@@ -18,6 +20,8 @@ const MAL_API = "https://api.myanimelist.net/v2";
 const MAL_OAUTH = "https://myanimelist.net/v1/oauth2";
 const ANILIST_GRAPHQL = "https://graphql.anilist.co";
 const SHIKIMORI_API = "https://shikimori.io/api";
+// Shikimori REST and GraphQL use different routes. GraphQL is NOT mounted at /api.
+const SHIKIMORI_GRAPHQL = SHIKIMORI_API + "/graphql";
 const SHIKIMORI_OAUTH = "https://shikimori.io/oauth";
 let shikimoriQueue = Promise.resolve();
 let shikimoriLastRequestAt = 0;
@@ -137,14 +141,19 @@ async function readJson(request, maxBytes = 16384) {
 }
 
 async function fetchJson(url, options = {}) {
+  const requestUrl = new URL(url);
+  const requestMethod = String(options.method || "GET").toUpperCase();
   const response = await fetch(url, options);
   const text = await response.text();
   let payload;
   try { payload = text ? JSON.parse(text) : {}; } catch { payload = { message: text.slice(0, 500) }; }
   if (!response.ok) {
     const message = payload?.message || payload?.error_description || payload?.error || ("HTTP " + response.status);
-    const error = new Error(String(message));
+    const safeEndpoint = requestUrl.origin + requestUrl.pathname;
+    const error = new Error(requestMethod + " " + safeEndpoint + " вернул HTTP " + response.status + ": " + String(message));
     error.status = response.status;
+    error.upstreamMethod = requestMethod;
+    error.upstreamUrl = safeEndpoint;
     throw error;
   }
   return payload;
@@ -269,6 +278,29 @@ async function shikimoriRequest(pathname, tokens, options = {}) {
       ...options.headers,
     },
   });
+}
+
+async function shikimoriGraphqlRequest(query, variables, tokens) {
+  const accessToken = await getShikimoriAccessToken(tokens);
+  await acquireShikimoriRequestSlot();
+  const payload = await fetchJson(SHIKIMORI_GRAPHQL, {
+    method: "POST",
+    headers: {
+      "User-Agent": process.env.SHIKIMORI_USER_AGENT || "mido-anime-sync/0.5.0",
+      Authorization: "Bearer " + accessToken,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ query, variables }),
+    signal: AbortSignal.timeout(20000),
+  });
+  if (payload.errors?.length) {
+    throw new Error(payload.errors.map((item) => item?.message || "GraphQL error").join("; "));
+  }
+  if (!payload.data) {
+    throw new Error("Shikimori GraphQL не вернул data.");
+  }
+  return payload.data;
 }
 
 async function anilistRequest(query, variables, token) {
@@ -523,10 +555,26 @@ async function handleRequest(request, response) {
       let pages = 0;
       while (next && pages < 100) {
         const parsed = new URL(next);
-        if (parsed.hostname !== "api.myanimelist.net" || !parsed.pathname.startsWith("/v2/users/")) throw new Error("MyAnimeList вернул недопустимую ссылку пагинации.");
+        if (
+          parsed.protocol !== "https:" ||
+          parsed.hostname !== "api.myanimelist.net" ||
+          (parsed.port && parsed.port !== "443") ||
+          parsed.username ||
+          parsed.password ||
+          !parsed.pathname.startsWith("/v2/users/")
+        ) {
+          throw new Error("MyAnimeList вернул недопустимую ссылку пагинации.");
+        }
         const page = await malRequest(parsed.toString(), tokens);
-        items.push(...(page.data || []));
-        next = page.paging?.next || null;
+        if (!page || !Array.isArray(page.data)) {
+          throw new Error("MyAnimeList вернул некорректную страницу списка.");
+        }
+        items.push(...page.data);
+        const nextPage = page.paging?.next;
+        if (nextPage != null && typeof nextPage !== "string") {
+          throw new Error("MyAnimeList вернул некорректный указатель следующей страницы.");
+        }
+        next = nextPage || null;
         pages += 1;
       }
       if (next) throw new Error("Список MyAnimeList слишком большой: достигнут лимит страниц.");
@@ -558,6 +606,28 @@ async function handleRequest(request, response) {
       num_watched_episodes: String(progress),
       is_rewatching: status === "REWATCHING" ? "true" : "false",
     });
+    // Preserve metadata already stored on MAL. Never copy another provider's
+    // metadata into this endpoint: the client sends the MAL baseline only.
+    const malMetadata = body.sourceMetadata && typeof body.sourceMetadata === "object"
+      ? body.sourceMetadata : {};
+    for (const [key, field] of [
+      ["num_times_rewatched", "timesRewatched"],
+      ["rewatch_value", "rewatchValue"],
+      ["priority", "priority"],
+    ]) {
+      const value = Number(malMetadata[field]);
+      const max = key === "rewatch_value" ? 5 : key === "priority" ? 2 : Number.MAX_SAFE_INTEGER;
+      if (Number.isSafeInteger(value) && value >= 0 && value <= max) form.set(key, String(value));
+    }
+    if (Array.isArray(malMetadata.tags) &&
+        malMetadata.tags.every((tag) => typeof tag === "string" && tag.length <= 100)) {
+      form.set("tags", malMetadata.tags.join(","));
+    }
+    if (typeof malMetadata.comments === "string") form.set("comments", malMetadata.comments.slice(0, 2000));
+    for (const [key, field] of [["start_date", "startDate"], ["finish_date", "finishDate"]]) {
+      const value = malMetadata[field];
+      if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) form.set(key, value);
+    }
     try {
       const tokens = await readTokens();
       const accessToken = await getMalAccessToken(tokens);
@@ -591,17 +661,18 @@ async function handleRequest(request, response) {
   if (method === "GET" && url.pathname === "/api/anilist/list") {
     const tokens = await readTokens();
     if (!tokens.anilist?.accessToken) return sendJson(response, 401, { error: "AniList ещё не подключён." });
-    const query = "query UserAnimeList($userId: Int!) { Viewer { mediaListOptions { scoreFormat } } MediaListCollection(userId: $userId, type: ANIME) { lists { name isCustomList entries { id status score progress repeat updatedAt startedAt { year month day } completedAt { year month day } media { id idMal isFavourite title { romaji english native } synonyms format status episodes seasonYear startDate { year month day } averageScore genres coverImage { extraLarge large } } } } } }";
     try {
-      const data = await anilistRequest(query, { userId: tokens.anilist.userId }, tokens.anilist.accessToken);
-      const lists = data.MediaListCollection?.lists || [];
-      const entries = lists.flatMap((list) => list.entries || []);
-      const scoreFormat = data.Viewer?.mediaListOptions?.scoreFormat || "POINT_100";
+      const { lists, scoreFormat, count } = await fetchAniListAnimeList({
+        request: anilistRequest,
+        userId: tokens.anilist.userId,
+        accessToken: tokens.anilist.accessToken,
+      });
+      const entries = lists.flatMap((list) => list.entries);
       if (tokens.anilist.scoreFormat !== scoreFormat) {
         tokens.anilist.scoreFormat = scoreFormat;
         await writeTokens(tokens);
       }
-      return sendJson(response, 200, { lists, data: entries, count: entries.length, scoreFormat });
+      return sendJson(response, 200, { lists, data: entries, count, scoreFormat });
     } catch (error) {
       return sendJson(response, error.status || 502, { error: error.message });
     }
@@ -633,13 +704,28 @@ async function handleRequest(request, response) {
       : status === "ON_HOLD" ? "PAUSED"
       : status === "DROPPED" ? "DROPPED"
       : status === "REWATCHING" ? "REPEATING" : "PLANNING";
-    const mutation = "mutation SaveEntry($mediaId: Int!, $status: MediaListStatus!, $score: Float!, $progress: Int!) { SaveMediaListEntry(mediaId: $mediaId, status: $status, score: $score, progress: $progress) { id status score progress updatedAt } }";
+    const aniMetadata = body.sourceMetadata && typeof body.sourceMetadata === "object"
+      ? body.sourceMetadata : {};
+    const repeat = Number(aniMetadata.repeat);
+    const notes = typeof aniMetadata.notes === "string" ? aniMetadata.notes.slice(0, 6000) : "";
+    const toFuzzyDate = (value) => {
+      if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+      const [year, month, day] = value.split("-").map(Number);
+      return { year, month, day };
+    };
+    const startedAt = toFuzzyDate(aniMetadata.startedAt);
+    const completedAt = toFuzzyDate(aniMetadata.completedAt);
+    const mutation = "mutation SaveEntry($mediaId: Int!, $status: MediaListStatus!, $score: Float!, $progress: Int!, $repeat: Int!, $notes: String, $startedAt: FuzzyDateInput, $completedAt: FuzzyDateInput) { SaveMediaListEntry(mediaId: $mediaId, status: $status, score: $score, progress: $progress, repeat: $repeat, notes: $notes, startedAt: $startedAt, completedAt: $completedAt) { id status score progress repeat notes updatedAt startedAt { year month day } completedAt { year month day } } }";
     try {
       const data = await anilistRequest(mutation, {
         mediaId: id,
         status: remoteStatus,
         score: remoteScore,
         progress,
+        repeat: Number.isSafeInteger(repeat) && repeat >= 0 ? Math.min(1000, repeat) : 0,
+        notes,
+        startedAt,
+        completedAt,
       }, tokens.anilist.accessToken);
 
       // AniList favorites are media-level, separate from list-entry fields.
@@ -694,29 +780,20 @@ async function handleRequest(request, response) {
     const tokens = await readTokens();
     if (!tokens.shikimori?.accessToken) return sendJson(response, 401, { error: "Shikimori ещё не подключён." });
     try {
-      if (!tokens.shikimori.userId) {
-        const me = await shikimoriRequest("/users/whoami", tokens);
-        tokens.shikimori.userId = me.id || null;
-        tokens.shikimori.username = me.nickname || me.name || tokens.shikimori.username || null;
-        await writeTokens(tokens);
-      }
-      if (!tokens.shikimori.userId) throw new Error("Shikimori не вернул ID текущего пользователя.");
-      const items = [];
-      const limit = 5000;
-      let page = 1;
-      while (page <= 100) {
-        const query = new URLSearchParams({ limit: String(limit), page: String(page) });
-        const result = await shikimoriRequest(
-          "/users/" + encodeURIComponent(String(tokens.shikimori.userId)) + "/anime_rates?" + query.toString(),
-          tokens,
-        );
-        if (!Array.isArray(result)) throw new Error("Shikimori вернул список в неожиданном формате.");
-        items.push(...result);
-        if (result.length < limit) break;
-        page += 1;
-      }
-      if (page > 100) throw new Error("Список Shikimori слишком большой: достигнут лимит страниц.");
-      return sendJson(response, 200, { data: items, count: items.length });
+      // Use the authenticated GraphQL userRates query directly. This avoids
+      // relying on the legacy REST /users/:id/anime_rates route and resolves
+      // each anime's native Shikimori ID and nullable MAL ID in the same call.
+      const items = await fetchShikimoriAnimeRates(
+        (query, variables) => shikimoriGraphqlRequest(query, variables, tokens),
+        { pageSize: 50, maxPages: 100 },
+      );
+      const identityCoverage = getShikimoriIdentityCoverage(items);
+      return sendJson(response, 200, {
+        data: items,
+        count: items.length,
+        identityCoverage,
+        source: "shikimori-graphql-userRates",
+      });
     } catch (error) {
       return sendJson(response, error.status || 502, { error: error.message });
     }
@@ -757,6 +834,10 @@ async function handleRequest(request, response) {
         status: remoteStatus,
         score: score === 0 ? 0 : Math.max(1, Math.min(10, Math.round(score / 10))),
         episodes: progress,
+        ...(Number.isSafeInteger(Number(body.sourceMetadata?.rewatches)) && Number(body.sourceMetadata.rewatches) >= 0
+          ? { rewatches: Number(body.sourceMetadata.rewatches) } : {}),
+        ...(typeof body.sourceMetadata?.text === "string"
+          ? { text: body.sourceMetadata.text.slice(0, 10000) } : {}),
         ...(entryId === null ? { user_id: tokens.shikimori.userId } : {}),
       };
       const result = entryId === null

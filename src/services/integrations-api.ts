@@ -75,6 +75,12 @@ export interface RemoteAccountListPayload {
   data: unknown[];
   count: number;
   scoreFormat?: string;
+  identityCoverage?: {
+    total: number;
+    withMyAnimeListId: number;
+    withoutMyAnimeListId: number;
+    sampleMissingAnimeIds: number[];
+  };
 }
 
 export function fetchAccountList(provider: SyncProvider): Promise<RemoteAccountListPayload> {
@@ -88,6 +94,8 @@ export interface AccountEntryUpdate {
   score: number | null;
   favorite?: boolean;
   entryId?: number;
+  /** Provider-specific metadata from that provider's own remote baseline. */
+  sourceMetadata?: Record<string, unknown>;
 }
 
 

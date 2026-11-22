@@ -2,6 +2,7 @@ import "fake-indexeddb/auto";
 
 import { afterEach, describe, expect, it } from "vitest";
 import { BrowserAnimeRepository } from "../src/storage/browser-repository.js";
+import { createImportPreview } from "../src/core/import-preview.js";
 import type {
   AnimeIdentity,
   AnimeListEntry,
@@ -2416,3 +2417,106 @@ describe("BrowserAnimeRepository duplicate conflict safety", () => {
     expect(await repo.getSourceEntries(second.id)).toEqual([secondEntry]);
   });
 });
+
+describe("three-tracker import order integration", () => {
+  const providers = {
+    mal: {
+      id: "mal:1001",
+      source: "myanimelist" as const,
+      externalIds: { myanimelist: "1001" },
+      progress: 4,
+      status: "WATCHING" as const,
+      score: 90,
+      favorite: false,
+      sourceMetadata: { tags: ["mal-tag"], comments: "MAL note", timesRewatched: 0 },
+    },
+    anilist: {
+      id: "anilist:2001",
+      source: "anilist" as const,
+      externalIds: { myanimelist: "1001", anilist: "2001" },
+      progress: 7,
+      status: "REWATCHING" as const,
+      score: 85,
+      favorite: true,
+      sourceMetadata: { notes: "AniList note", repeat: 2 },
+    },
+    shikimori: {
+      id: "shikimori:3001",
+      source: "shikimori" as const,
+      externalIds: { myanimelist: "1001", shikimori: "3001" },
+      progress: 12,
+      status: "COMPLETED" as const,
+      score: 80,
+      favorite: false,
+      sourceMetadata: { shikimoriRateId: 9001, rewatches: 3, text: "Shikimori note" },
+    },
+  };
+
+  const orders = [
+    ["mal", "anilist", "shikimori"],
+    ["mal", "shikimori", "anilist"],
+    ["anilist", "shikimori", "mal"],
+    ["anilist", "mal", "shikimori"],
+    ["shikimori", "anilist", "mal"],
+    ["shikimori", "mal", "anilist"],
+  ] as const;
+
+  it.each(orders.map((order) => ({ order })))("converges to one anime with all three provider records for order $order", async ({ order }) => {
+    const repo = await createRepository();
+
+    for (const provider of order) {
+      const config = providers[provider];
+      const snapshot = makeSnapshot([config.id], config.progress);
+      snapshot.anime[0]!.externalIds = { ...config.externalIds };
+      snapshot.entries[0]!.source = config.source;
+      snapshot.entries[0]!.status = config.status;
+      snapshot.entries[0]!.score = config.score;
+      snapshot.entries[0]!.favorite = config.favorite;
+      snapshot.entries[0]!.sourceMetadata = structuredClone(config.sourceMetadata);
+      snapshot.sourceEntries[0]!.source = config.source;
+      snapshot.sourceEntries[0]!.status = config.status;
+      snapshot.sourceEntries[0]!.score = config.score;
+      snapshot.sourceEntries[0]!.favorite = config.favorite;
+      snapshot.sourceEntries[0]!.sourceMetadata = structuredClone(config.sourceMetadata);
+
+      const current = await repo.snapshot();
+      const preview = createImportPreview(snapshot.anime, current.anime);
+      expect(preview.summary).toEqual({
+        total: 1,
+        new: current.anime.length === 0 ? 1 : 0,
+        matched: current.anime.length === 0 ? 0 : 1,
+      });
+
+      const match = preview.items[0]!.matchedAnime;
+      const mappings = match ? { [config.id]: match.id } : {};
+      await repo.mergeSnapshotWithMappings(snapshot, mappings);
+    }
+
+    const result = await repo.snapshot();
+    expect(result.anime).toHaveLength(1);
+    expect(result.anime[0]!.externalIds).toEqual({
+      myanimelist: "1001",
+      anilist: "2001",
+      shikimori: "3001",
+    });
+    expect(result.sourceEntries).toHaveLength(3);
+    expect(result.sourceEntries.map((entry) => entry.source).sort()).toEqual([
+      "anilist",
+      "myanimelist",
+      "shikimori",
+    ]);
+    expect(result.sourceEntries.find((entry) => entry.source === "myanimelist")?.sourceMetadata)
+      .toEqual(providers.mal.sourceMetadata);
+    expect(result.sourceEntries.find((entry) => entry.source === "anilist")?.sourceMetadata)
+      .toEqual(providers.anilist.sourceMetadata);
+    expect(result.sourceEntries.find((entry) => entry.source === "shikimori")?.sourceMetadata)
+      .toEqual(providers.shikimori.sourceMetadata);
+    expect(result.sourceEntries.find((entry) => entry.source === "myanimelist"))
+      .toMatchObject({ status: "WATCHING", progress: 4, score: 90, favorite: false });
+    expect(result.sourceEntries.find((entry) => entry.source === "anilist"))
+      .toMatchObject({ status: "REWATCHING", progress: 7, score: 85, favorite: true });
+    expect(result.sourceEntries.find((entry) => entry.source === "shikimori"))
+      .toMatchObject({ status: "COMPLETED", progress: 12, score: 80, favorite: false });
+  });
+});
+

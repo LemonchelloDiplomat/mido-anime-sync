@@ -56,6 +56,74 @@ describe("import preview", () => {
     expect(preview.items[0]?.matchedAnime?.id).toBe("anilist:2");
   });
 
+  it("matches a Shikimori entry to an existing AniList/MAL identity through MAL ID", () => {
+    const imported = createAnime({
+      id: "shikimori:32998",
+      externalIds: { shikimori: "32998", myanimelist: "32998" },
+    });
+    const existing = createAnime({
+      id: "mal:32998",
+      externalIds: { myanimelist: "32998", anilist: "9876" },
+    });
+
+    const preview = createImportPreview([imported], [existing]);
+
+    expect(preview.items[0]?.status).toBe("matched");
+    expect(preview.items[0]?.matchedAnime?.id).toBe("mal:32998");
+    expect(preview.summary).toEqual({ total: 1, new: 0, matched: 1 });
+  });
+
+  it("matches all six MAL, AniList and Shikimori import orders through accumulated exact IDs", () => {
+    const providers = {
+      mal: createAnime({
+        id: "mal:1001",
+        externalIds: { myanimelist: "1001" },
+      }),
+      anilist: createAnime({
+        id: "anilist:9876",
+        externalIds: { anilist: "9876", myanimelist: "1001" },
+      }),
+      shikimori: createAnime({
+        id: "shikimori:32998",
+        externalIds: { shikimori: "32998", myanimelist: "1001" },
+      }),
+    };
+    const orders = [
+      ["mal", "anilist", "shikimori"],
+      ["mal", "shikimori", "anilist"],
+      ["anilist", "shikimori", "mal"],
+      ["anilist", "mal", "shikimori"],
+      ["shikimori", "anilist", "mal"],
+      ["shikimori", "mal", "anilist"],
+    ] as const;
+
+    for (const order of orders) {
+      let merged = providers[order[0]];
+      expect(createImportPreview([merged], []).summary).toEqual({
+        total: 1, new: 1, matched: 0,
+      });
+
+      for (const provider of order.slice(1)) {
+        const imported = providers[provider];
+        const preview = createImportPreview([imported], [merged]);
+
+        expect(preview.summary).toEqual({ total: 1, new: 0, matched: 1 });
+        expect(preview.items[0]?.matchedAnime?.id).toBe(merged.id);
+
+        merged = {
+          ...merged,
+          externalIds: { ...imported.externalIds, ...merged.externalIds },
+        };
+      }
+
+      expect(merged.externalIds).toEqual({
+        myanimelist: "1001",
+        anilist: "9876",
+        shikimori: "32998",
+      });
+    }
+  });
+
   it("does not merge similar titles when external IDs differ", () => {
     const imported = createAnime({
       id: "mal:season-2",

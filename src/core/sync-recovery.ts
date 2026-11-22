@@ -6,6 +6,37 @@ import type {
   SyncProvider,
 } from "./types.js";
 
+const PROVIDER_METADATA_FIELDS: Record<SyncProvider, string[]> = {
+  mal: ["timesRewatched", "rewatchValue", "tags", "comments", "priority", "startDate", "finishDate"],
+  anilist: ["repeat", "notes", "startedAt", "completedAt"],
+  shikimori: ["rewatches", "text"],
+};
+
+function providerMetadataMatches(
+  provider: SyncProvider,
+  expected: AnimeListEntry,
+  actual: AnimeListEntry,
+): boolean {
+  const expectedMetadata = expected.sourceMetadata;
+  const actualMetadata = actual.sourceMetadata ?? {};
+  const providerFieldsMatch = !expectedMetadata || PROVIDER_METADATA_FIELDS[provider].every((field) => {
+    if (!(field in expectedMetadata)) return true;
+    return JSON.stringify(expectedMetadata[field]) === JSON.stringify(actualMetadata[field]);
+  });
+  if (!providerFieldsMatch) return false;
+
+  const expectedShared = expected.sharedMetadata;
+  if (!expectedShared) return true;
+  const actualShared = actual.sharedMetadata ?? {};
+  const sharedFields = provider === "shikimori"
+    ? (["rewatchCount"] as const)
+    : (["rewatchCount", "startedAt", "completedAt"] as const);
+  return sharedFields.every((field) => {
+    if (!(field in expectedShared)) return true;
+    return JSON.stringify(expectedShared[field]) === JSON.stringify(actualShared[field]);
+  });
+}
+
 export interface SyncRecoveryDependencies {
   getSourceEntries: (animeId: string) => Promise<AnimeListEntry[]>;
   updateSyncOperation: (
@@ -55,7 +86,8 @@ export async function reconcileUnfinishedSyncOperations(
           actualEntry.status === operation.entry.status &&
           actualEntry.progress === operation.entry.progress &&
           actualEntry.score === expectedScore &&
-          (!providerSupportsFavorite(provider) || actualEntry.favorite === operation.entry.favorite),
+          (!providerSupportsFavorite(provider) || actualEntry.favorite === operation.entry.favorite) &&
+          providerMetadataMatches(provider, operation.entry, actualEntry),
         );
 
     if (matchesTarget) {
