@@ -63,7 +63,9 @@ try {
     }
     try {
       $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 2
-      if ($response.StatusCode -eq 200 -and (Test-Port 3001)) { $ready = $true; break }
+      $apiHealth = Invoke-RestMethod -Uri "http://127.0.0.1:3001/api/health" -TimeoutSec 2
+      $apiReady = ($apiHealth.ok -eq $true -and $apiHealth.mode -eq "local")
+      if ($response.StatusCode -eq 200 -and $apiReady) { $ready = $true; break }
     } catch {}
   }
   if (-not $ready) {
