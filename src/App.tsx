@@ -555,7 +555,20 @@ function App() {
       snapshot,
       currentItems.map((item) => item.anime),
     );
-    await repository.mergeSnapshot(reconciled);
+    // Some Yummy list responses omit progress, score or favorite. Preserve the
+    // last known Yummy source value instead of interpreting omission as zero/null/false.
+    const sourceEntries = await Promise.all(reconciled.sourceEntries.map(async (entry) => {
+      const previous = (await repository!.getSourceEntries(entry.animeId))
+        .find((item) => item.source === "yummyanime");
+      if (!previous) return entry;
+      return {
+        ...entry,
+        ...(entry.sourceMetadata?.progressKnown === false ? { progress: previous.progress } : {}),
+        ...(entry.sourceMetadata?.scoreKnown === false ? { score: previous.score } : {}),
+        ...(entry.sourceMetadata?.favoriteKnown === false ? { favorite: previous.favorite } : {}),
+      };
+    }));
+    await repository.mergeSnapshot({ ...reconciled, sourceEntries });
     await refreshLibrary();
   }
 
