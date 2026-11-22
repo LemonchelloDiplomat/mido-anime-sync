@@ -4,11 +4,21 @@ import {
   type AndroidStreamingRuntimeDependencies,
   type StreamingRuntime,
 } from "./streaming-runtime.js";
-import type { NativeInvoke } from "./native-platform-adapters.js";
+import type {
+  CapacitorHttpPlugin,
+  CapacitorSecureStoragePlugin,
+  NativeInvoke,
+} from "./native-platform-adapters.js";
+
+/** Capacitor's public runtime marker exposed by the native bridge. */
+export interface CapacitorRuntimeBridge {
+  isNativePlatform(): boolean;
+  getPlatform(): string;
+}
 
 /**
  * Native Android entrypoints may inject already-registered Capacitor plugins.
- * This is intentionally an explicit bridge, not a browser storage fallback.
+ * This remains a supported test/embedding seam, not a browser storage fallback.
  */
 export interface StreamingRuntimeHost {
   __TAURI__?: {
@@ -17,14 +27,19 @@ export interface StreamingRuntimeHost {
     };
   };
   __MIDO_STREAMING_ANDROID__?: AndroidStreamingRuntimeDependencies;
+  Capacitor?: CapacitorRuntimeBridge;
 }
 
+export interface CapacitorAndroidModules {
+  secureStorage: CapacitorSecureStoragePlugin;
+  http: CapacitorHttpPlugin;
+}
+
+export type CapacitorAndroidModuleLoader = () => Promise<CapacitorAndroidModules>;
+
 /**
- * Detect the native host during application startup.
- *
- * Windows Tauri is composed automatically. Android requires the native
- * Capacitor entrypoint to inject SecureStorage and CapacitorHttp; until then
- * this returns null rather than silently using web storage or fetch.
+ * Synchronous composition for trusted native bridges that have already
+ * supplied their dependencies. Browser runtimes deliberately return null.
  */
 export function createStreamingRuntimeFromHost(
   host: StreamingRuntimeHost | null = getHostWindow(),
@@ -38,6 +53,56 @@ export function createStreamingRuntimeFromHost(
   if (android) return createAndroidStreamingRuntime(android);
 
   return null;
+}
+
+/**
+ * Initialize the runtime used by the app entrypoint.
+ *
+ * Tauri is composed synchronously. Capacitor Android loads the actual
+ * installed plugin modules only after confirming a native Android host.
+ * This keeps ordinary browser builds free of platform package dependencies
+ * and never substitutes localStorage, IndexedDB, or browser fetch.
+ */
+export async function initializeStreamingRuntimeFromHost(
+  host: StreamingRuntimeHost | null = getHostWindow(),
+  loadAndroidModules: CapacitorAndroidModuleLoader = loadCapacitorAndroidModules,
+): Promise<StreamingRuntime | null> {
+  if (!host) return null;
+
+  const invoke = host.__TAURI__?.core?.invoke;
+  if (invoke) return createWindowsStreamingRuntime(invoke);
+
+  if (host.__MIDO_STREAMING_ANDROID__) {
+    return createAndroidStreamingRuntime(host.__MIDO_STREAMING_ANDROID__);
+  }
+
+  const capacitor = host.Capacitor;
+  if (!capacitor?.isNativePlatform() || capacitor.getPlatform() !== "android") {
+    return null;
+  }
+
+  const modules = await loadAndroidModules();
+  return createAndroidStreamingRuntime(modules);
+}
+
+async function loadCapacitorAndroidModules(): Promise<CapacitorAndroidModules> {
+  // Variable module specifiers intentionally keep optional native packages
+  // out of the regular browser bundle. setup:platforms installs both packages.
+  const corePackage = "@capacitor/core";
+  const secureStoragePackage = "@capnative/capacitor-secure-storage";
+  const [core, secureStorage] = await Promise.all([
+    import(corePackage),
+    import(secureStoragePackage),
+  ]);
+
+  if (!core.CapacitorHttp || !secureStorage.SecureStorage) {
+    throw new Error("Capacitor Android streaming plugins are not registered. Run npm run setup:platforms and npx cap sync android.");
+  }
+
+  return {
+    http: core.CapacitorHttp as CapacitorHttpPlugin,
+    secureStorage: secureStorage.SecureStorage as CapacitorSecureStoragePlugin,
+  };
 }
 
 function getHostWindow(): StreamingRuntimeHost | null {
