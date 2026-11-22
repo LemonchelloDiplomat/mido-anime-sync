@@ -59,11 +59,10 @@ export function StreamingTrackerPanel({ items, onImport }: {
           ...(item.entry.favorite?[{externalId,kind:"favorite" as const,favorite:true}]:[]),
         ];
       });
-      const result=await runConfirmedTrackerWrites(operations,operation=>
-        operation.kind==="list"
-          ? yummyTrackerApi.setList(operation.externalId,operation.listId!)
-          : yummyTrackerApi.setFavorite(operation.externalId,Boolean(operation.favorite))
-      );
+      const result=await runConfirmedTrackerWrites(operations,async operation=>{
+        if(operation.kind==="list") await yummyTrackerApi.setList(operation.externalId,operation.listId!);
+        else await yummyTrackerApi.setFavorite(operation.externalId,Boolean(operation.favorite));
+      });
       setMessage("Выполнено операций: "+result.succeeded.length+". Пропущено без ID или записи: "+skipped+"."+(result.failed?" Остановлено на ID "+result.failed.externalId+": "+result.error:result.cancelled?" Операция отменена.":""));
     }catch(e){setError(e instanceof Error?e.message:"Не удалось обновить списки.");}
     finally{setBusy(false);}
