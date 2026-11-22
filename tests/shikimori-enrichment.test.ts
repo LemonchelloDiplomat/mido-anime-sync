@@ -21,7 +21,7 @@ describe("Shikimori anime_rates enrichment", () => {
 
     const result = await enrichShikimoriAnimeRates(input, fetchBatch, async (id) => ({ id }));
 
-    expect(fetchBatch).toHaveBeenCalledExactlyOnceWith([10, 20]);
+    expect(fetchBatch).toHaveBeenCalledExactlyOnceWith([10]);
     expect(result.map((item) => item.anime.myanimelist_id)).toEqual([100, 200]);
     expect(result[0]?.anime.name).toBe("Anime 10");
     expect(input).toEqual(before);
@@ -44,13 +44,15 @@ describe("Shikimori anime_rates enrichment", () => {
   });
 
   it("keeps a valid existing MAL ID when the details endpoint has no mapping", async () => {
+    const fetchAnimeBatch = vi.fn(async (ids: number[]) => ids.map((id) => ({ id, myanimelist_id: null })));
     const result = await enrichShikimoriAnimeRates(
       [rate(10, { myanimelist_id: 777 })],
-      async (ids: number[]) => ids.map((id) => ({ id, myanimelist_id: null })),
+      fetchAnimeBatch,
       async (id) => ({ id, myanimelist_id: null }),
     );
 
     expect(result[0]?.anime.myanimelist_id).toBe(777);
+    expect(fetchAnimeBatch).not.toHaveBeenCalled();
   });
 
   it("stops the import when any requested anime detail is missing", async () => {
