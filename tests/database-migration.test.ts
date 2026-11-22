@@ -110,11 +110,11 @@ describe("IndexedDB schema migrations", () => {
     const backups = await backupDb.getAll("backups");
     expect(backups).toHaveLength(1);
     expect(backups[0]?.integrity.totalRecordCount).toBe(6);
-    expect(backups[0]?.stores.find((store) => store.name === "syncOperations")?.records)
+    expect(backups[0]?.stores.find((store: { name: string; records: unknown[]; recordCount: number }) => store.name === "syncOperations")?.records)
       .toMatchObject([{ id: "migration-operation", status: "pending" }]);
-    expect(backups[0]?.stores.find((store) => store.name === "syncSessions")?.records)
+    expect(backups[0]?.stores.find((store: { name: string; records: unknown[]; recordCount: number }) => store.name === "syncSessions")?.records)
       .toMatchObject([{ sessionId: "migration-session", status: "running" }]);
-    expect(backups[0]?.stores.find((store) => store.name === "deletionIntents")?.records)
+    expect(backups[0]?.stores.find((store: { name: string; records: unknown[]; recordCount: number }) => store.name === "deletionIntents")?.records)
       .toMatchObject([{ id: "migration-deletion", externalId: "100" }]);
     backupDb.close();
 
