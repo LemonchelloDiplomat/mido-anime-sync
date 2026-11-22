@@ -155,7 +155,7 @@ function posterFromCard(card) {
 function ratingFromCard(card) {
   const source = String(card || "");
   const candidates = [];
-  const scripts = [...source.matchAll(/<script\\b[^>]*type\\s*=\\s*(['"])application\\/ld\\+json\\1[^>]*>([\\s\\S]*?)<\\/script>/gi)];
+  const scripts = [...source.matchAll(/<script\b[^>]*type\s*=\s*(['"])application\/ld\+json\1[^>]*>([\s\S]*?)<\/script>/gi)];
   for (const script of scripts) {
     try {
       const data = JSON.parse(script[2]);
@@ -167,17 +167,17 @@ function ratingFromCard(card) {
     } catch { /* Ignore malformed optional card metadata. */ }
   }
 
-  const tags = [...source.matchAll(/<([a-z][\\w:-]*)\\b[^>]*>/gi)].map((match) => match[0]);
+  const tags = [...source.matchAll(/<([a-z][\w:-]*)\b[^>]*>/gi)].map((match) => match[0]);
   for (const tag of tags) {
     const className = attr(tag, "class");
     const itemProp = attr(tag, "itemprop").toLowerCase();
-    const isRatingElement = /(?:^|[\\s_-])(rating|rate|score)(?:$|[\\s_-])/i.test(className) ||
+    const isRatingElement = /(?:^|[\s_-])(rating|rate|score)(?:$|[\s_-])/i.test(className) ||
       itemProp === "ratingvalue" || attr(tag, "data-rating") || attr(tag, "data-score");
     if (!isRatingElement) continue;
     for (const name of ["content", "data-rating", "data-score", "data-value", "title", "aria-label"]) {
       const raw = attr(tag, name);
       if (!raw) continue;
-      const match = raw.replace(",", ".").match(/(?:^|[^\\d])(10(?:\\.0+)?|[0-9](?:\\.[0-9]+)?)(?:$|[^\\d])/);
+      const match = raw.replace(",", ".").match(/(?:^|[^\d])(10(?:\.0+)?|[0-9](?:\.[0-9]+)?)(?:$|[^\d])/);
       if (match) candidates.push(Number(match[1]));
     }
   }
@@ -185,14 +185,14 @@ function ratingFromCard(card) {
   const ratingText = tags
     .filter((tag) => /(?:rating|rate|score)/i.test(attr(tag, "class")) || attr(tag, "itemprop").toLowerCase() === "ratingvalue")
     .map((tag) => {
-      const name = tag.match(/^<([a-z][\\w:-]*)/i)?.[1];
+      const name = tag.match(/^<([a-z][\w:-]*)/i)?.[1];
       if (!name) return "";
-      const closing = new RegExp("<\\/" + name + "\\s*>", "i");
+      const closing = new RegExp("<\/" + name + "\s*>", "i");
       const start = source.indexOf(tag);
       const tail = source.slice(start + tag.length);
       return tail.slice(0, tail.search(closing) < 0 ? 0 : tail.search(closing));
     }).join(" ");
-  const textMatch = stripTags(ratingText).replace(",", ".").match(/(?:^|[^\\d])(10(?:\\.0+)?|[0-9](?:\\.[0-9]+)?)(?:\\s*(?:\\/\\s*10|из\\s*10))?/i);
+  const textMatch = stripTags(ratingText).replace(",", ".").match(/(?:^|[^\d])(10(?:\.0+)?|[0-9](?:\.[0-9]+)?)(?:\s*(?:\/\s*10|из\s*10))?/i);
   if (textMatch) candidates.push(Number(textMatch[1]));
 
   const valid = candidates.filter((value) => Number.isFinite(value) && value >= 0 && value <= 10);
