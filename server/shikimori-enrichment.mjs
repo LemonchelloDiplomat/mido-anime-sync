@@ -1,5 +1,95 @@
 const DEFAULT_BATCH_SIZE = 50;
 
+export const SHIKIMORI_USER_ANIME_RATES_QUERY = `
+  query ShikimoriUserAnimeRates($page: PositiveInt!, $limit: PositiveInt!) {
+    userRates(page: $page, limit: $limit, targetType: Anime) {
+      id
+      status
+      score
+      episodes
+      rewatches
+      text
+      updatedAt
+      anime {
+        id
+        malId
+        name
+        russian
+        kind
+        episodes
+        score
+        airedOn
+      }
+    }
+  }
+`;
+
+export async function fetchShikimoriAnimeRates(
+  requestGraphql,
+  { pageSize = DEFAULT_BATCH_SIZE, maxPages = 100 } = {},
+) {
+  if (typeof requestGraphql !== "function") {
+    throw new Error("Не настроен GraphQL-запрос Shikimori.");
+  }
+  if (!Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > DEFAULT_BATCH_SIZE) {
+    throw new Error("Размер страницы Shikimori должен быть от 1 до 50.");
+  }
+  if (!Number.isSafeInteger(maxPages) || maxPages < 1 || maxPages > 1000) {
+    throw new Error("Некорректный лимит страниц Shikimori.");
+  }
+
+  const rates = [];
+  const seenRateIds = new Set();
+  const seenAnimeIds = new Set();
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const data = await requestGraphql(SHIKIMORI_USER_ANIME_RATES_QUERY, {
+      page,
+      limit: pageSize,
+    });
+    if (!data || !Array.isArray(data.userRates)) {
+      throw new Error("Shikimori GraphQL не вернул userRates в ожидаемом формате.");
+    }
+
+    const batch = data.userRates;
+    for (const rate of batch) {
+      const rateId = normalizeAnimeId(rate?.id);
+      const animeId = normalizeAnimeId(rate?.anime?.id);
+      if (!rateId || !animeId || typeof rate?.anime?.name !== "string" || !rate.anime.name.trim()) {
+        throw new Error("Shikimori GraphQL вернул некорректную запись userRates.");
+      }
+      if (seenRateIds.has(rateId) || seenAnimeIds.has(animeId)) {
+        throw new Error("Shikimori GraphQL вернул повторяющуюся запись или аниме в userRates.");
+      }
+      seenRateIds.add(rateId);
+      seenAnimeIds.add(animeId);
+      rates.push({
+        id: rateId,
+        status: rate.status,
+        score: rate.score,
+        episodes: rate.episodes,
+        rewatches: rate.rewatches,
+        text: rate.text,
+        updated_at: rate.updatedAt,
+        anime: {
+          id: animeId,
+          malId: rate.anime.malId ?? null,
+          name: rate.anime.name,
+          russian: rate.anime.russian ?? null,
+          kind: rate.anime.kind ?? null,
+          episodes: rate.anime.episodes ?? null,
+          score: rate.anime.score ?? null,
+          aired_on: rate.anime.airedOn ?? null,
+        },
+      });
+    }
+
+    if (batch.length < pageSize) return rates;
+  }
+
+  throw new Error("Список Shikimori превысил безопасный лимит страниц.");
+}
+
 export const SHIKIMORI_ANIME_IDENTITY_QUERY = `
   query ShikimoriAnimeIdentity($ids: String) {
     animes(ids: $ids) {
@@ -38,7 +128,7 @@ export async function fetchShikimoriAnimeIdentityBatch(ids, requestGraphql) {
 
 function normalizeAnimeId(value) {
   if (typeof value !== "number" && typeof value !== "string") return null;
-  if (typeof value === "string" && !/^\d+$/.test(value.trim())) return null;
+  if (typeof value === "string" && !/^\\d+$/.test(value.trim())) return null;
   const id = typeof value === "number" ? value : Number(value);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
@@ -73,11 +163,7 @@ export function getShikimoriIdentityCoverage(rates) {
   };
 }
 
-/**
- * Enriches anime_rates with complete anime records. The list endpoint is used
- * in batches first; any IDs omitted by that endpoint are resolved through the
- * documented single-anime endpoint before import can continue.
- */
+/** Legacy REST enrichment helper retained for compatibility and regression tests. */
 export async function enrichShikimoriAnimeRates(
   rates,
   fetchAnimeBatch,
@@ -85,9 +171,7 @@ export async function enrichShikimoriAnimeRates(
   batchSize = DEFAULT_BATCH_SIZE,
   { resolveMissingIndividually = true } = {},
 ) {
-  if (!Array.isArray(rates)) {
-    throw new Error("Shikimori вернул список в неожиданном формате.");
-  }
+  if (!Array.isArray(rates)) throw new Error("Shikimori вернул список в неожиданном формате.");
   if (typeof fetchAnimeBatch !== "function" || typeof fetchAnimeById !== "function") {
     throw new Error("Не настроено получение подробных данных Shikimori.");
   }
@@ -99,11 +183,7 @@ export async function enrichShikimoriAnimeRates(
   const seenIds = new Set();
   for (const rate of rates) {
     const id = normalizeAnimeId(rate?.anime?.id);
-    if (!id) {
-      throw new Error("Shikimori вернул запись без корректного ID аниме.");
-    }
-    // A usable MAL ID is already enough for cross-provider matching.
-    // Avoid extra Shikimori requests for entries that already carry it.
+    if (!id) throw new Error("Shikimori вернул запись без корректного ID аниме.");
     if (readMyAnimeListId(rate.anime) === null && !seenIds.has(id)) {
       seenIds.add(id);
       ids.push(id);
@@ -114,36 +194,21 @@ export async function enrichShikimoriAnimeRates(
   for (let offset = 0; offset < ids.length; offset += batchSize) {
     const batchIds = ids.slice(offset, offset + batchSize);
     const details = await fetchAnimeBatch(batchIds);
-    if (!Array.isArray(details)) {
-      throw new Error("Shikimori вернул подробные данные аниме в неожиданном формате.");
-    }
-
+    if (!Array.isArray(details)) throw new Error("Shikimori вернул подробные данные аниме в неожиданном формате.");
     const requested = new Set(batchIds);
     for (const detail of details) {
       const detailId = normalizeAnimeId(detail?.id);
-      if (!detail || !detailId || !requested.has(detailId)) {
-        throw new Error("Shikimori вернул некорректный ответ при уточнении ID аниме.");
-      }
-      if (detailsById.has(detailId)) {
-        throw new Error("Shikimori вернул повторяющиеся подробные данные аниме: " + detailId);
-      }
+      if (!detail || !detailId || !requested.has(detailId)) throw new Error("Shikimori вернул некорректный ответ при уточнении ID аниме.");
+      if (detailsById.has(detailId)) throw new Error("Shikimori вернул повторяющиеся подробные данные аниме: " + detailId);
       detailsById.set(detailId, detail);
     }
-
-    // Some Shikimori REST responses omit entries for a multi-ID query. Resolve
-    // only those omissions via /api/animes/:id instead of failing the whole list.
-    // GraphQL batch mode must not fan out into hundreds of serial requests.
-    // Missing mappings remain null and are surfaced by identity diagnostics.
     if (resolveMissingIndividually) {
       const missing = batchIds.filter((id) => !detailsById.has(id));
       for (const id of missing) {
         const detail = await fetchAnimeById(id);
         const detailId = normalizeAnimeId(detail?.id);
         if (!detail || detailId !== id) {
-          throw new Error(
-            "Shikimori не вернул подробные данные для ID аниме " + id +
-            " ни в пакетном запросе, ни в запросе по отдельному ID. Импорт остановлен.",
-          );
+          throw new Error("Shikimori не вернул подробные данные для ID аниме " + id + " ни в пакетном запросе, ни в запросе по отдельному ID. Импорт остановлен.");
         }
         detailsById.set(id, detail);
       }
@@ -153,16 +218,7 @@ export async function enrichShikimoriAnimeRates(
   return rates.map((rate) => {
     const id = normalizeAnimeId(rate.anime.id);
     const detail = detailsById.get(id);
-    const detailedMalId = readMyAnimeListId(detail);
-    const existingMalId = readMyAnimeListId(rate.anime);
-    const myanimelistId = detailedMalId || existingMalId || null;
-
-    return {
-      ...rate,
-      anime: {
-        ...rate.anime,
-        myanimelist_id: myanimelistId,
-      },
-    };
+    const myanimelistId = readMyAnimeListId(detail) || readMyAnimeListId(rate.anime) || null;
+    return { ...rate, anime: { ...rate.anime, myanimelist_id: myanimelistId } };
   });
 }
