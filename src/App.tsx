@@ -2370,9 +2370,9 @@ function App() {
               </article>
               <div className="section-heading">
                 <div>
-                  <div className="eyebrow">ACCOUNT CONNECTIONS</div>
+                  <div className="eyebrow">ПОДКЛЮЧЕНИЕ АККАУНТОВ</div>
                   <h2>{appLocale === "ru" ? "Подключение аккаунтов" : appLocale === "ja" ? "アカウント接続" : "Account connections"}</h2>
-                  <p>Авторизация проходит на официальных сайтах. Пароли от аккаунтов приложение не запрашивает.</p>
+                  <p>Способ авторизации зависит от сервиса. Пароли не сохраняются в локальной библиотеке.</p>
                 </div>
                 <button className="secondary-button" onClick={() => {
                   setIntegrationStatusLoading(true);

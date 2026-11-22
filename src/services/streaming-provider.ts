@@ -26,29 +26,29 @@ export const STREAMING_PROVIDER_CAPABILITIES: Record<StreamingProviderId, Stream
   yummyanime: {
     catalogSearch: true, titleDetails: true, seasonsAndEpisodes: true, voiceTracks: true,
     accountConnection: true, listImport: true, listWrite: true,
-    watchProgressRead: true, watchProgressWrite: true,
+    watchProgressRead: false, watchProgressWrite: false,
     limitations: [
       "API заявлен владельцем как personal use only; для коммерческого распространения нужно отдельное разрешение.",
-      "Списки и избранное синхронизируются отдельно; изменение списка не обновляет прогресс и оценку.",
+      "Списки и избранное синхронизируются отдельно; прогресс эпизодов и оценка аккаунта не подтверждены.",
     ],
   },
   animego: {
     catalogSearch: true, titleDetails: true, seasonsAndEpisodes: true, voiceTracks: true,
-    accountConnection: false, listImport: true, listWrite: false,
+    accountConnection: false, listImport: false, listWrite: false,
     watchProgressRead: true, watchProgressWrite: false,
     limitations: [
-      "Импорт выполняется через браузерное расширение на открытой странице профиля, по одному статусному списку за раз.",
-      "Обратная запись статусов, прогресса и оценок пока не реализована.",
+      "Публичный стабильный API для аккаунта и списков не подтверждён. Расширение может передавать события просмотра, но это не синхронизация аккаунта.",
+      "Импорт списков и обратная запись статусов, прогресса и оценок недоступны без поддерживаемого API.",
     ],
   },
   anixart: {
     catalogSearch: true, titleDetails: true, seasonsAndEpisodes: true, voiceTracks: true,
-    accountConnection: false, listImport: true, listWrite: false,
+    accountConnection: false, listImport: false, listWrite: false,
     watchProgressRead: true, watchProgressWrite: false,
     limitations: [
-      "Списки мобильного приложения импортируются из собственного CSV/TXT экспорта; пароль и неофициальный API не используются.",
-      "Обратная запись статусов, прогресса и оценок пока не реализована.",
-      "Состояние просмотра доступно через браузерное расширение для сайта AnixART отдельно.",
+      "Официальный API аккаунта для сторонних приложений не опубликован. Неофициальная API-документация предупреждает, что стороннее использование не разрешено.",
+      "Импорт списков и обратная запись статусов, прогресса и оценок отключены до появления разрешённого API.",
+      "События просмотра с публичного сайта через расширение не являются синхронизацией мобильного аккаунта.",
     ],
   },
 };
