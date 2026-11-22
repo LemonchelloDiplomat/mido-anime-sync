@@ -121,6 +121,6 @@ function disconnectedStatus(provider: StreamingProviderId): StreamingAccountStat
 }
 
 function safeError(error: unknown): string {
-  if (!(error instanceof Error)) return "Account operation failed.";
-  return error.message.replace(/(token|cookie|password|authorization)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]");
+  if (error instanceof Error && error.name === "AbortError") return "Account operation cancelled.";
+  return "Account operation failed. Sensitive provider details were omitted.";
 }
