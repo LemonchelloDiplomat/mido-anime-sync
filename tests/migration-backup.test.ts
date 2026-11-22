@@ -5,6 +5,7 @@ import { openDB } from "idb";
 import {
   createMigrationBackupIfNeeded,
   getMigrationBackupDatabaseName,
+  listMigrationBackups,
   restoreMigrationBackup,
 } from "../src/storage/migration-backup.js";
 
@@ -204,3 +205,42 @@ describe("pre-migration IndexedDB backups", () => {
     });
     current.close();
   });
+
+
+it("keeps older valid backups available when the newest copy is damaged", async () => {
+  const name = `migration-backup-fallback-${Date.now()}-${Math.random()}`;
+  const backupName = getMigrationBackupDatabaseName(name);
+  databaseNames.push(name, backupName);
+
+  const db = await openDB(name, 7, {
+    upgrade(database) {
+      database.createObjectStore("anime", { keyPath: "id" });
+    },
+  });
+  await db.put("anime", { id: "anime-1", title: "Safe record" });
+  db.close();
+
+  const first = await createMigrationBackupIfNeeded(name, 8);
+  expect(first).not.toBeNull();
+
+  const backupDb = await openDB(backupName, 1);
+  const firstRecord = await backupDb.get("backups", first!.id);
+  await backupDb.put("backups", {
+    ...firstRecord!,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  });
+  backupDb.close();
+
+  const second = await createMigrationBackupIfNeeded(name, 8);
+  expect(second).not.toBeNull();
+
+  const corruptDb = await openDB(backupName, 1);
+  const damaged = await corruptDb.get("backups", second!.id);
+  damaged!.stores[0]!.records[0] = { id: "anime-1", title: "Corrupted record" };
+  await corruptDb.put("backups", damaged!);
+  corruptDb.close();
+
+  const available = await listMigrationBackups(name);
+  expect(available.map((backup) => backup.id)).toContain(first!.id);
+  expect(available.map((backup) => backup.id)).not.toContain(second!.id);
+});
