@@ -18,6 +18,7 @@ export function StreamingTrackerPanel({ items, onImport }: {
   const [status,setStatus]=useState<YummyAccountStatus|null>(null);
   const [login,setLogin]=useState("");
   const [password,setPassword]=useState("");
+  const [captcha,setCaptcha]=useState("");
   const [lists,setLists]=useState<Array<Record<string,unknown>>>([]);
   const [mapping,setMapping]=useState<Record<string,string>>({});
   const [busy,setBusy]=useState(false);
@@ -35,7 +36,7 @@ export function StreamingTrackerPanel({ items, onImport }: {
   useEffect(()=>{void refresh().catch(e=>setError(e instanceof Error?e.message:"Не удалось проверить YummyAnime."));},[]);
   async function connect(){
     setBusy(true);setError("");setMessage("");
-    try{await yummyTrackerApi.login(login,password);setPassword("");await refresh();setMessage("Аккаунт YummyAnime подключён.");}
+    try{await yummyTrackerApi.login(login,password,captcha.trim()||undefined);setPassword("");setCaptcha("");await refresh();setMessage("Аккаунт YummyAnime подключён.");}
     catch(e){setError(e instanceof Error?e.message:"Не удалось подключить аккаунт.");}
     finally{setBusy(false);}
   }
@@ -100,6 +101,7 @@ export function StreamingTrackerPanel({ items, onImport }: {
       <div className="streaming-tracker-login">
         <input value={login} onChange={event=>setLogin(event.target.value)} placeholder="Логин YummyAnime" autoComplete="username"/>
         <input value={password} onChange={event=>setPassword(event.target.value)} placeholder="Пароль" type="password" autoComplete="current-password"/>
+        <input value={captcha} onChange={event=>setCaptcha(event.target.value)} placeholder="Ответ hCaptcha, если запрошен" autoComplete="off"/>
         <button className="add-button" disabled={busy||!status?.configured||!login.trim()||!password} onClick={()=>void connect()}>{busy?"Подключение...":"Подключить"}</button>
       </div>
     </>}
