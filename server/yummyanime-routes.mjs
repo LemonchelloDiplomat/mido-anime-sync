@@ -227,6 +227,19 @@ export async function handleYummyAnimeRequest(request, response, url, deps) {
     } catch (error) { return sendJson(response, error.status || 502, { error: error.message }); }
   }
 
+  if (method === "POST" && pathname === "/api/yummyanime/favorite") {
+    try {
+      const authApi = await authorizedApi();
+      const body = await readJson(request);
+      const animeId = requireId(body.animeId, "аниме");
+      if (typeof body.favorite !== "boolean") return sendJson(response, 400, { error: "Укажи булево значение favorite." });
+      const result = unwrap(await authApi("/anime/" + animeId + "/list/fav", {
+        method: body.favorite ? "PUT" : "DELETE",
+      }));
+      return sendJson(response, 200, { ok: true, result });
+    } catch (error) { return sendJson(response, error.status || 502, { error: error.message }); }
+  }
+
   if (method === "POST" && pathname === "/api/yummyanime/progress") {
     try {
       const authApi = await authorizedApi();
