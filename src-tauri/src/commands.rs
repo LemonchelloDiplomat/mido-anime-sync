@@ -231,13 +231,14 @@ pub async fn streaming_http_request(request: NativeHttpRequest) -> Result<Native
         return Err("Provider request body is too large.".to_string());
     }
 
+    let redirect_provider = provider.clone();
     let mut builder = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .redirect(reqwest::redirect::Policy::custom(move |attempt| {
             if attempt.previous().len() >= 5 {
                 attempt.stop()
             } else if attempt.url().scheme() == "https"
-                && attempt.url().host_str().map(|host| allowed_provider_host(&provider, host)).unwrap_or(false)
+                && attempt.url().host_str().map(|host| allowed_provider_host(&redirect_provider, host)).unwrap_or(false)
                 && attempt.previous().last().and_then(|previous| previous.host_str()) == attempt.url().host_str()
             {
                 attempt.follow()
