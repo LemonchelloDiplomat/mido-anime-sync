@@ -81,6 +81,28 @@ describe("shared tracker entry metadata", () => {
     });
   });
 
+  it("preserves explicit zero counts and empty provider-only values", () => {
+    expect(mergeSharedMetadataIntoProviderMetadata("mal", {
+      rewatchCount: 0,
+      startedAt: "2025-01-02",
+      completedAt: "2025-02-03",
+    }, {
+      tags: [],
+      comments: "",
+      priority: 0,
+      rewatchValue: 0,
+      timesRewatched: 4,
+    })).toEqual({
+      tags: [],
+      comments: "",
+      priority: 0,
+      rewatchValue: 0,
+      timesRewatched: 0,
+      startDate: "2025-01-02",
+      finishDate: "2025-02-03",
+    });
+  });
+
   it("does not mutate the existing provider metadata", () => {
     const existing = { tags: ["one"] };
     const result = mergeSharedMetadataIntoProviderMetadata("mal", shared, existing);
