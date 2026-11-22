@@ -45,6 +45,49 @@ try {
   $startShortcut.Arguments = '"' + (Join-Path $Root "Start-MidoAnimeSync.vbs") + '"'
   $startShortcut.WorkingDirectory = $Root
   $startShortcut.Description = "Запустить локальное приложение mido-anime-sync"
+
+  # Reuse the browser extension logo for the Windows desktop shortcut.
+  $logoPath = Join-Path $Root "browser-extension\icons\icon128.png"
+  if (Test-Path -LiteralPath $logoPath -PathType Leaf) {
+    Add-Type -AssemblyName System.Drawing
+    if (-not ("MidoShortcutIconNativeMethods" -as [type])) {
+      Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class MidoShortcutIconNativeMethods {
+  [DllImport("user32.dll", SetLastError = true)]
+  public static extern bool DestroyIcon(IntPtr handle);
+}
+"@
+    }
+
+    $iconDirectory = Join-Path $Root ".local-data"
+    New-Item -ItemType Directory -Force -Path $iconDirectory | Out-Null
+    $iconPath = Join-Path $iconDirectory "mido-anime-sync-shortcut.ico"
+    $bitmap = New-Object System.Drawing.Bitmap($logoPath)
+    try {
+      $iconHandle = $bitmap.GetHicon()
+      try {
+        $icon = [System.Drawing.Icon]::FromHandle($iconHandle)
+        $iconStream = [System.IO.File]::Create($iconPath)
+        try {
+          $icon.Save($iconStream)
+        } finally {
+          $iconStream.Dispose()
+          $icon.Dispose()
+        }
+      } finally {
+        [void][MidoShortcutIconNativeMethods]::DestroyIcon($iconHandle)
+      }
+    } finally {
+      $bitmap.Dispose()
+    }
+
+    $startShortcut.IconLocation = "$iconPath,0"
+  } else {
+    Write-Warning "Логотип расширения не найден. Ярлык будет создан со стандартным значком."
+  }
+
   $startShortcut.Save()
 
   $stopShortcut = $shell.CreateShortcut((Join-Path $desktop "Остановить mido-anime-sync.lnk"))
