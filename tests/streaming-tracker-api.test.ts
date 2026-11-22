@@ -24,6 +24,7 @@ describe("YummyAnime tracker normalization",()=>{
     rating:{average:8.4},
     genres:[{title:"Фэнтези"},{title:"Приключения"}],
     episodes:{aired:8,count:12},
+    remote_ids:{myanimelist_id:1234,shikimori_id:5678},
     original:"Original title",other_titles:["Alt title"],
    },
    user:{rating:9,list:{list:{id:0,title:"Смотрю"},is_fav:false}},
@@ -33,7 +34,7 @@ describe("YummyAnime tracker normalization",()=>{
    posterUrl:"https://img.example/card.webp",format:"TV",ageRating:"R+",
    releaseStatus:"ONGOING",averageScore:8.4,genres:["Фэнтези","Приключения"],
    episodes:12,year:2024,externalIds:{yummyanime:"31",myanimelist:"1234",shikimori:"5678"},
-   titles:{synonyms:["Manga","Alt title"]},
+   titles:{synonyms:["Original title","Alt title"]},
   });
   expect(result[0]?.entry.score).toBe(90);
  });
