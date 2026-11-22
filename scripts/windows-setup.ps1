@@ -51,14 +51,7 @@ try {
   if (Test-Path -LiteralPath $logoPath -PathType Leaf) {
     Add-Type -AssemblyName System.Drawing
     if (-not ("MidoShortcutIconNativeMethods" -as [type])) {
-      Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-public static class MidoShortcutIconNativeMethods {
-  [DllImport("user32.dll", SetLastError = true)]
-  public static extern bool DestroyIcon(IntPtr handle);
-}
-"@
+      Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class MidoShortcutIconNativeMethods { [DllImport("user32.dll", SetLastError = true)] public static extern bool DestroyIcon(IntPtr handle); }'
     }
 
     $iconDirectory = Join-Path $Root ".local-data"
