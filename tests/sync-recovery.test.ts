@@ -213,6 +213,50 @@ describe("Shikimori sync recovery", () => {
     expect(update).toHaveBeenCalledWith(updateOperation.id, expect.objectContaining({ status: "failed" }));
   });
 
+
+  it("does not recover a MAL update when the shared rewatch count differs", async () => {
+    const remoteAnime: AnimeIdentity = {
+      id: "mal:100",
+      titles: { english: "Example anime", synonyms: [] },
+      externalIds: { myanimelist: "100" },
+    };
+    const expected: AnimeListEntry = {
+      ...entry(remoteAnime.id, "local"),
+      sharedMetadata: { rewatchCount: 4, startedAt: "2025-01-02" },
+    };
+    const actual: AnimeListEntry = {
+      ...expected,
+      sharedMetadata: { rewatchCount: 2, startedAt: "2025-01-02" },
+      source: "myanimelist",
+    };
+    const updateOperation = operation({
+      id: "sync-mal-shared-metadata",
+      sessionId: "sync-mal-shared-metadata",
+      provider: "mal",
+      kind: "update",
+      externalId: "100",
+      entry: expected,
+    });
+    const update = vi.fn(async () => undefined);
+    const result = await reconcileUnfinishedSyncOperations(
+      [updateOperation],
+      "mal",
+      {
+        schemaVersion: 4,
+        exportedAt: "2026-11-17T10:00:00.000Z",
+        anime: [remoteAnime],
+        entries: [actual],
+        sourceEntries: [actual],
+        conflictResolutions: [],
+        animeRelations: [],
+      },
+      { getSourceEntries: vi.fn(async () => []), updateSyncOperation: update },
+    );
+
+    expect(result.recoveredOperations).toBe(0);
+    expect(update).toHaveBeenCalledWith(updateOperation.id, expect.objectContaining({ status: "failed" }));
+  });
+
   it("compares scores at Shikimori's ten-point precision", async () => {
     const remoteAnime: AnimeIdentity = {
       id: "shikimori:41",
