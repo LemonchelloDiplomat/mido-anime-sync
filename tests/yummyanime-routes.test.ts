@@ -190,6 +190,26 @@ describe("YummyAnime local API routes", () => {
     expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/users/42/lists/12"))).toBe(true);
   });
 
+  it("ignores non-HTTP poster references without losing imported anime identity", () => {
+    const rows = normalizeYummyLists({
+      profile: {},
+      lists: [],
+      count: 1,
+      entries: [{
+        anime_id: 4873,
+        title: "Poster fallback test",
+        poster: "/images/poster.jpg",
+        poster_url: "javascript:alert(1)",
+        user: { list: { list: { id: 0, title: "Смотрю" } } },
+      }],
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.anime.id).toBe("yummyanime:4873");
+    expect(rows[0]?.anime.externalIds.yummyanime).toBe("4873");
+    expect(rows[0]?.anime.posterUrl).toBeNull();
+  });
+
   it("imports direct anime rows from the documented user lists endpoint", async () => {
     process.env.YUMMY_APPLICATION_TOKEN = "public-app-token";
     const fetcher = vi.fn(async (url: string) => {
