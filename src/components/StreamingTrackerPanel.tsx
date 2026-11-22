@@ -43,7 +43,20 @@ export function StreamingTrackerPanel({ items, onImport, onImportAnixart }: {
   }
   async function importList(){
     setBusy(true);setError("");setMessage("");
-    try{const payload=await yummyTrackerApi.lists();const rows=normalizeYummyLists(payload);await onImport(rows);setImportCount(rows.length);setMessage("Импортировано записей: "+rows.length+".");}
+    try{
+      const payload=await yummyTrackerApi.lists();
+      const rows=normalizeYummyLists(payload);
+      await onImport(rows);
+      setImportCount(rows.length);
+      if(rows.length){
+        setMessage("Импортировано записей: "+rows.length+" из "+(payload.diagnostics?.fetchedRows??payload.entries.length)+" полученных записей.");
+      }else{
+        const diagnostics=payload.diagnostics;
+        const summary=diagnostics?.lists.map(list=>"#"+(list.listId??"?")+" "+(list.label||"без названия")+": "+list.rowCount+(list.skipped?" ("+list.skipped+")":"")).join("; ");
+        setMessage("Распознано 0 записей. API вернуло "+(diagnostics?.fetchedRows??payload.entries.length)+" записей в "+(diagnostics?.definitionsCount??payload.lists.length)+" списках. "+(summary?"Диагностика: "+summary:"Проверь локальный API и формат ответа."));
+        console.info("[Mido] YummyAnime safe import diagnostics",diagnostics??{listCount:payload.lists.length,entryCount:payload.entries.length});
+      }
+    }
     catch(e){setError(e instanceof Error?e.message:"Не удалось импортировать список.");}
     finally{setBusy(false);}
   }
