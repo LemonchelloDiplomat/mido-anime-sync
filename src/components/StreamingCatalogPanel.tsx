@@ -320,14 +320,14 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
               </select>
             </label>
             <div className="streaming-catalog-list">
-            {sortedResults.map((item) => (
+              {sortedResults.map((item) => (
               <button type="button" className={selected?.externalId === item.externalId ? "streaming-result selected" : "streaming-result"} key={item.externalId} onClick={() => setSelected(item)}>
                 {item.posterUrl && !failedPosters[provider + ":" + item.externalId]
                   ? <img src={provider === "animego" ? "/api/animego/poster?url=" + encodeURIComponent(item.posterUrl) : item.posterUrl} alt="" loading="lazy" onError={() => setFailedPosters((current) => ({ ...current, [provider + ":" + item.externalId]: true }))} />
                   : <span className="streaming-poster-placeholder" title={t(locale, "noPoster")}>✦</span>}
                 <span><strong>{item.title}</strong><span className="streaming-result-meta">{item.year ? <small>{item.year}</small> : null}{item.rating !== null && item.rating !== undefined ? <small className="streaming-result-rating" aria-label={"Рейтинг " + item.rating.toFixed(1) + " из 10"}>★ {item.rating.toFixed(1)}</small> : null}</span></span>
               </button>
-            ))}
+              ))}
             </div>
           </div>
           <div className="streaming-catalog-detail">
