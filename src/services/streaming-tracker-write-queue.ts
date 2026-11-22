@@ -1,6 +1,8 @@
 export interface ConfirmedTrackerWrite {
   externalId: string;
-  listId: number;
+  kind: "list" | "favorite";
+  listId?: number;
+  favorite?: boolean;
 }
 export interface TrackerWriteResult {
   succeeded: ConfirmedTrackerWrite[];
