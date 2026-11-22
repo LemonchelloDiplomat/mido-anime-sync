@@ -17,7 +17,7 @@
     "setup:platforms": "node scripts/setup-platforms.mjs",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "cap:sync": "cap sync android",
+    "cap:sync": "npm run build && cap sync android",
     "cap:open:android": "cap open android"
   },
   "devDependencies": {
