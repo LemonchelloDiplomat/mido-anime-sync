@@ -230,6 +230,7 @@ describe("YummyAnime local API routes", () => {
           min_age: { value: 16, title: "16+" }, anime_status: { alias: "released", title: "Вышел" },
           rating: { average: 7.2 }, genres: [{ title: "Романтика" }, { title: "Ужасы" }],
           episodes: { count: 12, aired: 12 }, year: 2012,
+          remote_ids: { myanimelist_id: 12345, shikimori_id: 54321 },
         } }
         : url.endsWith("/anime/202") ? { response: {
           anime_id: 202, title: "Из якудза в идолы", poster: { big: "https://img.example/202.jpg" },
@@ -268,9 +269,10 @@ describe("YummyAnime local API routes", () => {
       averageScore: row.anime.averageScore,
       releaseStatus: row.anime.releaseStatus,
       episodes: row.anime.episodes,
+      malId: row.anime.externalIds.myanimelist,
     }))).toEqual([
-      { title: "Санка Рэа", status: "WATCHING", favorite: true, score: 80, poster: "https://img.example/101.jpg", genres: ["Романтика", "Ужасы"], ageRating: "R17", format: "TV", averageScore: 7.2, releaseStatus: "RELEASED", episodes: 12 },
-      { title: "Из якудза в идолы", status: "COMPLETED", favorite: false, score: 70, poster: "https://img.example/202.jpg", genres: ["Комедия"], ageRating: "PG13", format: "TV", averageScore: 6.8, releaseStatus: "RELEASED", episodes: 10 },
+      { title: "Санка Рэа", status: "WATCHING", favorite: true, score: 80, poster: "https://img.example/101.jpg", genres: ["Романтика", "Ужасы"], ageRating: "R17", format: "TV", averageScore: 7.2, releaseStatus: "RELEASED", episodes: 12, malId: "12345" },
+      { title: "Из якудза в идолы", status: "COMPLETED", favorite: false, score: 70, poster: "https://img.example/202.jpg", genres: ["Комедия"], ageRating: "PG13", format: "TV", averageScore: 6.8, releaseStatus: "RELEASED", episodes: 10, malId: undefined },
     ]);
     expect(res.json().diagnostics).toMatchObject({ definitionsCount: 2, fetchedRows: 2 });
   });
