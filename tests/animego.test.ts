@@ -104,7 +104,7 @@ describe("AnimeGO public catalog adapter", () => {
           <img data-original="http://img.cdngos.com/posters/title.jpg" alt="HTTP poster">
         </a>
       </div>`;
-    expect(parseAnimeGoSearch(html)[0].posterUrl).toBe("https://img.cdngos.com/posters/title.jpg");
+    expect(parseAnimeGoSearch(html)[0]?.posterUrl).toBe("https://img.cdngos.com/posters/title.jpg");
   });
 
   it("extracts posters from lazy-loaded attributes, srcset, and CSS backgrounds", () => {
