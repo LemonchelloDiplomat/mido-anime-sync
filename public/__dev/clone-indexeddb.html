@@ -199,8 +199,8 @@
 
         const summary = Object.entries(expectedCounts)
           .map(([name, count]) => `${name}: ${count}`)
-          .join("\\n");
-        if (!confirm(`Будет создана новая база ${TARGET_NAME}.\\n\\nКоличество записей:\\n${summary}\\n\\nОригинальная база не изменяется. Продолжить?`)) {
+          .join("\n");
+        if (!confirm(`Будет создана новая база ${TARGET_NAME}.\n\nКоличество записей:\n${summary}\n\nОригинальная база не изменяется. Продолжить?`)) {
           report("Отменено пользователем. Изменений нет.");
           cloneButton.disabled = false;
           return;
@@ -211,7 +211,7 @@
         const counts = await writeAndVerify(createdDatabase, dump, expectedCounts);
         createdDatabase.close();
         createdDatabase = null;
-        report(`Готово. Тестовая база создана и проверена:\\n${JSON.stringify(counts, null, 2)}\\n\\nОригинальная база ${SOURCE_NAME} не изменялась.\\nТеперь открой приложение с параметром ?database=${TARGET_NAME}.`);
+        report(`Готово. Тестовая база создана и проверена:\n${JSON.stringify(counts, null, 2)}\n\nОригинальная база ${SOURCE_NAME} не изменялась.\nТеперь открой приложение с параметром ?database=${TARGET_NAME}.`);
       } catch (error) {
         if (createdDatabase) {
           createdDatabase.close();
@@ -223,7 +223,7 @@
             deletion.onblocked = resolve;
           });
         }
-        report(`ОШИБКА: ${error instanceof Error ? error.message : String(error)}\\n\\nИсходная база не изменялась. Если создание тестовой копии завершилось ошибкой, созданная этим запуском тестовая база удалена, если браузер разрешил удаление.`);
+        report(`ОШИБКА: ${error instanceof Error ? error.message : String(error)}\n\nИсходная база не изменялась. Если создание тестовой копии завершилось ошибкой, созданная этим запуском тестовая база удалена, если браузер разрешил удаление.`);
         cloneButton.disabled = false;
       }
     });
