@@ -64,7 +64,7 @@ function normalizeForChecksum(value: unknown): unknown {
 }
 
 function createStoreChecksum(records: unknown[]): string {
-  const serialized = JSON.stringify(normalizeForChecksum(records));
+  const serialized = JSON.stringify(normalizeForChecksum(records)) ?? "undefined";
   let hash = 0x811c9dc5;
   for (let index = 0; index < serialized.length; index += 1) {
     hash ^= serialized.charCodeAt(index);
