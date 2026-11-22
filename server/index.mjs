@@ -558,6 +558,27 @@ async function handleRequest(request, response) {
       num_watched_episodes: String(progress),
       is_rewatching: status === "REWATCHING" ? "true" : "false",
     });
+    // Preserve metadata already stored on MAL. Never copy another provider's
+    // metadata into this endpoint: the client sends the MAL baseline only.
+    const malMetadata = body.sourceMetadata && typeof body.sourceMetadata === "object"
+      ? body.sourceMetadata : {};
+    for (const [key, field] of [
+      ["num_times_rewatched", "timesRewatched"],
+      ["rewatch_value", "rewatchValue"],
+      ["priority", "priority"],
+    ]) {
+      const value = Number(malMetadata[field]);
+      if (Number.isSafeInteger(value) && value >= 0) form.set(key, String(value));
+    }
+    if (Array.isArray(malMetadata.tags) &&
+        malMetadata.tags.every((tag) => typeof tag === "string" && tag.length <= 100)) {
+      form.set("tags", malMetadata.tags.join(","));
+    }
+    if (typeof malMetadata.comments === "string") form.set("comments", malMetadata.comments.slice(0, 2000));
+    for (const [key, field] of [["start_date", "startDate"], ["finish_date", "finishDate"]]) {
+      const value = malMetadata[field];
+      if (typeof value === "string" && /^\\d{4}-\\d{2}-\\d{2}$/.test(value)) form.set(key, value);
+    }
     try {
       const tokens = await readTokens();
       const accessToken = await getMalAccessToken(tokens);
@@ -591,7 +612,7 @@ async function handleRequest(request, response) {
   if (method === "GET" && url.pathname === "/api/anilist/list") {
     const tokens = await readTokens();
     if (!tokens.anilist?.accessToken) return sendJson(response, 401, { error: "AniList ещё не подключён." });
-    const query = "query UserAnimeList($userId: Int!) { Viewer { mediaListOptions { scoreFormat } } MediaListCollection(userId: $userId, type: ANIME) { lists { name isCustomList entries { id status score progress repeat updatedAt startedAt { year month day } completedAt { year month day } media { id idMal isFavourite title { romaji english native } synonyms format status episodes seasonYear startDate { year month day } averageScore genres coverImage { extraLarge large } } } } } }";
+    const query = "query UserAnimeList($userId: Int!) { Viewer { mediaListOptions { scoreFormat } } MediaListCollection(userId: $userId, type: ANIME) { lists { name isCustomList entries { id status score progress repeat notes updatedAt startedAt { year month day } completedAt { year month day } media { id idMal isFavourite title { romaji english native } synonyms format status episodes seasonYear startDate { year month day } averageScore genres coverImage { extraLarge large } } } } } }";
     try {
       const data = await anilistRequest(query, { userId: tokens.anilist.userId }, tokens.anilist.accessToken);
       const lists = data.MediaListCollection?.lists || [];
@@ -633,13 +654,28 @@ async function handleRequest(request, response) {
       : status === "ON_HOLD" ? "PAUSED"
       : status === "DROPPED" ? "DROPPED"
       : status === "REWATCHING" ? "REPEATING" : "PLANNING";
-    const mutation = "mutation SaveEntry($mediaId: Int!, $status: MediaListStatus!, $score: Float!, $progress: Int!) { SaveMediaListEntry(mediaId: $mediaId, status: $status, score: $score, progress: $progress) { id status score progress updatedAt } }";
+    const aniMetadata = body.sourceMetadata && typeof body.sourceMetadata === "object"
+      ? body.sourceMetadata : {};
+    const repeat = Number(aniMetadata.repeat);
+    const notes = typeof aniMetadata.notes === "string" ? aniMetadata.notes.slice(0, 500) : "";
+    const toFuzzyDate = (value) => {
+      if (typeof value !== "string" || !/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) return null;
+      const [year, month, day] = value.split("-").map(Number);
+      return { year, month, day };
+    };
+    const startedAt = toFuzzyDate(aniMetadata.startedAt);
+    const completedAt = toFuzzyDate(aniMetadata.completedAt);
+    const mutation = "mutation SaveEntry($mediaId: Int!, $status: MediaListStatus!, $score: Float!, $progress: Int!, $repeat: Int!, $notes: String, $startedAt: FuzzyDateInput, $completedAt: FuzzyDateInput) { SaveMediaListEntry(mediaId: $mediaId, status: $status, score: $score, progress: $progress, repeat: $repeat, notes: $notes, startedAt: $startedAt, completedAt: $completedAt) { id status score progress repeat notes updatedAt startedAt { year month day } completedAt { year month day } } }";
     try {
       const data = await anilistRequest(mutation, {
         mediaId: id,
         status: remoteStatus,
         score: remoteScore,
         progress,
+        repeat: Number.isSafeInteger(repeat) && repeat >= 0 ? repeat : 0,
+        notes,
+        startedAt,
+        completedAt,
       }, tokens.anilist.accessToken);
 
       // AniList favorites are media-level, separate from list-entry fields.
@@ -757,6 +793,10 @@ async function handleRequest(request, response) {
         status: remoteStatus,
         score: score === 0 ? 0 : Math.max(1, Math.min(10, Math.round(score / 10))),
         episodes: progress,
+        ...(Number.isSafeInteger(Number(body.sourceMetadata?.rewatches)) && Number(body.sourceMetadata.rewatches) >= 0
+          ? { rewatches: Number(body.sourceMetadata.rewatches) } : {}),
+        ...(typeof body.sourceMetadata?.text === "string"
+          ? { text: body.sourceMetadata.text.slice(0, 10000) } : {}),
         ...(entryId === null ? { user_id: tokens.shikimori.userId } : {}),
       };
       const result = entryId === null
