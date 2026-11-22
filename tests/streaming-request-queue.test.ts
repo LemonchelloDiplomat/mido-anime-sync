@@ -12,15 +12,18 @@ describe("streaming request queue", () => {
     const queue = new StreamingRequestQueue();
     const order: string[] = [];
     let finishFirst!: () => void;
+    let markFirstStarted!: () => void;
     const firstGate = new Promise<void>(resolve => { finishFirst = resolve; });
+    const firstStarted = new Promise<void>(resolve => { markFirstStarted = resolve; });
     const first = queue.enqueue("anixart", async () => {
       order.push("first-start");
+      markFirstStarted();
       await firstGate;
       order.push("first-end");
     }, { minIntervalMs: 1000 });
     const second = queue.enqueue("anixart", async () => { order.push("second-start"); }, { minIntervalMs: 1000 });
 
-    await Promise.resolve();
+    await firstStarted;
     expect(order).toEqual(["first-start"]);
     finishFirst();
     await Promise.all([first, second]);
