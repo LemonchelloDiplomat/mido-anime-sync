@@ -11,7 +11,15 @@ export interface ShikimoriAnimeRate {
 export interface ShikimoriAnimeDetails {
   id: number | string;
   myanimelist_id?: number | string | null;
+  malId?: number | string | null;
 }
+
+export const SHIKIMORI_ANIME_IDENTITY_QUERY: string;
+
+export function fetchShikimoriAnimeIdentityBatch(
+  ids: number[],
+  requestGraphql: (query: string, variables: { ids: string }) => Promise<unknown>,
+): Promise<ShikimoriAnimeDetails[]>;
 
 export function enrichShikimoriAnimeRates(
   rates: ShikimoriAnimeRate[],
