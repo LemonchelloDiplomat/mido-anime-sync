@@ -217,8 +217,18 @@ export async function listMigrationBackups(databaseName: string): Promise<Migrat
       transaction.oncomplete = () => resolve();
       transaction.onabort = () => reject(transaction.error ?? new Error("Чтение резервных копий прервано."));
     });
-    for (const backup of backups) validateBackup(backup);
-    return backups.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    // A damaged newest backup must not hide older healthy generations.
+    // Keep only independently validated copies so recovery can fall back safely.
+    const validBackups: MigrationBackup[] = [];
+    for (const backup of backups) {
+      try {
+        validateBackup(backup);
+        if (backup.sourceDatabaseName === databaseName) validBackups.push(backup);
+      } catch {
+        // Ignore the damaged copy; other retained generations may still be usable.
+      }
+    }
+    return validBackups.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   } finally {
     backupDb.close();
   }
