@@ -15,7 +15,7 @@ function findColumn(headers: string[], aliases: string[]): number {
 }
 
 function detectDelimiter(line: string): string {
-  const counts = new Map([[",", 0], [";", 0], ["\t", 0]]);
+  const counts = new Map([[",", 0], [";", 0], ["\t", 0], ["|", 0]]);
   let quoted = false;
   for (let i = 0; i < line.length; i += 1) {
     const char = line[i] ?? "";
@@ -27,9 +27,9 @@ function detectDelimiter(line: string): string {
   return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? ",";
 }
 
-function parseCsv(text: string): string[][] {
+function parseCsv(text: string, forcedDelimiter?: string): string[][] {
   const firstLine = text.split(/\r?\n/, 1)[0] || "";
-  const delimiter = detectDelimiter(firstLine);
+  const delimiter = forcedDelimiter ?? detectDelimiter(firstLine);
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
@@ -261,16 +261,20 @@ export function parseAnixartBookmarkExport(
       ...(favoriteIndex >= 0 ? { favorite: row[favoriteIndex] || "" } : {}),
     }));
   } else {
-    // Older Anixart text exports use slash-separated records. Keep support
-    // for this layout, but also accept quoted fields containing slashes.
+    // Older Anixart text exports use slash-separated records. Parse quotes
+    // so a slash inside a title does not shift the remaining columns.
     records = cleanText.split(/\r?\n/).map((line) => {
-      const parts = line.split("/");
-      if (parts.length < 7) return { title: "", status: "" };
+      const parts = parseCsv(line, "/")[0] ?? [];
+      const offset = parts[0] === "" ? 1 : /^\d+$/.test(parts[0] ?? "") && parts.length >= 7 ? 1 : 0;
+      if (parts.length < offset + 6) return { title: "", status: "" };
+      const first = (value: string | undefined) => (value ?? "").trim().replace(/^["']|["']$/g, "");
+      const title = first(parts[offset]);
       return {
-        title: parts[1]!.trim().replace(/^["']|["']$/g, ""),
-        original: parts[2]!.trim().replace(/^["']|["']$/g, ""),
-        status: parts[5]!.trim(),
-        score: parts[6]!.trim(),
+        ...(offset === 1 && /^\d+$/.test(parts[0] ?? "") ? { id: first(parts[0]) } : {}),
+        title,
+        original: first(parts[offset + 1]),
+        status: first(parts[offset + 4]),
+        score: first(parts[offset + 5]),
       };
     });
     hasScoreColumn = true;
