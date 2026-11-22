@@ -291,6 +291,7 @@ pub async fn streaming_http_request(request: NativeHttpRequest) -> Result<Native
     let data = match response_type {
         "text" => Value::String(String::from_utf8_lossy(&bytes).into_owned()),
         "arraybuffer" => Value::String(STANDARD.encode(&bytes)),
+        "json" if bytes.is_empty() => Value::Null,
         "json" => serde_json::from_slice::<Value>(&bytes)
             .map_err(|_| "Provider returned invalid JSON.".to_string())?,
         _ => return Err("Unsupported provider response type.".to_string()),
