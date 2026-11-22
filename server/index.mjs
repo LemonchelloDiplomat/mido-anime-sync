@@ -777,7 +777,8 @@ async function handleRequest(request, response) {
         (ids) => shikimoriRequest("/animes?ids=" + ids.join(",") + "&limit=" + ids.length, tokens),
         (id) => shikimoriRequest("/animes/" + id, tokens),
       );
-      const identityCoverage = getShikimoriIdentityCoverage(enrichedItems);\n      return sendJson(response, 200, { data: enrichedItems, count: enrichedItems.length, identityCoverage });
+      const identityCoverage = getShikimoriIdentityCoverage(enrichedItems);
+      return sendJson(response, 200, { data: enrichedItems, count: enrichedItems.length, identityCoverage });
     } catch (error) {
       return sendJson(response, error.status || 502, { error: error.message });
     }
