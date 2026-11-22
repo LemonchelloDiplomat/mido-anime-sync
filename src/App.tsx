@@ -28,6 +28,7 @@ import { parseMyAnimeListApiList } from "./services/myanimelist-account.js";
 import { parseAniListAccountList, type AniListScoreFormat } from "./services/anilist-account.js";
 import { parseShikimoriAccountList } from "./services/shikimori-account.js";
 import { StreamingCatalogPanel } from "./components/StreamingCatalogPanel.js";
+import { StreamingTrackerPanel } from "./components/StreamingTrackerPanel.js";
 import { reconcileStreamingAccountSnapshot } from "./services/streaming-account-import.js";
 import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
 import { detectRemoteDeletions } from "./core/safe-deletions.js";
@@ -2255,6 +2256,21 @@ function App() {
                   </article>
                 );
               })}
+              <StreamingTrackerPanel
+                items={library}
+                onImport={async (rows) => {
+                  const snapshot: AnimeSnapshotV4 = {
+                    schemaVersion: 4,
+                    exportedAt: new Date().toISOString(),
+                    anime: rows.map((row) => row.anime),
+                    entries: [],
+                    sourceEntries: rows.map((row) => row.entry),
+                    conflictResolutions: [],
+                    animeRelations: [],
+                  };
+                  await importYummyAnimeSnapshot(snapshot);
+                }}
+              />
               <div className="integration-security-note">
                 <strong>Безопасность:</strong> токены сохраняются локально в зашифрованном виде. Не публикуй .env.local и папку .local-data.
               </div>
