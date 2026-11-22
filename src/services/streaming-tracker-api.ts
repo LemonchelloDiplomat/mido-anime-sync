@@ -65,8 +65,15 @@ export function normalizeYummyLists(payload:YummyRawLists):Array<{anime:AnimeIde
   const score=rawScore===null?null:Math.max(0,Math.min(100,rawScore<=10?rawScore*10:rawScore));
   const favoriteValue=row.favorite??nested.favorite??userList.is_fav;
   const favoriteKnown=typeof favoriteValue==="boolean";
-  const posterValue=nested.poster??nested.poster_url??row.poster??row.poster_url;
-  const poster=typeof posterValue==="string"?posterValue:textValue(objectValue(posterValue).huge,objectValue(posterValue).fullsize,objectValue(posterValue).big,objectValue(posterValue).medium);
+  const posterCandidates=[nested.poster,nested.poster_url,row.poster,row.poster_url];
+  const posterFields=["huge","fullsize","big","large","medium","original","url"];
+  const poster=textValue(...posterCandidates.flatMap(value=>[
+   typeof value==="string"?value:"",
+   ...posterFields.map(field=>objectValue(value)[field]),
+  ]).filter(value=>{
+   if(typeof value!=="string"||!value.trim())return false;
+   try{const url=new URL(value.trim());return url.protocol==="https:"||url.protocol==="http:";}catch{return false;}
+  }));
   const anime:AnimeIdentity={id:"yummyanime:"+id,titles:{romaji:title,synonyms:[textValue(nested.original_title,row.original_title)].filter(Boolean)},externalIds:{yummyanime:id},year,episodes,posterUrl:poster||null};
   const entry:AnimeListEntry={animeId:anime.id,status,progress,score,favorite:Boolean(favoriteValue),updatedAt:textValue(row.updated_at,row.updatedAt,row.date)||new Date(0).toISOString(),source:"yummyanime",sourceMetadata:{progressKnown:rawProgress!==null,scoreKnown:rawScore!==null,favoriteKnown}};
   result.push({anime,entry});
