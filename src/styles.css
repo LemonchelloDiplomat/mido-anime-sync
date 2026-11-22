@@ -2092,6 +2092,25 @@ button:disabled {
   border: 1px solid var(--border-color, rgba(128, 128, 128, .25));
   border-radius: 14px;
 }
+.streaming-tracker-account-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+.integration-provider-mark--yummyanime {
+  background: #563f8f;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -.06em;
+}
+.streaming-tracker-account-header .integration-provider-info {
+  flex: 1;
+}
+.streaming-tracker-actions button {
+  white-space: nowrap;
+}
 .streaming-tracker-actions,
 .streaming-tracker-login {
   display: flex;
