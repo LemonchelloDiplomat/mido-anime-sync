@@ -42,12 +42,11 @@ fn write_keyring_value(account: &str, value: &str) -> Result<(), String> {
 }
 
 #[cfg(target_os = "windows")]
-fn remove_keyring_value(account: &str) {
-    if let Ok(entry) = keyring_entry(account) {
-        match entry.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => {}
-            Err(_) => {}
-        }
+fn remove_keyring_value(account: &str) -> Result<(), String> {
+    let entry = keyring_entry(account)?;
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(_) => Err("Windows Credential Manager delete failed.".to_string()),
     }
 }
 
@@ -119,7 +118,7 @@ pub fn streaming_secret_set(key: String, value: String) -> Result<(), String> {
             let chunk_key = format!("{key}:{generation}:{index}");
             if let Err(error) = write_keyring_value(&chunk_key, chunk) {
                 for cleanup_index in 0..index {
-                    remove_keyring_value(&format!("{key}:{generation}:{cleanup_index}"));
+                    let _ = remove_keyring_value(&format!("{key}:{generation}:{cleanup_index}"));
                 }
                 return Err(error);
             }
@@ -130,14 +129,14 @@ pub fn streaming_secret_set(key: String, value: String) -> Result<(), String> {
             .map_err(|_| "Could not encode session metadata.".to_string())?;
         if let Err(error) = write_keyring_value(&manifest_key, &serialized) {
             for index in 0..chunks.len() {
-                remove_keyring_value(&format!("{key}:{generation}:{index}"));
+                let _ = remove_keyring_value(&format!("{key}:{generation}:{index}"));
             }
             return Err(error);
         }
 
         if let Some(old) = old_manifest {
             for index in 0..old.chunks.min(128) {
-                remove_keyring_value(&format!("{key}:{}:{index}", old.generation));
+                let _ = remove_keyring_value(&format!("{key}:{}:{index}", old.generation));
             }
         }
         return Ok(());
@@ -157,11 +156,11 @@ pub fn streaming_secret_remove(key: String) -> Result<(), String> {
         if let Some(raw_manifest) = read_keyring_value(&manifest_key)? {
             if let Ok(manifest) = serde_json::from_str::<SecretManifest>(&raw_manifest) {
                 for index in 0..manifest.chunks.min(128) {
-                    remove_keyring_value(&format!("{key}:{}:{index}", manifest.generation));
+                    remove_keyring_value(&format!("{key}:{}:{index}", manifest.generation))?;
                 }
             }
         }
-        remove_keyring_value(&manifest_key);
+        remove_keyring_value(&manifest_key)?;
         return Ok(());
     }
     #[cfg(not(target_os = "windows"))]
