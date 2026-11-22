@@ -31,6 +31,7 @@ import { StreamingCatalogPanel } from "./components/StreamingCatalogPanel.js";
 import { StreamingTrackerPanel } from "./components/StreamingTrackerPanel.js";
 import { reconcileStreamingAccountSnapshot } from "./services/streaming-account-import.js";
 import { normalizeAnimeGoAccountList, type AnimeGoAccountListPayload } from "./services/animego-account-import.js";
+import { parseAnixartBookmarkExport } from "./services/anixart-export-import.js";
 import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
 import { detectRemoteDeletions } from "./core/safe-deletions.js";
 import { executeRemoteDeletions, resolvePendingRemoteDeletionIntents } from "./core/remote-deletion.js";
@@ -635,6 +636,22 @@ function App() {
       normalized.rows.length + ". Пропущено некорректных строк: " + normalized.skipped +
       ". Прогресс и избранное не изменялись.",
     );
+  }
+
+  async function prepareAnixartExportImport(file: File): Promise<{ imported: number; skipped: number }> {
+    if (!repository) throw new Error("Локальная библиотека ещё не готова.");
+    if (file.size > 25 * 1024 * 1024) throw new Error("Файл Anixart слишком большой. Максимум 25 МБ.");
+    const result = parseAnixartBookmarkExport(await file.text(), file.name);
+    const analysis = createImportPreview(
+      result.snapshot.anime,
+      library.map((item) => item.anime),
+    );
+    setImportSnapshot(result.snapshot);
+    setImportIdentityDiagnostics(null);
+    setImportFormat("Anixart export");
+    setImportAnalysis(analysis);
+    setError("");
+    return { imported: result.snapshot.anime.length, skipped: result.skipped };
   }
 
   async function refreshLibrary() {
@@ -2336,6 +2353,7 @@ function App() {
               })}
               <StreamingTrackerPanel
                 items={library}
+                onImportAnixart={prepareAnixartExportImport}
                 onImport={async (rows) => {
                   const snapshot: AnimeSnapshotV4 = {
                     schemaVersion: 4,
