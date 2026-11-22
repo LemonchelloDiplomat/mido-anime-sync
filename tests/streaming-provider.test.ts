@@ -31,7 +31,7 @@ describe("streaming provider contracts", () => {
     });
     expect(getStreamingProviderCapabilities("anixart")).toMatchObject({
       catalogSearch: true, titleDetails: true,
-      accountConnection: false, listImport: true, listWrite: false,
+      accountConnection: false, listImport: false, listWrite: false,
       watchProgressRead: true, watchProgressWrite: false,
     });
     const copy = getStreamingProviderCapabilities("animego");
