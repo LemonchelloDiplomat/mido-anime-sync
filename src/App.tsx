@@ -61,6 +61,18 @@ type MetadataEnrichmentProgress = {
   missing: number;
 };
 
+type ImportIdentityDiagnostics = {
+  provider: SyncProvider;
+  total: number;
+  withMyAnimeListId: number;
+  withoutMyAnimeListId: number;
+  apiReportedWithMyAnimeListId: number | null;
+  matchedInLibrary: number;
+  withMyAnimeListIdNotInLibrary: number;
+  sampleMissingAnimeIds: number[];
+  sampleUnmatchedTitles: string[];
+};
+
 type AnimeForm = {
   title: string;
   year: string;
@@ -174,6 +186,7 @@ function App() {
   );
 
   const [importFormat, setImportFormat] = useState("");
+  const [importIdentityDiagnostics, setImportIdentityDiagnostics] = useState<ImportIdentityDiagnostics | null>(null);
 
   const [importing, setImporting] = useState(false);
   const [restoreBackup, setRestoreBackup] = useState<AnimeSnapshotV4 | null>(null);
@@ -711,6 +724,7 @@ function App() {
       );
 
       setImportSnapshot(validated);
+      setImportIdentityDiagnostics(null);
       setImportFormat(isMyAnimeListXml ? "MyAnimeList XML" : `JSON v${validated.schemaVersion}`);
       setImportAnalysis(analysis);
       setError("");
@@ -718,6 +732,7 @@ function App() {
       setImportSnapshot(null);
       setImportAnalysis(null);
       setImportFormat("");
+      setImportIdentityDiagnostics(null);
 
       setError(
         err instanceof Error ? err.message : "Не удалось прочитать файл.",
@@ -950,6 +965,37 @@ function App() {
       setImportSnapshot(snapshot);
       setImportFormat(getProviderLabel(provider) + " account");
       setImportAnalysis(analysis);
+
+      if (provider === "shikimori") {
+        const importedWithMalId = snapshot.anime.filter((anime) => Boolean(anime.externalIds.myanimelist?.trim()));
+        const localMalIds = new Set(
+          currentLibrary
+            .map((item) => item.anime.externalIds.myanimelist?.trim())
+            .filter((id): id is string => Boolean(id)),
+        );
+        const matchedInLibrary = importedWithMalId.filter((anime) =>
+          localMalIds.has(anime.externalIds.myanimelist!.trim()),
+        );
+        const unmatched = importedWithMalId.filter((anime) =>
+          !localMalIds.has(anime.externalIds.myanimelist!.trim()),
+        );
+        setImportIdentityDiagnostics({
+          provider,
+          total: snapshot.anime.length,
+          withMyAnimeListId: importedWithMalId.length,
+          withoutMyAnimeListId: snapshot.anime.length - importedWithMalId.length,
+          apiReportedWithMyAnimeListId: payload.identityCoverage?.withMyAnimeListId ?? null,
+          matchedInLibrary: matchedInLibrary.length,
+          withMyAnimeListIdNotInLibrary: unmatched.length,
+          sampleMissingAnimeIds: payload.identityCoverage?.sampleMissingAnimeIds ?? [],
+          sampleUnmatchedTitles: unmatched.slice(0, 5).map((anime) =>
+            (anime.titles.english ?? anime.titles.romaji ?? anime.titles.native ?? anime.id) +
+            " (MAL " + anime.externalIds.myanimelist + ")",
+          ),
+        });
+      } else {
+        setImportIdentityDiagnostics(null);
+      }
       setSettingsOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось получить список из аккаунта.");
@@ -1589,6 +1635,13 @@ function App() {
 
   async function handleConfirmImport() {
     if (!repository || !importSnapshot || importing) return;
+    if (
+      importIdentityDiagnostics?.provider === "shikimori" &&
+      importIdentityDiagnostics.matchedInLibrary === 0
+    ) {
+      setError("Импорт Shikimori заблокирован: ни один MAL ID не совпал с локальной библиотекой. Сначала проверь сопоставление идентификаторов.");
+      return;
+    }
 
     setImporting(true);
     setError("");
@@ -2617,6 +2670,32 @@ function App() {
                 <span>Записей библиотеки: {importSnapshot.entries.length}</span>
               </div>
 
+              {importIdentityDiagnostics?.provider === "shikimori" && (
+                <div className="import-safety-note">
+                  <strong>Проверка связей Shikimori ↔ MyAnimeList</strong>
+                  <p>
+                    MAL ID найдено: {importIdentityDiagnostics.withMyAnimeListId} из {importIdentityDiagnostics.total}.
+                    Без MAL ID: {importIdentityDiagnostics.withoutMyAnimeListId}.
+                    Совпадений с локальной библиотекой по MAL ID: {importIdentityDiagnostics.matchedInLibrary}.
+                  </p>
+                  {importIdentityDiagnostics.apiReportedWithMyAnimeListId !== null &&
+                    importIdentityDiagnostics.apiReportedWithMyAnimeListId !== importIdentityDiagnostics.withMyAnimeListId && (
+                      <p>
+                        Внимание: сервер сообщил {importIdentityDiagnostics.apiReportedWithMyAnimeListId} MAL ID, но парсер распознал {importIdentityDiagnostics.withMyAnimeListId}. Проверь формат ответа API.
+                      </p>
+                    )}
+                  {importIdentityDiagnostics.sampleMissingAnimeIds.length > 0 && (
+                    <p>Примеры Shikimori ID без MAL ID: {importIdentityDiagnostics.sampleMissingAnimeIds.join(", ")}.</p>
+                  )}
+                  {importIdentityDiagnostics.sampleUnmatchedTitles.length > 0 && (
+                    <p>Примеры MAL ID, которых нет в локальной библиотеке: {importIdentityDiagnostics.sampleUnmatchedTitles.join("; ")}.</p>
+                  )}
+                  {importIdentityDiagnostics.matchedInLibrary === 0 && (
+                    <p>Импорт заблокирован: нет ни одного подтверждённого совпадения с библиотекой. Новые записи не будут добавлены.</p>
+                  )}
+                </div>
+              )}
+
               <div className="import-safety-note">
                 <strong>Готово к импорту.</strong>
                 <p>
@@ -2644,7 +2723,11 @@ function App() {
                 <button
                   className="add-button"
                   onClick={() => void handleConfirmImport()}
-                  disabled={importing}
+                  disabled={
+                    importing ||
+                    (importIdentityDiagnostics?.provider === "shikimori" &&
+                      importIdentityDiagnostics.matchedInLibrary === 0)
+                  }
                 >
                   {importing ? "Импорт..." : `Импортировать ${importSnapshot.anime.length} аниме`}
                 </button>
