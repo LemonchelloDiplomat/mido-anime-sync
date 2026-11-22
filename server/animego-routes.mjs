@@ -139,9 +139,64 @@ function posterFromCard(card) {
     const value = decodeHtml(candidate).trim();
     if (!value || /^(?:data:|blob:|javascript:)/i.test(value) || /(?:placeholder|no[-_]?image|default[-_]?poster)/i.test(value)) continue;
     const url = safeUrl(value);
-    if (url) return url;
+    if (url) {
+      // AnimeGO cards sometimes publish protocol-relative or plain HTTP CDN
+      // URLs. The local poster proxy intentionally accepts HTTPS only.
+      const parsed = new URL(url);
+      const trustedImageHost = ["cdngos.com", "animego.me", "animego.org", "animego.online"]
+        .some((domain) => parsed.hostname === domain || parsed.hostname.endsWith("." + domain));
+      if (trustedImageHost && parsed.protocol === "http:") parsed.protocol = "https:";
+      return parsed.toString();
+    }
   }
   return null;
+}
+
+function ratingFromCard(card) {
+  const source = String(card || "");
+  const candidates = [];
+  const scripts = [...source.matchAll(/<script\\b[^>]*type\\s*=\\s*(['"])application\\/ld\\+json\\1[^>]*>([\\s\\S]*?)<\\/script>/gi)];
+  for (const script of scripts) {
+    try {
+      const data = JSON.parse(script[2]);
+      const records = Array.isArray(data) ? data : [data];
+      for (const record of records) {
+        const value = Number(record?.aggregateRating?.ratingValue ?? record?.ratingValue);
+        if (Number.isFinite(value)) candidates.push(value);
+      }
+    } catch { /* Ignore malformed optional card metadata. */ }
+  }
+
+  const tags = [...source.matchAll(/<([a-z][\\w:-]*)\\b[^>]*>/gi)].map((match) => match[0]);
+  for (const tag of tags) {
+    const className = attr(tag, "class");
+    const itemProp = attr(tag, "itemprop").toLowerCase();
+    const isRatingElement = /(?:^|[\\s_-])(rating|rate|score)(?:$|[\\s_-])/i.test(className) ||
+      itemProp === "ratingvalue" || attr(tag, "data-rating") || attr(tag, "data-score");
+    if (!isRatingElement) continue;
+    for (const name of ["content", "data-rating", "data-score", "data-value", "title", "aria-label"]) {
+      const raw = attr(tag, name);
+      if (!raw) continue;
+      const match = raw.replace(",", ".").match(/(?:^|[^\\d])(10(?:\\.0+)?|[0-9](?:\\.[0-9]+)?)(?:$|[^\\d])/);
+      if (match) candidates.push(Number(match[1]));
+    }
+  }
+
+  const ratingText = tags
+    .filter((tag) => /(?:rating|rate|score)/i.test(attr(tag, "class")) || attr(tag, "itemprop").toLowerCase() === "ratingvalue")
+    .map((tag) => {
+      const name = tag.match(/^<([a-z][\\w:-]*)/i)?.[1];
+      if (!name) return "";
+      const closing = new RegExp("<\\/" + name + "\\s*>", "i");
+      const start = source.indexOf(tag);
+      const tail = source.slice(start + tag.length);
+      return tail.slice(0, tail.search(closing) < 0 ? 0 : tail.search(closing));
+    }).join(" ");
+  const textMatch = stripTags(ratingText).replace(",", ".").match(/(?:^|[^\\d])(10(?:\\.0+)?|[0-9](?:\\.[0-9]+)?)(?:\\s*(?:\\/\\s*10|из\\s*10))?/i);
+  if (textMatch) candidates.push(Number(textMatch[1]));
+
+  const valid = candidates.filter((value) => Number.isFinite(value) && value >= 0 && value <= 10);
+  return valid.length ? valid[0] : null;
 }
 
 function normalizeAnimeGoSearchText(value) {
@@ -243,6 +298,7 @@ export function parseAnimeGoSearch(html) {
       cardText,
     ].filter(Boolean))];
     const poster = posterFromCard(card);
+    const rating = ratingFromCard(card);
     results.push({
       provider: "animego",
       externalId: slug,
@@ -250,6 +306,7 @@ export function parseAnimeGoSearch(html) {
       title,
       alternativeTitles: aliases.filter((alias) => alias !== title).slice(0, 8),
       posterUrl: poster,
+      ...(rating !== null ? { rating } : {}),
     });
     seen.add(selectedUrl);
   }
