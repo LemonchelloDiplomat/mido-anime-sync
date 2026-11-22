@@ -6,7 +6,7 @@ This module is separate from public catalog browsing and browser watch-progress 
 
 | Provider | Account login | List import | List writes | Notes |
 | --- | --- | --- | --- | --- |
-| YummyAnime | Available through the local API | Available through the local API | Available for status membership with an explicit list ID; favorites are independent | Requires a locally configured application token. |
+| YummyAnime | Available through the local API | Available through the local API | Available for status membership with an explicit list ID; favorites can be added independently, but removal is intentionally not automated yet | Requires a locally configured application token. |
 | AnimeGO | Not verified | Not verified | Not verified | Public catalog support is not evidence of an account-list API. |
 | Anixart | Not enabled | Not enabled | Not enabled | Available API documentation is unofficial and version-sensitive. |
 
@@ -22,7 +22,7 @@ This module is separate from public catalog browsing and browser watch-progress 
 
 ## YummyAnime API prerequisites
 
-Configure YUMMY_APPLICATION_TOKEN in .env.local. The local server provides login, token refresh, list retrieval, status-list mutation and favorite mutation routes. The upstream API documentation marks the API for personal use; confirm permission with the API owner before distributing a commercial product.
+Configure YUMMY_APPLICATION_TOKEN in .env.local. The local server provides login, token refresh, list retrieval, status-list mutation and favorite-add routes. Favorite removal is not automatically sent by the UI. The upstream API documentation marks the API for personal use; confirm permission with the API owner before distributing a commercial product.
 
 ## Remaining provider research
 
@@ -32,7 +32,7 @@ AnimeGO account integration requires verified login, CSRF/cookie handling and li
 
 1. Provider capability registry and adapter contract: implemented.
 2. Exact ID resolution plus manual fuzzy suggestions: implemented.
-3. YummyAnime login, list import, mapped status writes and favorite writes: implemented in the local API/client flow. Runtime verification remains part of the final branch check.
+3. YummyAnime login, list import, mapped status writes and favorite-add writes: implemented in the local API/client flow. Runtime verification remains part of the final branch check.
 4. Anixart account adapter: deliberately disabled. The available third-party API specification is unofficial and version-bound; this branch does not collect Anixart credentials or call a potentially disallowed endpoint.
 5. AnimeGO account read integration: research boundary documented, implementation blocked until the live login/session and list-read contract can be verified.
 6. AnimeGO account write integration: blocked until stage 5 is verified. No speculative AJAX mutations are sent.
