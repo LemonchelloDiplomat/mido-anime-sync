@@ -50,9 +50,15 @@ export function StreamingTrackerPanel({ items, onImport }: {
     setBusy(true);setError("");setMessage("");
     try{
       let skipped=0;
+      const counts=new Map<string,number>();
+      for(const item of items){
+        const externalId=item.anime.externalIds.yummyanime;
+        if(externalId) counts.set(externalId,(counts.get(externalId)||0)+1);
+      }
+      const duplicateIds=new Set([...counts].filter(([,count])=>count>1).map(([id])=>id));
       const operations=items.flatMap(item=>{
         const externalId=item.anime.externalIds.yummyanime;
-        if(!externalId||!item.entry){skipped++;return [];}
+        if(!externalId||!item.entry||duplicateIds.has(externalId)){skipped++;return [];}
         const listId=mapping[item.entry.status];
         return [
           ...(listId?[{externalId,kind:"list" as const,listId:Number(listId)}]:[]),
@@ -91,7 +97,7 @@ export function StreamingTrackerPanel({ items, onImport }: {
         {STATUSES.map(value=><label key={value}>{STATUS_LABELS[value]}
           <select value={mapping[value]||""} onChange={event=>setMapping(previous=>({...previous,[value]:event.target.value}))}>
             <option value="">Не отправлять</option>
-            {options.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}
+            {options.map(option=><option key={option.value} value={option.value} disabled={Object.entries(mapping).some(([mappedStatus,mappedId])=>mappedId===option.value&&mappedStatus!==value)}>{option.label}</option>)}
           </select>
         </label>)}
       </div>
