@@ -44,7 +44,11 @@ describe("Anixart official bookmark export import", () => {
   });
 
   it("skips unsupported status rows and rejects unknown CSV layouts", () => {
-    const result = parseAnixartBookmarkExport("Название;Статус просмотра\nИзбранное без статуса;Избранное", "anixart.csv");
+    const result = parseAnixartBookmarkExport(
+      "Название;Статус просмотра\nИзбранное без статуса;Избранное\nОбычное аниме;Смотрю",
+      "anixart.csv",
+    );
+    expect(result.snapshot.anime).toHaveLength(1);
     expect(result.skipped).toBe(1);
     expect(() => parseAnixartBookmarkExport("Foo;Bar\nA;B", "anixart.csv")).toThrow(/столбцы названия и статуса/i);
   });
