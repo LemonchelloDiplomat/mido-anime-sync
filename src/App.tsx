@@ -33,6 +33,7 @@ import { reconcileStreamingAccountSnapshot } from "./services/streaming-account-
 import { normalizeAnimeGoAccountList, type AnimeGoAccountListPayload } from "./services/animego-account-import.js";
 import { parseAnixartBookmarkExport } from "./services/anixart-export-import.js";
 import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
+import { suggestTrackerMatches, type TrackerMatchSuggestion } from "./services/streaming-tracker-sync.js";
 import { detectRemoteDeletions } from "./core/safe-deletions.js";
 import { executeRemoteDeletions, resolvePendingRemoteDeletionIntents } from "./core/remote-deletion.js";
 import { reconcileUnfinishedSyncOperations } from "./core/sync-recovery.js";
@@ -189,6 +190,8 @@ function App() {
   const [importAnalysis, setImportAnalysis] = useState<ImportPreview | null>(
     null,
   );
+  const [importSuggestions, setImportSuggestions] = useState<Record<string, TrackerMatchSuggestion[]>>({});
+  const [importManualMappings, setImportManualMappings] = useState<Record<string, string>>({});
 
   const [importFormat, setImportFormat] = useState("");
   const [importIdentityDiagnostics, setImportIdentityDiagnostics] = useState<ImportIdentityDiagnostics | null>(null);
@@ -642,14 +645,18 @@ function App() {
     if (!repository) throw new Error("Локальная библиотека ещё не готова.");
     if (file.size > 25 * 1024 * 1024) throw new Error("Файл Anixart слишком большой. Максимум 25 МБ.");
     const result = parseAnixartBookmarkExport(await file.text(), file.name);
-    const analysis = createImportPreview(
-      result.snapshot.anime,
-      library.map((item) => item.anime),
-    );
+    const localAnime = library.map((item) => item.anime);
+    const analysis = createImportPreview(result.snapshot.anime, localAnime);
+    const suggestions = Object.fromEntries(analysis.items
+      .filter((item) => item.status === "new")
+      .map((item) => [item.imported.id, suggestTrackerMatches(item.imported, localAnime, 5)])
+      .filter(([, matches]) => (matches as TrackerMatchSuggestion[]).length > 0));
     setImportSnapshot(result.snapshot);
     setImportIdentityDiagnostics(null);
     setImportFormat("Anixart export");
     setImportAnalysis(analysis);
+    setImportSuggestions(suggestions);
+    setImportManualMappings({});
     setError("");
     return { imported: result.snapshot.anime.length, skipped: result.skipped };
   }
