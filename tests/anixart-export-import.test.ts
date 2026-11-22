@@ -128,7 +128,7 @@ describe("Anixart official bookmark export import", () => {
 
   it("skips unsupported status rows and rejects unknown CSV layouts", () => {
     const result = parseAnixartBookmarkExport(
-      "Название;Статус просмотра\nИзбранное без статуса;Избранное\nОбычное аниме;Смотрю",
+      "Название;Статус просмотра\nСтрока с неизвестным статусом;Неизвестно\nОбычное аниме;Смотрю",
       "anixart.csv",
     );
     expect(result.snapshot.anime).toHaveLength(1);
