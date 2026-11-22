@@ -8,7 +8,7 @@ import { handleYummyAnimeRequest } from "./yummyanime-routes.mjs";
 import { handleAnimeGoRequest } from "./animego-routes.mjs";
 import { handleAnixArtRequest } from "./anixart-routes.mjs";
 import { fetchAniListAnimeList } from "./anilist-list.mjs";
-import { enrichShikimoriAnimeRates } from "./shikimori-enrichment.mjs";
+import { enrichShikimoriAnimeRates, getShikimoriIdentityCoverage } from "./shikimori-enrichment.mjs";
 
 const ROOT = process.cwd();
 const DATA_DIR = path.join(ROOT, ".local-data");
@@ -777,7 +777,7 @@ async function handleRequest(request, response) {
         (ids) => shikimoriRequest("/animes?ids=" + ids.join(",") + "&limit=" + ids.length, tokens),
         (id) => shikimoriRequest("/animes/" + id, tokens),
       );
-      return sendJson(response, 200, { data: enrichedItems, count: enrichedItems.length });
+      const identityCoverage = getShikimoriIdentityCoverage(enrichedItems);\n      return sendJson(response, 200, { data: enrichedItems, count: enrichedItems.length, identityCoverage });
     } catch (error) {
       return sendJson(response, error.status || 502, { error: error.message });
     }
