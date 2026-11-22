@@ -447,7 +447,8 @@ export class BrowserAnimeRepository {
       LIBRARY_DATABASE_SCHEMA_VERSION,
     );
 
-    const db = await openDB<AnimeSyncDB>(databaseName, LIBRARY_DATABASE_SCHEMA_VERSION, {
+    let connection: IDBPDatabase<AnimeSyncDB> | undefined;
+    const opening = openDB<AnimeSyncDB>(databaseName, LIBRARY_DATABASE_SCHEMA_VERSION, {
       upgrade(database, oldVersion, _newVersion, transaction) {
         if (oldVersion < 1) {
           database.createObjectStore("anime", {
@@ -520,9 +521,15 @@ export class BrowserAnimeRepository {
           });
         }
       },
+      // Close this tab's connection when another tab requests a schema upgrade.
+      // Otherwise an old tab can keep IndexedDB blocked indefinitely.
+      blocking() {
+        connection?.close();
+      },
     });
+    connection = await opening;
 
-    return new BrowserAnimeRepository(db);
+    return new BrowserAnimeRepository(connection);
   }
 
 
