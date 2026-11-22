@@ -54,6 +54,41 @@ describe("IndexedDB schema migrations", () => {
       legacyDb.put("anime", anime),
       legacyDb.put("entries", entry),
       legacyDb.put("sourceEntries", entry),
+      legacyDb.put("syncOperations", {
+        id: "migration-operation",
+        sessionId: "migration-session",
+        provider: "mal",
+        direction: "remote",
+        kind: "update",
+        animeId: "mal:100",
+        entry,
+        status: "pending",
+        attempts: 1,
+        createdAt: "2026-11-22T12:00:00.000Z",
+        updatedAt: "2026-11-22T12:00:00.000Z",
+      }),
+      legacyDb.put("syncSessions", {
+        sessionId: "migration-session",
+        provider: "mal",
+        status: "running",
+        startedAt: "2026-11-22T12:00:00.000Z",
+        operationCount: 1,
+        succeededCount: 0,
+        failedCount: 0,
+        pendingCount: 1,
+        unchangedCount: 0,
+        conflictCount: 0,
+        recoveredCount: 0,
+      }),
+      legacyDb.put("deletionIntents", {
+        id: "migration-deletion",
+        provider: "mal",
+        animeId: "mal:100",
+        externalId: "100",
+        anime,
+        entry,
+        createdAt: "2026-11-22T12:00:00.000Z",
+      }),
     ]);
     legacyDb.close();
 
@@ -68,6 +103,20 @@ describe("IndexedDB schema migrations", () => {
       favorite: true,
     });
     expect(await repository.getSourceEntries("mal:100")).toHaveLength(1);
+
+    // The pre-upgrade backup includes operational stores as well as library
+    // records, so interrupted sync sessions and pending deletion intents survive.
+    const backupDb = await openDB(`${name}__migration_backups`, 1);
+    const backups = await backupDb.getAll("backups");
+    expect(backups).toHaveLength(1);
+    expect(backups[0]?.integrity.totalRecordCount).toBe(6);
+    expect(backups[0]?.stores.find((store) => store.name === "syncOperations")?.records)
+      .toMatchObject([{ id: "migration-operation", status: "pending" }]);
+    expect(backups[0]?.stores.find((store) => store.name === "syncSessions")?.records)
+      .toMatchObject([{ sessionId: "migration-session", status: "running" }]);
+    expect(backups[0]?.stores.find((store) => store.name === "deletionIntents")?.records)
+      .toMatchObject([{ id: "migration-deletion", externalId: "100" }]);
+    backupDb.close();
 
     repository.close();
     repositories.splice(repositories.indexOf(repository), 1);
