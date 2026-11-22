@@ -91,58 +91,120 @@ function stableTitleId(identity: string): string {
     (second >>> 0).toString(16).padStart(8, "0");
 }
 
+type ExportRecord = { id?: string; title: string; original?: string; alternatives?: string; status: string; score?: string; favorite?: string };
+
+function extractReleaseId(value: string): string {
+  const text = value.trim();
+  if (/^\d+$/.test(text)) return text;
+  const match = text.match(/(?:^|\/)(\d+)-[\p{L}\p{N}-]+\.html(?:[?#].*)?$/iu);
+  return match?.[1] ?? "";
+}
+
+function isFavoriteStatus(value: string): boolean {
+  return /^(favorite|favorites|избранное|избран)$/i.test(normalizeHeader(value));
+}
+
 function createRows(
-  records: Array<{ id?: string; title: string; original?: string; alternatives?: string; status: string; score?: string; favorite?: string }>,
+  records: ExportRecord[],
   hasScoreColumn: boolean,
   hasFavoriteColumn: boolean,
   now: string,
 ): { anime: AnimeIdentity[]; sourceEntries: AnimeListEntry[]; skipped: number } {
-  const anime: AnimeIdentity[] = [];
-  const sourceEntries: AnimeListEntry[] = [];
-  const seen = new Set<string>();
+  const animeById = new Map<string, AnimeIdentity>();
+  const entryById = new Map<string, AnimeListEntry>();
   let skipped = 0;
+
   for (const record of records) {
     const title = record.title.trim();
     const status = statusFrom(record.status);
-    if (!title || title.length > 300 || !status) { skipped += 1; continue; }
-    const externalId = String(record.id || "").trim();
-    const hasExactId = /^\d+$/.test(externalId);
+    const favoriteFromList = isFavoriteStatus(record.status);
+    const favoriteText = String(record.favorite ?? "").trim();
+    const scoreText = String(record.score ?? "").trim();
+    const favoriteKnown = favoriteFromList || (hasFavoriteColumn && favoriteText.length > 0);
+    const favorite = favoriteFromList || (favoriteKnown && parseBoolean(favoriteText));
+
+    // Favorites are a separate Anixart collection, not a watch status.
+    // Keep them as favorites with an explicitly unknown status rather than
+    // silently discarding them or pretending they are planned.
+    if (!title || title.length > 300 || (!status && !favorite)) {
+      skipped += 1;
+      continue;
+    }
+
+    const externalId = extractReleaseId(String(record.id || ""));
+    const hasExactId = Boolean(externalId);
     const original = String(record.original || "").trim().slice(0, 300);
-    const alternatives = String(record.alternatives || "").split(/[;|]/).map((value) => value.trim()).filter(Boolean).slice(0, 20);
+    const alternatives = String(record.alternatives || "")
+      .split(/[;|]/).map((value) => value.trim()).filter(Boolean).slice(0, 20);
     const identityId = hasExactId
       ? "anixart:" + externalId
       : "anixart:export:" + stableTitleId([title, original, ...alternatives].join("|"));
-    if (seen.has(identityId)) { skipped += 1; continue; }
-    seen.add(identityId);
-    const scoreText = String(record.score ?? "").trim();
-    const favoriteText = String(record.favorite ?? "").trim();
     const scoreKnown = hasScoreColumn && scoreText.length > 0;
-    const favoriteKnown = hasFavoriteColumn && favoriteText.length > 0;
     const score = scoreKnown ? parseScore(scoreText) : null;
+    const statusKnown = status !== null;
+
     const identity: AnimeIdentity = {
       id: identityId,
-      titles: { romaji: title, synonyms: [...new Set([original, ...alternatives].filter((value) => value && value !== title))] },
+      titles: {
+        romaji: title,
+        synonyms: [...new Set([original, ...alternatives].filter((value) => value && value !== title))],
+      },
       externalIds: hasExactId ? { anixart: externalId } : {},
     };
     const entry: AnimeListEntry = {
       animeId: identityId,
-      status,
+      status: status ?? "PLANNING",
       progress: 0,
       score,
-      favorite: favoriteKnown ? parseBoolean(favoriteText) : false,
+      favorite,
       updatedAt: now,
       source: "anixart",
       sourceMetadata: {
         progressKnown: false,
+        statusKnown,
         scoreKnown,
         favoriteKnown,
         importedFrom: "official-export",
       },
     };
-    anime.push(identity);
-    sourceEntries.push(entry);
+
+    const previousAnime = animeById.get(identityId);
+    if (previousAnime) {
+      animeById.set(identityId, {
+        ...previousAnime,
+        titles: {
+          ...previousAnime.titles,
+          synonyms: [...new Set([...previousAnime.titles.synonyms, ...identity.titles.synonyms])],
+        },
+        externalIds: { ...previousAnime.externalIds, ...identity.externalIds },
+      });
+      const previousEntry = entryById.get(identityId)!;
+      const previousMetadata = previousEntry.sourceMetadata ?? {};
+      const nextMetadata = entry.sourceMetadata ?? {};
+      const previousStatusKnown = previousMetadata.statusKnown !== false;
+      const previousScoreKnown = previousMetadata.scoreKnown === true;
+      const nextScoreKnown = nextMetadata.scoreKnown === true;
+      entryById.set(identityId, {
+        ...previousEntry,
+        status: previousStatusKnown || !statusKnown ? previousEntry.status : status!,
+        score: previousScoreKnown || !nextScoreKnown ? previousEntry.score : score,
+        favorite: previousEntry.favorite || favorite,
+        sourceMetadata: {
+          ...previousMetadata,
+          statusKnown: previousStatusKnown || statusKnown,
+          scoreKnown: previousScoreKnown || nextScoreKnown,
+          favoriteKnown: previousMetadata.favoriteKnown === true || favoriteKnown,
+          progressKnown: false,
+          importedFrom: "official-export",
+        },
+      });
+    } else {
+      animeById.set(identityId, identity);
+      entryById.set(identityId, entry);
+    }
   }
-  return { anime, sourceEntries, skipped };
+
+  return { anime: [...animeById.values()], sourceEntries: [...entryById.values()], skipped };
 }
 
 /** Parse the user's own Anixart CSV or text export. No Anixart account/API access is performed. */
@@ -155,24 +217,38 @@ export function parseAnixartBookmarkExport(
   if (!cleanText) throw new Error("Файл экспорта Anixart пустой.");
   if (cleanText.length > 25 * 1024 * 1024) throw new Error("Файл экспорта Anixart слишком большой.");
 
-  let records: Array<{ id?: string; title: string; original?: string; alternatives?: string; status: string; score?: string; favorite?: string }> = [];
+  let records: ExportRecord[] = [];
   let hasScoreColumn = false;
   let hasFavoriteColumn = false;
 
-  if (/\.csv$/i.test(fileName)) {
+  const firstLine = cleanText.split(/\r?\n/, 1)[0] ?? "";
+  const headerCells = parseCsv(firstLine)[0] ?? [];
+  const titleHeaderIndex = findColumn(headerCells, [
+    "Название", "Название аниме", "Аниме", "Title", "Anime", "Name", "Релиз",
+  ]);
+  const statusHeaderIndex = findColumn(headerCells, [
+    "Статус просмотра", "Статус", "Watch status", "Status", "Список",
+  ]);
+  const favoriteHeaderIndex = findColumn(headerCells, [
+    "Избранное", "Favorite", "Is favorite",
+  ]);
+  const isDelimitedExport = /\.csv$/i.test(fileName) ||
+    (titleHeaderIndex >= 0 && (statusHeaderIndex >= 0 || favoriteHeaderIndex >= 0));
+
+  if (isDelimitedExport) {
     const rows = parseCsv(cleanText);
-    if (rows.length < 2) throw new Error("CSV Anixart должен содержать заголовок и хотя бы одну строку.");
+    if (rows.length < 2) throw new Error("Экспорт Anixart должен содержать заголовок и хотя бы одну строку.");
     const headers = rows[0]!;
     const titleIndex = findColumn(headers, ["Название", "Название аниме", "Аниме", "Title", "Anime", "Name", "Релиз"]);
     const statusIndex = findColumn(headers, ["Статус просмотра", "Статус", "Watch status", "Status", "Список"]);
-    if (titleIndex < 0 || statusIndex < 0) {
-      throw new Error("Не удалось распознать столбцы названия и статуса в CSV Anixart. Включи в экспорте «Статус просмотра» и пришли пример файла.");
-    }
-    const idIndex = findColumn(headers, ["ID", "Идентификатор", "Release ID", "ID релиза"]);
+    const idIndex = findColumn(headers, ["ID", "Идентификатор", "Release ID", "ID релиза", "Ссылка", "Ссылка на релиз", "URL", "Release URL"]);
     const originalIndex = findColumn(headers, ["Оригинальное название", "Оригинал", "Original title", "Original"]);
     const alternativesIndex = findColumn(headers, ["Альтернативные названия", "Альтернативное название", "Alternative titles", "Synonyms"]);
     const scoreIndex = findColumn(headers, ["Моя оценка", "Оценка", "Личная оценка", "My score", "Score", "Rating"]);
     const favoriteIndex = findColumn(headers, ["Избранное", "Favorite", "Is favorite"]);
+    if (titleIndex < 0 || (statusIndex < 0 && favoriteIndex < 0)) {
+      throw new Error("Не удалось распознать столбцы названия и статуса/избранного в экспорте Anixart. Включи «Статус просмотра» и/или экспорт списка «Избранное».");
+    }
     hasScoreColumn = scoreIndex >= 0;
     hasFavoriteColumn = favoriteIndex >= 0;
     records = rows.slice(1).map((row) => ({
@@ -180,11 +256,13 @@ export function parseAnixartBookmarkExport(
       title: row[titleIndex] || "",
       ...(originalIndex >= 0 ? { original: row[originalIndex] || "" } : {}),
       ...(alternativesIndex >= 0 ? { alternatives: row[alternativesIndex] || "" } : {}),
-      status: row[statusIndex] || "",
+      status: statusIndex >= 0 ? row[statusIndex] || "" : "",
       ...(scoreIndex >= 0 ? { score: row[scoreIndex] || "" } : {}),
       ...(favoriteIndex >= 0 ? { favorite: row[favoriteIndex] || "" } : {}),
     }));
   } else {
+    // Older Anixart text exports use slash-separated records. Keep support
+    // for this layout, but also accept quoted fields containing slashes.
     records = cleanText.split(/\r?\n/).map((line) => {
       const parts = line.split("/");
       if (parts.length < 7) return { title: "", status: "" };
@@ -200,7 +278,7 @@ export function parseAnixartBookmarkExport(
 
   const normalized = createRows(records, hasScoreColumn, hasFavoriteColumn, now);
   if (!normalized.anime.length) {
-    throw new Error("В экспорте Anixart не найдено записей с распознанными статусами. Проверь, что выбраны списки просмотра, а не только избранное.");
+    throw new Error("В экспорте Anixart не найдено записей с распознанными статусами или избранным. Проверь выбранные списки и параметры экспорта.");
   }
   const snapshot: AnimeSnapshotV4 = {
     schemaVersion: 4,
