@@ -62,6 +62,10 @@ interface AnimeSyncDB extends DBSchema {
     value: SyncDeletionIntent;
     indexes: { "by-provider": string; "by-created-at": string };
   };
+  appMetadata: {
+    key: string;
+    value: { key: string; value: number | string; updatedAt: string };
+  };
 }
 
 function getTimestamp(value: string): number {
@@ -422,13 +426,15 @@ function assertRelationsReferenceExistingAnime(
   }
 }
 
+export const LIBRARY_DATABASE_SCHEMA_VERSION = 8;
+
 export class BrowserAnimeRepository {
   private constructor(private readonly db: IDBPDatabase<AnimeSyncDB>) {}
 
   static async open(
     databaseName = "midahoshi-anime-sync",
   ): Promise<BrowserAnimeRepository> {
-    const db = await openDB<AnimeSyncDB>(databaseName, 7, {
+    const db = await openDB<AnimeSyncDB>(databaseName, LIBRARY_DATABASE_SCHEMA_VERSION, {
       upgrade(database, oldVersion, _newVersion, transaction) {
         if (oldVersion < 1) {
           database.createObjectStore("anime", {
@@ -488,6 +494,17 @@ export class BrowserAnimeRepository {
           const deletions = database.createObjectStore("deletionIntents", { keyPath: "id" });
           deletions.createIndex("by-provider", "provider");
           deletions.createIndex("by-created-at", "createdAt");
+        }
+
+        if (oldVersion < 8) {
+          const metadata = database.createObjectStore("appMetadata", {
+            keyPath: "key",
+          });
+          metadata.put({
+            key: "schemaVersion",
+            value: LIBRARY_DATABASE_SCHEMA_VERSION,
+            updatedAt: new Date().toISOString(),
+          });
         }
       },
     });
