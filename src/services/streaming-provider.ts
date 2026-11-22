@@ -43,12 +43,12 @@ export const STREAMING_PROVIDER_CAPABILITIES: Record<StreamingProviderId, Stream
   },
   anixart: {
     catalogSearch: true, titleDetails: true, seasonsAndEpisodes: true, voiceTracks: true,
-    accountConnection: false, listImport: false, listWrite: false,
+    accountConnection: false, listImport: true, listWrite: false,
     watchProgressRead: true, watchProgressWrite: false,
     limitations: [
-      "Интеграция относится к публичному сайту AnixART, а не к мобильному приложению.",
-      "Синхронизация мобильного аккаунта не поддерживается.",
-      "Состояние просмотра доступно через браузерное расширение.",
+      "Списки мобильного приложения импортируются из собственного CSV/TXT экспорта; пароль и неофициальный API не используются.",
+      "Обратная запись статусов, прогресса и оценок пока не реализована.",
+      "Состояние просмотра доступно через браузерное расширение для сайта AnixART отдельно.",
     ],
   },
 };
