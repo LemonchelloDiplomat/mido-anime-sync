@@ -568,7 +568,8 @@ async function handleRequest(request, response) {
       ["priority", "priority"],
     ]) {
       const value = Number(malMetadata[field]);
-      if (Number.isSafeInteger(value) && value >= 0) form.set(key, String(value));
+      const max = key === "rewatch_value" ? 5 : key === "priority" ? 2 : Number.MAX_SAFE_INTEGER;
+      if (Number.isSafeInteger(value) && value >= 0 && value <= max) form.set(key, String(value));
     }
     if (Array.isArray(malMetadata.tags) &&
         malMetadata.tags.every((tag) => typeof tag === "string" && tag.length <= 100)) {
@@ -657,7 +658,7 @@ async function handleRequest(request, response) {
     const aniMetadata = body.sourceMetadata && typeof body.sourceMetadata === "object"
       ? body.sourceMetadata : {};
     const repeat = Number(aniMetadata.repeat);
-    const notes = typeof aniMetadata.notes === "string" ? aniMetadata.notes.slice(0, 500) : "";
+    const notes = typeof aniMetadata.notes === "string" ? aniMetadata.notes.slice(0, 6000) : "";
     const toFuzzyDate = (value) => {
       if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
       const [year, month, day] = value.split("-").map(Number);
@@ -672,7 +673,7 @@ async function handleRequest(request, response) {
         status: remoteStatus,
         score: remoteScore,
         progress,
-        repeat: Number.isSafeInteger(repeat) && repeat >= 0 ? repeat : 0,
+        repeat: Number.isSafeInteger(repeat) && repeat >= 0 ? Math.min(1000, repeat) : 0,
         notes,
         startedAt,
         completedAt,
