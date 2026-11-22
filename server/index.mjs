@@ -8,7 +8,7 @@ import { handleYummyAnimeRequest } from "./yummyanime-routes.mjs";
 import { handleAnimeGoRequest } from "./animego-routes.mjs";
 import { handleAnixArtRequest } from "./anixart-routes.mjs";
 import { fetchAniListAnimeList } from "./anilist-list.mjs";
-import { enrichShikimoriAnimeRates, fetchShikimoriAnimeIdentityBatch, getShikimoriIdentityCoverage } from "./shikimori-enrichment.mjs";
+import { fetchShikimoriAnimeRates, getShikimoriIdentityCoverage } from "./shikimori-enrichment.mjs";
 
 const ROOT = process.cwd();
 const DATA_DIR = path.join(ROOT, ".local-data");
@@ -139,14 +139,19 @@ async function readJson(request, maxBytes = 16384) {
 }
 
 async function fetchJson(url, options = {}) {
+  const requestUrl = new URL(url);
+  const requestMethod = String(options.method || "GET").toUpperCase();
   const response = await fetch(url, options);
   const text = await response.text();
   let payload;
   try { payload = text ? JSON.parse(text) : {}; } catch { payload = { message: text.slice(0, 500) }; }
   if (!response.ok) {
     const message = payload?.message || payload?.error_description || payload?.error || ("HTTP " + response.status);
-    const error = new Error(String(message));
+    const safeEndpoint = requestUrl.origin + requestUrl.pathname;
+    const error = new Error(requestMethod + " " + safeEndpoint + " вернул HTTP " + response.status + ": " + String(message));
     error.status = response.status;
+    error.upstreamMethod = requestMethod;
+    error.upstreamUrl = safeEndpoint;
     throw error;
   }
   return payload;
@@ -773,44 +778,20 @@ async function handleRequest(request, response) {
     const tokens = await readTokens();
     if (!tokens.shikimori?.accessToken) return sendJson(response, 401, { error: "Shikimori ещё не подключён." });
     try {
-      if (!tokens.shikimori.userId) {
-        const me = await shikimoriRequest("/users/whoami", tokens);
-        tokens.shikimori.userId = me.id || null;
-        tokens.shikimori.username = me.nickname || me.name || tokens.shikimori.username || null;
-        await writeTokens(tokens);
-      }
-      if (!tokens.shikimori.userId) throw new Error("Shikimori не вернул ID текущего пользователя.");
-      const items = [];
-      const limit = 5000;
-      let page = 1;
-      while (page <= 100) {
-        const query = new URLSearchParams({ limit: String(limit), page: String(page) });
-        const result = await shikimoriRequest(
-          "/users/" + encodeURIComponent(String(tokens.shikimori.userId)) + "/anime_rates?" + query.toString(),
-          tokens,
-        );
-        if (!Array.isArray(result)) throw new Error("Shikimori вернул список в неожиданном формате.");
-        items.push(...result);
-        if (result.length < limit) break;
-        page += 1;
-      }
-      if (page > 100) throw new Error("Список Shikimori слишком большой: достигнут лимит страниц.");
-      const fetchIdentityBatch = (ids) => fetchShikimoriAnimeIdentityBatch(
-        ids,
+      // Use the authenticated GraphQL userRates query directly. This avoids
+      // relying on the legacy REST /users/:id/anime_rates route and resolves
+      // each anime's native Shikimori ID and nullable MAL ID in the same call.
+      const items = await fetchShikimoriAnimeRates(
         (query, variables) => shikimoriGraphqlRequest(query, variables, tokens),
+        { pageSize: 50, maxPages: 100 },
       );
-      const enrichedItems = await enrichShikimoriAnimeRates(
-        items,
-        fetchIdentityBatch,
-        async (id) => {
-          const details = await fetchIdentityBatch([id]);
-          return details.find((detail) => String(detail.id) === String(id)) || null;
-        },
-        50,
-        { resolveMissingIndividually: false },
-      );
-      const identityCoverage = getShikimoriIdentityCoverage(enrichedItems);
-      return sendJson(response, 200, { data: enrichedItems, count: enrichedItems.length, identityCoverage });
+      const identityCoverage = getShikimoriIdentityCoverage(items);
+      return sendJson(response, 200, {
+        data: items,
+        count: items.length,
+        identityCoverage,
+        source: "shikimori-graphql-userRates",
+      });
     } catch (error) {
       return sendJson(response, error.status || 502, { error: error.message });
     }
