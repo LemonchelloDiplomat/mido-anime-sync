@@ -39,10 +39,12 @@ export function normalizeYummyLists(payload:YummyRawLists):Array<{anime:AnimeIde
   const listId=String(row.list_id??row.list??nested.list_id??""); const status=statusFor(definitions.get(listId)||row,row);
   if(!/^\d+$/.test(id)||!title||!status)continue;
   const year=numberValue(nested.year,row.year); const episodes=numberValue(nested.episodes,nested.episode_count,row.episodes);
-  const progress=Math.max(0,numberValue(row.progress,row.episodes_watched,row.watched_episodes)??0);
+  const rawProgress=numberValue(row.progress,row.episodes_watched,row.watched_episodes);
+  const progress=Math.max(0,rawProgress??0);
   const rawScore=numberValue(row.score,row.rating); const score=rawScore===null?null:Math.max(0,Math.min(100,rawScore<=10?rawScore*10:rawScore));
+  const favoriteKnown=typeof row.favorite==="boolean"||typeof nested.favorite==="boolean";
   const anime:AnimeIdentity={id:"yummyanime:"+id,titles:{romaji:title,synonyms:[textValue(nested.original_title,row.original_title)].filter(Boolean)},externalIds:{yummyanime:id},year,episodes,posterUrl:textValue(nested.poster,nested.poster_url,row.poster,row.poster_url)||null};
-  const entry:AnimeListEntry={animeId:anime.id,status,progress,score,favorite:Boolean(row.favorite??nested.favorite),updatedAt:textValue(row.updated_at,row.updatedAt)||new Date(0).toISOString(),source:"yummyanime"};
+  const entry:AnimeListEntry={animeId:anime.id,status,progress,score,favorite:Boolean(row.favorite??nested.favorite),updatedAt:textValue(row.updated_at,row.updatedAt)||new Date(0).toISOString(),source:"yummyanime",sourceMetadata:{progressKnown:rawProgress!==null,scoreKnown:rawScore!==null,favoriteKnown}};
   result.push({anime,entry});
  }
  return result;
