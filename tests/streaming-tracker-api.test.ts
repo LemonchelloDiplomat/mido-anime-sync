@@ -12,12 +12,11 @@ describe("YummyAnime tracker normalization",()=>{
   expect(result[0]?.anime).toMatchObject({id:"yummyanime:77",titles:{romaji:"Nested title"},year:2025,posterUrl:"https://img.example/poster.jpg"});
   expect(result[0]?.entry).toMatchObject({status:"WATCHING",progress:6,score:80,favorite:true});
  });
- it("maps known YummyAnime system list IDs when the list label is localized or missing",()=>{
-  const result=normalizeYummyLists({profile:{},lists:[{id:0,name:"Список 0"},{id:2,name:""}],entries:[
-   {anime_id:21,list_id:0,title:"Watching by ID"},
-   {anime_id:22,list_id:2,title:"Completed by ID"},
-  ],count:2});
-  expect(result.map(row=>row.entry.status)).toEqual(["WATCHING","COMPLETED"]);
+ it("does not guess statuses from numeric IDs when list labels are unknown",()=>{
+  const result=normalizeYummyLists({profile:{},lists:[{id:3,name:"Custom shelf"}],entries:[
+   {anime_id:21,list_id:3,title:"Custom list entry"},
+  ],count:1});
+  expect(result).toEqual([]);
  });
  it("marks omitted source fields as unknown so imports can preserve prior values",()=>{const result=normalizeYummyLists({profile:{},lists:[{id:1,name:"Watching"}],entries:[{anime_id:9,list_id:1,title:"Unknown fields"}],count:1});expect(result[0]?.entry.sourceMetadata).toEqual({progressKnown:false,scoreKnown:false,favoriteKnown:false});});
  it("skips malformed rows instead of inventing IDs or titles",()=>{expect(normalizeYummyLists({profile:{},lists:[{id:1,name:"Watching"}],entries:[{list_id:1,title:"No ID"},{anime_id:2,list_id:1}],count:2})).toEqual([]);});
