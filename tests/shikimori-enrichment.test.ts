@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { enrichShikimoriAnimeRates } from "../server/shikimori-enrichment.mjs";
 
-function rate(id: number, overrides: Record<string, unknown> = {}) {
+function rate(id: number, overrides: { myanimelist_id?: number | null } = {}) {
   return {
     id: id + 1000,
     status: "completed",
