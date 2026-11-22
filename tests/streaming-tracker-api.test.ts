@@ -32,7 +32,8 @@ describe("YummyAnime tracker normalization",()=>{
   expect(result[0]?.anime).toMatchObject({
    posterUrl:"https://img.example/card.webp",format:"TV",ageRating:"R+",
    releaseStatus:"ONGOING",averageScore:8.4,genres:["Фэнтези","Приключения"],
-   episodes:12,year:2024,titles:{synonyms:["Original title","Alt title"]},
+   episodes:12,year:2024,externalIds:{yummyanime:"31",myanimelist:"1234",shikimori:"5678"},
+   titles:{synonyms:["Manga","Alt title"]},
   });
   expect(result[0]?.entry.score).toBe(90);
  });
