@@ -2091,3 +2091,14 @@ button:disabled {
 .streaming-tracker-provider p {
   margin: 0;
 }
+
+.streaming-tracker-provider-limitations {
+  display: grid;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color, rgba(128, 128, 128, .2));
+}
+.streaming-tracker-provider-limitations h4,
+.streaming-tracker-provider-limitations p {
+  margin: 0;
+}
