@@ -9,7 +9,9 @@ import type {
 interface ShikimoriAnime {
   id: number;
   name: string;
-  myanimelist_id?: number | string | null;\n  mal_id?: number | string | null;\n  malId?: number | string | null;
+  myanimelist_id?: number | string | null;
+  mal_id?: number | string | null;
+  malId?: number | string | null;
   russian?: string | null;
   kind?: string | null;
   episodes?: number | null;
@@ -87,7 +89,7 @@ function finiteNumber(value: number | string | null | undefined): number | null 
 
 function normalizeMyAnimeListId(value: unknown): number | null {
   if (typeof value !== "number" && typeof value !== "string") return null;
-  if (typeof value === "string" && !/^\\d+$/.test(value.trim())) return null;
+  if (typeof value === "string" && !/^\d+$/.test(value.trim())) return null;
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
