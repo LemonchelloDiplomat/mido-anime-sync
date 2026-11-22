@@ -79,6 +79,34 @@ describe("AnimeGO public catalog adapter", () => {
     });
   });
 
+  it("extracts an explicit catalog rating without inventing one when absent", () => {
+    const html = `
+      <div class="ani-grid__item">
+        <a href="/anime/rated-title-3001"><img src="/rated.jpg" alt="Rated title"></a>
+        <span class="rating__value">8.7</span>
+      </div>
+      <div class="ani-grid__item">
+        <a href="/anime/data-rated-title-3002"><img src="/data-rated.jpg" alt="Data rated title"></a>
+        <div data-rating="7.4" class="catalog-score"></div>
+      </div>
+      <div class="ani-grid__item">
+        <a href="/anime/unrated-title-3003"><img src="/unrated.jpg" alt="Unrated title"></a>
+        <span class="episode-count">12</span>
+      </div>`;
+    const items = parseAnimeGoSearch(html);
+    expect(items.map((item) => item.rating ?? null)).toEqual([8.7, 7.4, null]);
+  });
+
+  it("upgrades trusted AnimeGO HTTP poster CDN URLs for the HTTPS-only proxy", () => {
+    const html = `
+      <div class="ani-grid__item">
+        <a href="/anime/http-poster-3004">
+          <img data-original="http://img.cdngos.com/posters/title.jpg" alt="HTTP poster">
+        </a>
+      </div>`;
+    expect(parseAnimeGoSearch(html)[0].posterUrl).toBe("https://img.cdngos.com/posters/title.jpg");
+  });
+
   it("extracts posters from lazy-loaded attributes, srcset, and CSS backgrounds", () => {
     const html = `
       <div class="ani-grid__item">
