@@ -25,7 +25,10 @@ describe("streaming account manager", () => {
       async connect() { return { sessionPayload: "secret-token", accountLabel: "test-user" }; },
       async validateSession() { return true; },
     };
+    expect(manager.hasAdapter("anixart")).toBe(false);
     manager.register(adapter);
+    expect(manager.hasAdapter("anixart")).toBe(true);
+    expect(manager.hasAdapter("animego")).toBe(false);
 
     const status = await manager.connect("anixart", { login: "test", password: "never-persist" });
 
