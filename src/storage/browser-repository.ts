@@ -19,6 +19,7 @@ import type {
 } from "../core/types.js";
 
 import { validateSnapshot, validateEntry } from "./snapshot-validation.js";
+import { createMigrationBackupIfNeeded } from "./migration-backup.js";
 
 interface AnimeSyncDB extends DBSchema {
   anime: {
@@ -434,6 +435,13 @@ export class BrowserAnimeRepository {
   static async open(
     databaseName = "midahoshi-anime-sync",
   ): Promise<BrowserAnimeRepository> {
+    // A complete copy of every existing object store must be committed and
+    // verified before IndexedDB is allowed to run a schema upgrade.
+    await createMigrationBackupIfNeeded(
+      databaseName,
+      LIBRARY_DATABASE_SCHEMA_VERSION,
+    );
+
     const db = await openDB<AnimeSyncDB>(databaseName, LIBRARY_DATABASE_SCHEMA_VERSION, {
       upgrade(database, oldVersion, _newVersion, transaction) {
         if (oldVersion < 1) {
