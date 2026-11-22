@@ -17,11 +17,17 @@ try {
   $nodeMajor = Get-MidoNodeMajorVersion $nodePath
   if ($nodeMajor -lt 22) { throw "Нужен Node.js 22 или новее. Сейчас установлен Node.js $nodeMajor." }
 
-  $npmCommand = Get-Command npm -ErrorAction SilentlyContinue
-  if (-not $npmCommand) { throw "npm не найден после активации Node.js через FNM." }
+  $npmPath = Join-Path (Split-Path -Parent $nodePath) "npm.cmd"
+  if (-not (Test-Path -LiteralPath $npmPath -PathType Leaf)) {
+    $npmCommand = Get-Command npm.cmd -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($npmCommand) { $npmPath = $npmCommand.Source }
+  }
+  if (-not (Test-Path -LiteralPath $npmPath -PathType Leaf)) {
+    throw "npm.cmd не найден рядом с Node.js. Переустанови Node.js с включённым npm."
+  }
 
   Write-Host "Установка зависимостей mido-anime-sync..."
-  & $npmCommand.Source install
+  & $npmPath install
   if ($LASTEXITCODE -ne 0) { throw "npm install завершился с ошибкой. Проверь подключение к интернету и повтори Setup." }
 
   $envFile = Join-Path $Root ".env.local"
