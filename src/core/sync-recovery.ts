@@ -6,6 +6,26 @@ import type {
   SyncProvider,
 } from "./types.js";
 
+const PROVIDER_METADATA_FIELDS: Record<SyncProvider, string[]> = {
+  mal: ["timesRewatched", "rewatchValue", "tags", "comments", "priority", "startDate", "finishDate"],
+  anilist: ["repeat", "notes", "startedAt", "completedAt"],
+  shikimori: ["rewatches", "text"],
+};
+
+function providerMetadataMatches(
+  provider: SyncProvider,
+  expected: AnimeListEntry,
+  actual: AnimeListEntry,
+): boolean {
+  const expectedMetadata = expected.sourceMetadata;
+  if (!expectedMetadata) return true;
+  const actualMetadata = actual.sourceMetadata ?? {};
+  return PROVIDER_METADATA_FIELDS[provider].every((field) => {
+    if (!(field in expectedMetadata)) return true;
+    return JSON.stringify(expectedMetadata[field]) === JSON.stringify(actualMetadata[field]);
+  });
+}
+
 export interface SyncRecoveryDependencies {
   getSourceEntries: (animeId: string) => Promise<AnimeListEntry[]>;
   updateSyncOperation: (
@@ -55,7 +75,8 @@ export async function reconcileUnfinishedSyncOperations(
           actualEntry.status === operation.entry.status &&
           actualEntry.progress === operation.entry.progress &&
           actualEntry.score === expectedScore &&
-          (!providerSupportsFavorite(provider) || actualEntry.favorite === operation.entry.favorite),
+          (!providerSupportsFavorite(provider) || actualEntry.favorite === operation.entry.favorite) &&
+          providerMetadataMatches(provider, operation.entry, actualEntry),
         );
 
     if (matchesTarget) {
