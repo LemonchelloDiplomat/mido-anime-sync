@@ -2278,3 +2278,112 @@ button:disabled {
     margin-left: 64px;
   }
 }
+
+
+/* ===== Native streaming account manager ===== */
+.native-account-manager {
+  margin: 20px 0;
+  padding: 18px;
+  border: 1px solid #302d3a;
+  border-radius: 16px;
+  background: linear-gradient(145deg, #1b1927, #171720);
+}
+.native-account-manager .section-heading {
+  margin-bottom: 14px;
+}
+.native-account-manager .section-heading h2 {
+  margin: 6px 0;
+}
+.native-account-manager .section-heading p {
+  margin: 0;
+  color: #a6a5b5;
+  font-size: 13px;
+}
+.native-account-runtime-note {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: #211f2c;
+  color: #aaa8ba;
+  font-size: 12px;
+}
+.native-account-runtime-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #d6b66b;
+}
+.native-account-runtime-dot.is-ready {
+  background: #70d6a0;
+  box-shadow: 0 0 0 3px rgb(112 214 160 / 12%);
+}
+.native-account-list {
+  display: grid;
+  gap: 8px;
+}
+.native-account-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-top: 1px solid #302d3a;
+}
+.native-account-logo {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 12px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .3px;
+}
+.native-account-logo--animego {
+  background: linear-gradient(145deg, #7457c8, #49318d);
+}
+.native-account-logo--anixart {
+  background: linear-gradient(145deg, #d75b83, #853b65);
+}
+.native-account-info {
+  flex: 1;
+  min-width: 0;
+}
+.native-account-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.native-account-title-row h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.native-account-info p {
+  margin: 0 0 4px;
+  color: #c7c3d2;
+  font-size: 12px;
+}
+.native-account-info small {
+  display: block;
+  color: #8f8c9e;
+  font-size: 11px;
+  line-height: 1.5;
+}
+@media (max-width: 700px) {
+  .native-account-card {
+    flex-wrap: wrap;
+  }
+  .native-account-info {
+    flex-basis: calc(100% - 60px);
+  }
+  .native-account-card > button {
+    width: 100%;
+  }
+}
