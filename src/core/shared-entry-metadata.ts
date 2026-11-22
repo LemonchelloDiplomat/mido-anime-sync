@@ -37,8 +37,12 @@ export function mergeSharedMetadataIntoProviderMetadata(
     if (validCalendarDate(shared.startedAt)) result.startDate = shared.startedAt;
     if (validCalendarDate(shared.completedAt)) result.finishDate = shared.completedAt;
   } else if (provider === "anilist") {
-    if (validCalendarDate(shared.startedAt)) result.startedAt = shared.startedAt;
-    if (validCalendarDate(shared.completedAt)) result.completedAt = shared.completedAt;
+    // AniList's SaveMediaListEntry accepts null to explicitly clear a fuzzy date.
+    // Preserve that tombstone instead of silently retaining the old provider value.
+    if (shared.startedAt === null) result.startedAt = null;
+    else if (validCalendarDate(shared.startedAt)) result.startedAt = shared.startedAt;
+    if (shared.completedAt === null) result.completedAt = null;
+    else if (validCalendarDate(shared.completedAt)) result.completedAt = shared.completedAt;
   }
 
   return result;
