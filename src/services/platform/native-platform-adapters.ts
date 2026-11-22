@@ -87,6 +87,7 @@ export class TauriWindowsStreamingHttpTransport implements StreamingHttpTranspor
 
   async request<T>(request: StreamingHttpRequest): Promise<StreamingHttpResponse<T>> {
     if (request.signal?.aborted) throw new DOMException("Request aborted", "AbortError");
+    assertNativeProviderUrl(request.provider, request.url);
     if (request.body instanceof FormData) {
       throw new Error("Tauri transport requires FormData to be serialized by a provider adapter.");
     }
@@ -98,6 +99,7 @@ export class TauriWindowsStreamingHttpTransport implements StreamingHttpTranspor
       "streaming_http_request",
       {
         request: {
+          provider: request.provider,
           url: request.url,
           method: request.method ?? "GET",
           headers,
@@ -123,6 +125,7 @@ export class CapacitorAndroidStreamingHttpTransport implements StreamingHttpTran
 
   async request<T>(request: StreamingHttpRequest): Promise<StreamingHttpResponse<T>> {
     if (request.signal?.aborted) throw new DOMException("Request aborted", "AbortError");
+    assertNativeProviderUrl(request.provider, request.url);
     if (request.body instanceof FormData) {
       throw new Error("Capacitor native HTTP transport requires a serialized request body.");
     }
@@ -179,4 +182,14 @@ export function getTauriNativeInvoke(): NativeInvoke {
   const bridge = (window as Window & { __TAURI__?: { core?: { invoke?: NativeInvoke } } }).__TAURI__?.core?.invoke;
   if (!bridge) throw new Error("Tauri native bridge is unavailable in this runtime.");
   return bridge;
+}
+
+function assertNativeProviderUrl(provider: string, rawUrl: string): void {
+  const url = new URL(rawUrl);
+  const host = url.hostname.toLowerCase();
+  const allowed = url.protocol === "https:" && (
+    (provider === "animego" && (host === "animego.me" || host.endsWith(".animego.me"))) ||
+    (provider === "anixart" && (host === "anixart.site" || host.endsWith(".anixart.site")))
+  );
+  if (!allowed) throw new Error("Native HTTP request is outside the provider allowlist.");
 }
