@@ -21,11 +21,11 @@ const CAPABILITIES: Record<StreamingProviderId, StreamingTrackerCapabilities> = 
   },
   animego: {
     accountConnection:false,listImport:false,listStatusWrite:false,progressWrite:false,scoreWrite:false,favoriteWrite:false,
-    reason:"Импорт доступен через расширение на открытой странице профиля, по одному статусу за раз. Пароль не запрашивается. Запись в AnimeGO пока не реализована.",
+    reason:"Публичный стабильный API аккаунта не подтверждён. Расширение передаёт события просмотра, но не синхронизирует списки аккаунта.",
   },
   anixart: {
     accountConnection:false,listImport:false,listStatusWrite:false,progressWrite:false,scoreWrite:false,favoriteWrite:false,
-    reason:"Аккаунт API не подключается. Импорт доступен через собственный CSV/TXT экспорт Anixart; пароль не запрашивается. Обратная запись не реализована.",
+    reason:"Официальный API аккаунта для сторонних приложений не опубликован. Импорт и обратная запись отключены до появления разрешённого API.",
   },
 };
 export function getStreamingTrackerCapabilities(provider:StreamingProviderId):StreamingTrackerCapabilities{return{...CAPABILITIES[provider]};}
