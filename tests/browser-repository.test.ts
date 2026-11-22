@@ -790,6 +790,30 @@ describe("BrowserAnimeRepository V3 backups", () => {
     ]);
   });
 
+  it("keeps the existing library intact when a replacement snapshot is invalid", async () => {
+    const repo = await createRepository();
+    const existing = makeAnime("existing-before-invalid-restore");
+    const existingEntry = makeEntry(existing.id, 6, "2026-11-17T12:00:00.000Z");
+    await repo.saveAnimeWithEntry(existing, existingEntry);
+
+    await expect(repo.restoreSnapshot({
+      schemaVersion: 4,
+      exportedAt: "2026-11-17T12:00:00.000Z",
+      anime: [makeAnime("incoming-anime")],
+      entries: [{
+        ...makeEntry("missing-anime", 2, "2026-11-17T12:00:00.000Z"),
+      }],
+      sourceEntries: [],
+      conflictResolutions: [],
+      animeRelations: [],
+    })).rejects.toThrow("Entry references missing anime");
+
+    expect(await repo.getAnime(existing.id)).toEqual(existing);
+    expect(await repo.getSourceEntries(existing.id)).toEqual([existingEntry]);
+    expect(await repo.getEntry(existing.id)).toMatchObject({ progress: 6 });
+    expect(await repo.getAnime("incoming-anime")).toBeUndefined();
+  });
+
   it("restores aggregate-only anime from a mixed snapshot without data loss", async () => {
     const repo = await createRepository();
     const first = makeAnime("provider-backed-anime");
