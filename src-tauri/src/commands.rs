@@ -217,6 +217,9 @@ pub async fn streaming_http_request(request: NativeHttpRequest) -> Result<Native
     let provider = request.provider.clone();
     let url = validate_request_url(&provider, &request.url)?;
     let method = request.method.as_deref().unwrap_or("GET").to_uppercase();
+    if !matches!(method.as_str(), "GET" | "POST" | "PUT" | "PATCH" | "DELETE") {
+        return Err("Unsupported HTTP method.".to_string());
+    }
     let method = reqwest::Method::from_bytes(method.as_bytes())
         .map_err(|_| "Unsupported HTTP method.".to_string())?;
     let body = if let Some(encoded) = request.body_base64 {
