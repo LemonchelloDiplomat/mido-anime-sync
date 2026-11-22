@@ -1794,7 +1794,23 @@ function App() {
       const backup = await repository.snapshot();
       downloadSnapshot(backup);
 
-      await repository.mergeSnapshotWithMappings(importSnapshot, mappings);
+      let snapshotToMerge = importSnapshot;
+      if (importSnapshot.schemaVersion === 4) {
+        const sourceEntries = await Promise.all(importSnapshot.sourceEntries.map(async (entry) => {
+          const targetId = mappings[entry.animeId] ?? entry.animeId;
+          const previous = (await repository!.getSourceEntries(targetId))
+            .find((existing) => existing.source === entry.source);
+          if (!previous) return entry;
+          return {
+            ...entry,
+            ...(entry.sourceMetadata?.progressKnown === false ? { progress: previous.progress } : {}),
+            ...(entry.sourceMetadata?.scoreKnown === false ? { score: previous.score } : {}),
+            ...(entry.sourceMetadata?.favoriteKnown === false ? { favorite: previous.favorite } : {}),
+          };
+        }));
+        snapshotToMerge = { ...importSnapshot, sourceEntries };
+      }
+      await repository.mergeSnapshotWithMappings(snapshotToMerge, mappings);
       await refreshLibrary();
 
       const importedCount = freshAnalysis.summary.new - manualMappedCount;
