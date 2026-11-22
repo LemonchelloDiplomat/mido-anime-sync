@@ -132,6 +132,11 @@ export function parseAniListAccountList(
       favorite: Boolean(media.isFavourite),
       updatedAt,
       source: "anilist",
+      sharedMetadata: {
+        rewatchCount: Math.max(0, Number(raw.repeat) || 0),
+        startedAt: formatDate(raw.startedAt),
+        completedAt: formatDate(raw.completedAt),
+      },
       sourceMetadata: {
         anilistEntryId: raw.id,
         repeat: raw.repeat ?? 0,
