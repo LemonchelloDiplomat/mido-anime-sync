@@ -281,3 +281,47 @@ it("keeps the source database and its backup when a schema upgrade aborts", asyn
   const available = await listMigrationBackups(name);
   expect(available.map((item) => item.id)).toContain(backup!.id);
 });
+
+
+it("restores a v7 backup into v8 while preserving current schema metadata", async () => {
+  const name = `migration-backup-v7-to-v8-restore-${Date.now()}-${Math.random()}`;
+  const backupName = getMigrationBackupDatabaseName(name);
+  databaseNames.push(name, backupName);
+
+  const legacy = await openDB(name, 7, {
+    upgrade(database) {
+      database.createObjectStore("anime", { keyPath: "id" });
+    },
+  });
+  await legacy.put("anime", { id: "anime-1", title: "Original v7 record" });
+  legacy.close();
+
+  const backup = await createMigrationBackupIfNeeded(name, 8);
+  expect(backup).not.toBeNull();
+
+  const upgraded = await openDB(name, 8, {
+    upgrade(database) {
+      database.createObjectStore("appMetadata", { keyPath: "key" });
+    },
+  });
+  await upgraded.put("appMetadata", {
+    key: "schemaVersion",
+    value: 8,
+    updatedAt: "2026-11-22T12:00:00.000Z",
+  });
+  await upgraded.put("anime", { id: "anime-1", title: "Changed after upgrade" });
+  upgraded.close();
+
+  await restoreMigrationBackup(name, backup!.id);
+
+  const restored = await openDB(name, 8);
+  expect(await restored.get("anime", "anime-1")).toEqual({
+    id: "anime-1",
+    title: "Original v7 record",
+  });
+  expect(await restored.get("appMetadata", "schemaVersion")).toMatchObject({
+    key: "schemaVersion",
+    value: 8,
+  });
+  restored.close();
+});
