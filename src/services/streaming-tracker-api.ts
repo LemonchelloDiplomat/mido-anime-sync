@@ -23,28 +23,48 @@ const STATUS_ALIASES:Array<[RegExp,AnimeStatus]>=[
 ];
 const textValue=(...values:unknown[])=>{const value=values.find(v=>typeof v==="string"&&v.trim());return typeof value==="string"?value.trim():"";};
 const numberValue=(...values:unknown[])=>{for(const value of values){const n=Number(value);if(value!==null&&value!==undefined&&value!==""&&Number.isFinite(n))return n;}return null;};
-function statusFor(list:Record<string,unknown>,row:Record<string,unknown>):AnimeStatus|null{
- const label=textValue(list.name,list.title,list.label,list.slug,row.list_name,row.status_name);
+const objectValue=(value:unknown):Record<string,unknown>=>value&&typeof value==="object"&&!Array.isArray(value)?value as Record<string,unknown>:{};
+function statusFor(list:Record<string,unknown>,row:Record<string,unknown>,userList:Record<string,unknown>):AnimeStatus|null{
+ const rowStatus=objectValue(row.status);
+ const listValue=objectValue(row.list);
+ const label=textValue(
+  list.name,list.title,list.label,list.slug,
+  row.list_name,row.status_name,row.status,
+  rowStatus.name,rowStatus.title,rowStatus.label,
+  listValue.name,listValue.title,listValue.label,
+  userList.list_name,
+ );
  for(const [pattern,status] of STATUS_ALIASES) if(pattern.test(label)) return status;
  return null;
 }
-/** Skips malformed rows and unknown list semantics instead of inventing metadata. */
+/** Normalizes both the API's nested account rows and the local server's flattened list_id rows. */
 export function normalizeYummyLists(payload:YummyRawLists):Array<{anime:AnimeIdentity;entry:AnimeListEntry}>{
  const definitions=new Map<string,Record<string,unknown>>();
  for(const list of payload.lists){const id=String(list.id??"");if(id)definitions.set(id,list);}
  const result:Array<{anime:AnimeIdentity;entry:AnimeListEntry}>=[];
  for(const row of payload.entries){
-  const nested=row.anime&&typeof row.anime==="object"?row.anime as Record<string,unknown>:{};
-  const id=String(row.anime_id??row.id??nested.id??"").trim(); const title=textValue(nested.title,nested.name,row.title,row.name);
-  const listId=String(row.list_id??row.list??nested.list_id??""); const status=statusFor(definitions.get(listId)||row,row);
+  const nested=objectValue(row.anime);
+  const user=objectValue(row.user);
+  const userList=objectValue(user.list);
+  const nestedList=objectValue(userList.list);
+  const listValue=objectValue(row.list);
+  const id=String(row.anime_id??row.animeId??nested.anime_id??nested.id??row.id??"").trim();
+  const title=textValue(nested.title,nested.name,nested.anime_title,row.title,row.name,row.anime_title);
+  const listId=String(row.list_id??row.listId??listValue.id??nested.list_id??nestedList.id??"");
+  const status=statusFor(definitions.get(listId)||{},row,userList);
   if(!/^\d+$/.test(id)||!title||!status)continue;
-  const year=numberValue(nested.year,row.year); const episodes=numberValue(nested.episodes,nested.episode_count,row.episodes);
-  const rawProgress=numberValue(row.progress,row.episodes_watched,row.watched_episodes);
+  const year=numberValue(nested.year,row.year);
+  const episodes=numberValue(nested.episodes,nested.episode_count,row.episodes,row.episode_count);
+  const rawProgress=numberValue(row.progress,row.episodes_watched,row.watched_episodes,userList.progress,userList.watched_episodes);
   const progress=Math.max(0,rawProgress??0);
-  const rawScore=numberValue(row.score,row.rating); const score=rawScore===null?null:Math.max(0,Math.min(100,rawScore<=10?rawScore*10:rawScore));
-  const favoriteKnown=typeof row.favorite==="boolean"||typeof nested.favorite==="boolean";
-  const anime:AnimeIdentity={id:"yummyanime:"+id,titles:{romaji:title,synonyms:[textValue(nested.original_title,row.original_title)].filter(Boolean)},externalIds:{yummyanime:id},year,episodes,posterUrl:textValue(nested.poster,nested.poster_url,row.poster,row.poster_url)||null};
-  const entry:AnimeListEntry={animeId:anime.id,status,progress,score,favorite:Boolean(row.favorite??nested.favorite),updatedAt:textValue(row.updated_at,row.updatedAt)||new Date(0).toISOString(),source:"yummyanime",sourceMetadata:{progressKnown:rawProgress!==null,scoreKnown:rawScore!==null,favoriteKnown}};
+  const rawScore=numberValue(row.score,row.rating,user.rate);
+  const score=rawScore===null?null:Math.max(0,Math.min(100,rawScore<=10?rawScore*10:rawScore));
+  const favoriteValue=row.favorite??nested.favorite??userList.is_fav;
+  const favoriteKnown=typeof favoriteValue==="boolean";
+  const posterValue=nested.poster??nested.poster_url??row.poster??row.poster_url;
+  const poster=typeof posterValue==="string"?posterValue:textValue(objectValue(posterValue).huge,objectValue(posterValue).fullsize,objectValue(posterValue).big,objectValue(posterValue).medium);
+  const anime:AnimeIdentity={id:"yummyanime:"+id,titles:{romaji:title,synonyms:[textValue(nested.original_title,row.original_title)].filter(Boolean)},externalIds:{yummyanime:id},year,episodes,posterUrl:poster||null};
+  const entry:AnimeListEntry={animeId:anime.id,status,progress,score,favorite:Boolean(favoriteValue),updatedAt:textValue(row.updated_at,row.updatedAt,row.date)||new Date(0).toISOString(),source:"yummyanime",sourceMetadata:{progressKnown:rawProgress!==null,scoreKnown:rawScore!==null,favoriteKnown}};
   result.push({anime,entry});
  }
  return result;
