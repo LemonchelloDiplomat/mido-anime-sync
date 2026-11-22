@@ -1,25 +1,25 @@
 const DEFAULT_BATCH_SIZE = 50;
 
-function isPositiveSafeInteger(value) {
-  return Number.isSafeInteger(value) && value > 0;
+function normalizeAnimeId(value) {
+  const id = typeof value === "number" ? value : Number(value);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
 /**
- * Fetches complete Shikimori anime records in API-sized batches and copies
- * cross-provider MAL IDs onto the nested anime objects returned by anime_rates.
- *
- * The import must fail closed when a requested detail is missing: returning a
- * partial list could make every unmatched Shikimori title look like a new anime.
+ * Enriches anime_rates with complete anime records. The list endpoint is used
+ * in batches first; any IDs omitted by that endpoint are resolved through the
+ * documented single-anime endpoint before import can continue.
  */
 export async function enrichShikimoriAnimeRates(
   rates,
   fetchAnimeBatch,
+  fetchAnimeById,
   batchSize = DEFAULT_BATCH_SIZE,
 ) {
   if (!Array.isArray(rates)) {
     throw new Error("Shikimori вернул список в неожиданном формате.");
   }
-  if (typeof fetchAnimeBatch !== "function") {
+  if (typeof fetchAnimeBatch !== "function" || typeof fetchAnimeById !== "function") {
     throw new Error("Не настроено получение подробных данных Shikimori.");
   }
   if (!Number.isSafeInteger(batchSize) || batchSize < 1 || batchSize > DEFAULT_BATCH_SIZE) {
@@ -29,8 +29,8 @@ export async function enrichShikimoriAnimeRates(
   const ids = [];
   const seenIds = new Set();
   for (const rate of rates) {
-    const id = rate?.anime?.id;
-    if (!isPositiveSafeInteger(id)) {
+    const id = normalizeAnimeId(rate?.anime?.id);
+    if (!id) {
       throw new Error("Shikimori вернул запись без корректного ID аниме.");
     }
     if (!seenIds.has(id)) {
@@ -49,33 +49,38 @@ export async function enrichShikimoriAnimeRates(
 
     const requested = new Set(batchIds);
     for (const detail of details) {
-      if (!detail || !isPositiveSafeInteger(detail.id) || !requested.has(detail.id)) {
+      const detailId = normalizeAnimeId(detail?.id);
+      if (!detail || !detailId || !requested.has(detailId)) {
         throw new Error("Shikimori вернул некорректный ответ при уточнении ID аниме.");
       }
-      if (detailsById.has(detail.id)) {
-        throw new Error("Shikimori вернул повторяющиеся подробные данные аниме: " + detail.id);
+      if (detailsById.has(detailId)) {
+        throw new Error("Shikimori вернул повторяющиеся подробные данные аниме: " + detailId);
       }
-      detailsById.set(detail.id, detail);
+      detailsById.set(detailId, detail);
     }
 
+    // Some Shikimori REST responses omit entries for a multi-ID query. Resolve
+    // only those omissions via /api/animes/:id instead of failing the whole list.
     const missing = batchIds.filter((id) => !detailsById.has(id));
-    if (missing.length > 0) {
-      throw new Error(
-        "Shikimori не вернул подробные данные для ID аниме: " + missing.join(", ") +
-        ". Импорт остановлен, чтобы не создать ложные дубликаты.",
-      );
+    for (const id of missing) {
+      const detail = await fetchAnimeById(id);
+      const detailId = normalizeAnimeId(detail?.id);
+      if (!detail || detailId !== id) {
+        throw new Error(
+          "Shikimori не вернул подробные данные для ID аниме " + id +
+          " ни в пакетном запросе, ни в запросе по отдельному ID. Импорт остановлен.",
+        );
+      }
+      detailsById.set(id, detail);
     }
   }
 
   return rates.map((rate) => {
-    const detail = detailsById.get(rate.anime.id);
-    const detailedMalId = detail?.myanimelist_id;
-    const existingMalId = rate.anime.myanimelist_id;
-    const myanimelistId = isPositiveSafeInteger(detailedMalId)
-      ? detailedMalId
-      : isPositiveSafeInteger(existingMalId)
-        ? existingMalId
-        : null;
+    const id = normalizeAnimeId(rate.anime.id);
+    const detail = detailsById.get(id);
+    const detailedMalId = normalizeAnimeId(detail?.myanimelist_id);
+    const existingMalId = normalizeAnimeId(rate.anime.myanimelist_id);
+    const myanimelistId = detailedMalId || existingMalId || null;
 
     return {
       ...rate,
