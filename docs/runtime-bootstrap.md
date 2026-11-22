@@ -1,8 +1,8 @@
 # Native streaming runtime application bootstrap
 
-The web application entrypoint calls `createStreamingRuntimeFromHost()` before
-React renders. This creates the Windows runtime automatically when the trusted
-Tauri v2 invoke bridge is present.
+The application entrypoint initializes the streaming runtime before React
+renders. Windows Tauri uses its trusted invoke bridge. Android detects the
+native Capacitor platform and loads the installed plugin modules.
 
 ## Windows
 
@@ -13,28 +13,38 @@ adapters. No session material is copied into React state or browser storage.
 
 ## Android
 
-The Android runtime is deliberately opt-in. The Capacitor native entrypoint
-must register the secure-storage and native HTTP plugins, then inject their
-plugin objects as `window.__MIDO_STREAMING_ANDROID__` before the app entrypoint
-runs. The object must have this shape:
+Run `npm run setup:platforms` to install the Capacitor 8 dependencies and
+`@capnative/capacitor-secure-storage`. Then run:
 
-- `secureStorage.get({ key })`, `set({ key, value })`, and `remove({ key })`
-- `http.request({ url, method, headers, data, ... })`
+```sh
+npm run build
+npx cap sync android
+```
 
-Until this native bridge is installed, the bootstrap returns `null`. It does
-not fall back to localStorage, IndexedDB, or browser fetch.
+The app detects `Capacitor.isNativePlatform()` and
+`Capacitor.getPlatform() === "android"`, then dynamically loads
+`SecureStorage` from `@capnative/capacitor-secure-storage` and
+`CapacitorHttp` from `@capacitor/core`. Capacitor's native plugin registry
+is populated by `npx cap sync android`. The optional Android modules are not
+loaded in a normal browser build.
+
+An explicit `window.__MIDO_STREAMING_ANDROID__` dependency injection bridge
+is still supported for tests and controlled embedding. The bootstrap never
+falls back to localStorage, IndexedDB, or browser fetch. If plugin loading
+fails, the app logs the native initialization error and leaves the local
+library available.
 
 ## Provider readiness
 
 Runtime composition is not provider authentication. No AnimeGO or Anixart
-account adapter is registered by default, and the current capability matrix
-continues to mark their account login and list writes as unsupported. This
+account adapter is registered by default, and their account login and remote
+list writes remain unsupported pending verified, permitted protocols. This
 bootstrap does not enable cookie extraction, private API calls, or remote
 writes.
 
 ## Validation
 
 Unit tests cover Tauri detection, explicit Android dependency injection,
-browser no-fallback behavior, and deterministic platform precedence. The
-existing CI typecheck and Vite build validate the application entrypoint.
-Native Windows and Android builds still require platform SDK validation.
+native Android plugin loading, browser no-fallback behavior, and platform
+precedence. Native Windows and Android builds still require platform SDK
+validation.
