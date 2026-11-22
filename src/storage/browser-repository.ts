@@ -19,7 +19,12 @@ import type {
 } from "../core/types.js";
 
 import { validateSnapshot, validateEntry } from "./snapshot-validation.js";
-import { createMigrationBackupIfNeeded } from "./migration-backup.js";
+import {
+  createMigrationBackupIfNeeded,
+  listMigrationBackups,
+  restoreMigrationBackup as restoreStoredMigrationBackup,
+  type MigrationBackup,
+} from "./migration-backup.js";
 
 interface AnimeSyncDB extends DBSchema {
   anime: {
@@ -2121,6 +2126,18 @@ export class BrowserAnimeRepository {
       await transactionDone.catch(() => undefined);
       throw error;
     }
+  }
+
+  async getMigrationBackups(): Promise<MigrationBackup[]> {
+    return listMigrationBackups(this.db.name);
+  }
+
+  async restoreMigrationBackup(backupId: string): Promise<{
+    backup: MigrationBackup;
+    safetyBackupId: string;
+    restoredRecordCount: number;
+  }> {
+    return restoreStoredMigrationBackup(this.db.name, backupId);
   }
 
   close(): void {
