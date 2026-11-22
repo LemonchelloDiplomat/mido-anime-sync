@@ -133,7 +133,7 @@ export async function fetchShikimoriAnimeIdentityBatch(ids, requestGraphql) {
 
 function normalizeAnimeId(value) {
   if (typeof value !== "number" && typeof value !== "string") return null;
-  if (typeof value === "string" && !/^\\d+$/.test(value.trim())) return null;
+  if (typeof value === "string" && !/^\d+$/.test(value.trim())) return null;
   const id = typeof value === "number" ? value : Number(value);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
