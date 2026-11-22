@@ -34,11 +34,11 @@ export const STREAMING_PROVIDER_CAPABILITIES: Record<StreamingProviderId, Stream
   },
   animego: {
     catalogSearch: true, titleDetails: true, seasonsAndEpisodes: true, voiceTracks: true,
-    accountConnection: false, listImport: false, listWrite: false,
+    accountConnection: false, listImport: true, listWrite: false,
     watchProgressRead: true, watchProgressWrite: false,
     limitations: [
-      "Личный API аккаунта и списков не подтверждён.",
-      "Состояние просмотра доступно только через браузерное расширение.",
+      "Импорт выполняется через браузерное расширение на открытой странице профиля, по одному статусному списку за раз.",
+      "Обратная запись статусов, прогресса и оценок пока не реализована.",
     ],
   },
   anixart: {
