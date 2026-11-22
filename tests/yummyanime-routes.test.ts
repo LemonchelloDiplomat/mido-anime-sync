@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleYummyAnimeRequest } from "../server/yummyanime-routes.mjs";
+import { normalizeYummyLists } from "../src/services/streaming-tracker-api.js";
 
 function responseCapture(): { status: number; headers: Record<string, string>; body: string; writeHead(status: number, headers?: Record<string, string>): void; end(body?: string): void; json(): any } {
   return {
@@ -167,6 +168,7 @@ describe("YummyAnime local API routes", () => {
     await handleYummyAnimeRequest({ method: "GET" }, res, new URL("http://127.0.0.1/api/yummyanime/lists"), deps);
     expect(res.status).toBe(200);
     expect(res.json().entries).toEqual([{ anime_id: 7, title: "Test Anime", list_id: 1, list_name: "Watching" }]);
+    expect(normalizeYummyLists(res.json()).map((row) => row.entry.status)).toEqual(["WATCHING"]);
   });
 
   it("adds and removes favorites through the documented independent favorite route", async () => {
