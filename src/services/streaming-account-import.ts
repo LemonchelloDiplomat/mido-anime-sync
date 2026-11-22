@@ -58,13 +58,13 @@ export function reconcileStreamingAccountSnapshot(
       externalIds: { ...incoming.externalIds, ...existing.externalIds },
       year: existing.year ?? incoming.year ?? null,
       episodes: existing.episodes ?? incoming.episodes ?? null,
-      format: existing.format ?? incoming.format,
+      ...((existing.format ?? incoming.format) ? { format: existing.format ?? incoming.format } : {}),
       ...(genres ? { genres } : {}),
       ageRating: existing.ageRating ?? incoming.ageRating ?? null,
       posterUrl: existing.posterUrl ?? incoming.posterUrl ?? null,
       averageScore: existing.averageScore ?? incoming.averageScore ?? null,
       startDate: existing.startDate ?? incoming.startDate ?? null,
-      releaseStatus: existing.releaseStatus ?? incoming.releaseStatus,
+      ...((existing.releaseStatus ?? incoming.releaseStatus) ? { releaseStatus: existing.releaseStatus ?? incoming.releaseStatus } : {}),
     } : { ...incoming, id: targetId };
     const previous = animeById.get(targetId);
     if (previous) {
