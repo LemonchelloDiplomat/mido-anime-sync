@@ -63,6 +63,23 @@ describe("native platform adapters", () => {
     }));
   });
 
+  it("rejects provider-host mismatches before either native transport is called", async () => {
+    const invoke = vi.fn() as NativeInvoke;
+    const windows = new TauriWindowsStreamingHttpTransport(invoke);
+    const androidHttp = { request: vi.fn() };
+    const android = new CapacitorAndroidStreamingHttpTransport(androidHttp);
+
+    await expect(windows.request({
+      provider: "animego", url: "https://anixart.site/account",
+    })).rejects.toThrow("provider allowlist");
+    await expect(android.request({
+      provider: "anixart", url: "https://animego.me/account",
+    })).rejects.toThrow("provider allowlist");
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(androidHttp.request).not.toHaveBeenCalled();
+  });
+
   it("maps Windows native HTTP response and sends the request object", async () => {
     const invoke = vi.fn(async () => ({
       status: 200, headers: { "content-type": "application/json" }, data: { ok: true }, url: "https://anixart.site/api",
