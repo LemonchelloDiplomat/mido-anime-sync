@@ -214,17 +214,30 @@ describe("YummyAnime local API routes", () => {
     process.env.YUMMY_APPLICATION_TOKEN = "public-app-token";
     const fetcher = vi.fn(async (url: string) => {
       const payload = url.endsWith("/profile") ? { response: { id: 42 } }
-        : { response: [
+        : url.endsWith("/users/42/lists") ? { response: [
           {
             anime_id: 101, title: "Санка Рэа", year: 2012,
-            poster: { huge: "https://img.example/101.jpg" },
             user: { rating: 8, list: { is_fav: true, list: { id: 0, title: "Смотрю", href: "/list/0" } } },
           },
           {
             anime_id: 202, title: "Из якудза в идолы", year: 2022,
             user: { rating: 7, list: { is_fav: false, list: { id: 2, title: "Просмотрено", href: "/list/2" } } },
           },
-        ] };
+        ] }
+        : url.endsWith("/anime/101") ? { response: {
+          anime_id: 101, title: "Санка Рэа", original: "Sankarea",
+          poster: { huge: "https://img.example/101.jpg" }, type: { shortname: "TV" },
+          min_age: { value: 16, title: "16+" }, anime_status: { alias: "released", title: "Вышел" },
+          rating: { average: 7.2 }, genres: [{ title: "Романтика" }, { title: "Ужасы" }],
+          episodes: { count: 12, aired: 12 }, year: 2012,
+        } }
+        : url.endsWith("/anime/202") ? { response: {
+          anime_id: 202, title: "Из якудза в идолы", poster: { big: "https://img.example/202.jpg" },
+          type: { shortname: "TV" }, min_age: { value: 12, title: "12+" },
+          anime_status: { alias: "released" }, rating: { average: 6.8 },
+          genres: [{ title: "Комедия" }], episodes: { count: 10, aired: 10 }, year: 2022,
+        } }
+        : { response: {} };
       return { ok: true, status: 200, async text() { return JSON.stringify(payload); } };
     });
     vi.stubGlobal("fetch", fetcher);
@@ -233,8 +246,10 @@ describe("YummyAnime local API routes", () => {
     await handleYummyAnimeRequest({ method: "GET" }, res, new URL("http://127.0.0.1/api/yummyanime/lists"), deps);
 
     expect(res.status).toBe(200);
-    expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(fetcher.mock.calls[1]?.[0]).toContain("/users/42/lists");
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/users/42/lists"))).toBe(true);
+    expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/anime/101"))).toBe(true);
+    expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/anime/202"))).toBe(true);
     expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/lists/0"))).toBe(false);
     expect(res.json().entries).toHaveLength(2);
     expect(res.json().lists).toEqual(expect.arrayContaining([
@@ -246,9 +261,16 @@ describe("YummyAnime local API routes", () => {
       status: row.entry.status,
       favorite: row.entry.favorite,
       score: row.entry.score,
+      poster: row.anime.posterUrl,
+      genres: row.anime.genres,
+      ageRating: row.anime.ageRating,
+      format: row.anime.format,
+      averageScore: row.anime.averageScore,
+      releaseStatus: row.anime.releaseStatus,
+      episodes: row.anime.episodes,
     }))).toEqual([
-      { title: "Санка Рэа", status: "WATCHING", favorite: true, score: 80 },
-      { title: "Из якудза в идолы", status: "COMPLETED", favorite: false, score: 70 },
+      { title: "Санка Рэа", status: "WATCHING", favorite: true, score: 80, poster: "https://img.example/101.jpg", genres: ["Романтика", "Ужасы"], ageRating: "R17", format: "TV", averageScore: 7.2, releaseStatus: "RELEASED", episodes: 12 },
+      { title: "Из якудза в идолы", status: "COMPLETED", favorite: false, score: 70, poster: "https://img.example/202.jpg", genres: ["Комедия"], ageRating: "PG13", format: "TV", averageScore: 6.8, releaseStatus: "RELEASED", episodes: 10 },
     ]);
     expect(res.json().diagnostics).toMatchObject({ definitionsCount: 2, fetchedRows: 2 });
   });
