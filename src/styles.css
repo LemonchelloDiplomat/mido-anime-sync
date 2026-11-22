@@ -929,6 +929,35 @@ button:disabled {
   font-size: 11px;
 }
 
+.import-title-suggestions {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #45405a;
+  border-radius: 10px;
+  background: #1b1926;
+}
+.import-title-suggestions > p {
+  margin: 0;
+  color: #a6a4b4;
+  font-size: 12px;
+}
+.import-title-suggestions label {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(240px, 1.2fr);
+  align-items: center;
+  gap: 12px;
+  color: #dedbea;
+  font-size: 12px;
+}
+.import-title-suggestions select {
+  min-width: 0;
+  width: 100%;
+}
+@media (max-width: 900px) {
+  .import-title-suggestions label { grid-template-columns: 1fr; }
+}
+
 .import-results {
   display: grid;
   gap: 8px;
