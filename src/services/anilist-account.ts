@@ -6,6 +6,7 @@ interface AniListApiEntry {
   score: number;
   progress: number;
   repeat: number;
+  notes?: string | null;
   updatedAt: number;
   startedAt?: { year?: number | null; month?: number | null; day?: number | null };
   completedAt?: { year?: number | null; month?: number | null; day?: number | null };
@@ -134,6 +135,7 @@ export function parseAniListAccountList(
       sourceMetadata: {
         anilistEntryId: raw.id,
         repeat: raw.repeat ?? 0,
+        notes: raw.notes ?? "",
         scoreFormat,
         startedAt: formatDate(raw.startedAt),
         completedAt: formatDate(raw.completedAt),
