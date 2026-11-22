@@ -577,7 +577,7 @@ async function handleRequest(request, response) {
     if (typeof malMetadata.comments === "string") form.set("comments", malMetadata.comments.slice(0, 2000));
     for (const [key, field] of [["start_date", "startDate"], ["finish_date", "finishDate"]]) {
       const value = malMetadata[field];
-      if (typeof value === "string" && /^\\d{4}-\\d{2}-\\d{2}$/.test(value)) form.set(key, value);
+      if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) form.set(key, value);
     }
     try {
       const tokens = await readTokens();
@@ -659,7 +659,7 @@ async function handleRequest(request, response) {
     const repeat = Number(aniMetadata.repeat);
     const notes = typeof aniMetadata.notes === "string" ? aniMetadata.notes.slice(0, 500) : "";
     const toFuzzyDate = (value) => {
-      if (typeof value !== "string" || !/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) return null;
+      if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
       const [year, month, day] = value.split("-").map(Number);
       return { year, month, day };
     };
