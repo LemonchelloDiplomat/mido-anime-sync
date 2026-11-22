@@ -28,7 +28,10 @@ function providerMetadataMatches(
   const expectedShared = expected.sharedMetadata;
   if (!expectedShared) return true;
   const actualShared = actual.sharedMetadata ?? {};
-  return (["rewatchCount", "startedAt", "completedAt"] as const).every((field) => {
+  const sharedFields = provider === "shikimori"
+    ? (["rewatchCount"] as const)
+    : (["rewatchCount", "startedAt", "completedAt"] as const);
+  return sharedFields.every((field) => {
     if (!(field in expectedShared)) return true;
     return JSON.stringify(expectedShared[field]) === JSON.stringify(actualShared[field]);
   });
