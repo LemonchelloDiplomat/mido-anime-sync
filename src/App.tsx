@@ -615,6 +615,49 @@ function App() {
       };
     }));
     await repository.mergeSnapshot({ ...reconciled, sourceEntries });
+
+    // YummyAnime does not publish an exact premiere date in its anime-card schema.
+    // When it supplies an exact MAL ID, resolve missing catalog fields by that ID
+    // through AniList rather than guessing dates from the year or title.
+    if (provider === "yummyanime") {
+      const metadataCandidates = getAniListMetadataCandidates(reconciled.anime);
+      if (metadataCandidates.length > 0) {
+        setMetadataEnriching(true);
+        setMetadataEnrichmentError("");
+        setMetadataProgress({
+          provider: aniListMetadataProvider.name,
+          completed: 0,
+          total: metadataCandidates.length,
+          matched: 0,
+          missing: 0,
+        });
+        try {
+          await aniListMetadataProvider.enrich(reconciled.anime, {
+            onBatch: async (batch) => {
+              for (const match of batch.matches) {
+                await repository!.updateAnimeMetadata(match.animeId, match.metadata);
+              }
+              setMetadataProgress({
+                provider: aniListMetadataProvider.name,
+                completed: batch.completed,
+                total: batch.total,
+                matched: batch.matched,
+                missing: batch.missing,
+              });
+            },
+          });
+        } catch (metadataError) {
+          setMetadataEnrichmentError(
+            metadataError instanceof Error
+              ? "Импорт YummyAnime выполнен, но часть метаданных AniList не обновлена: " + metadataError.message
+              : "Импорт YummyAnime выполнен, но метаданные AniList не удалось обновить.",
+          );
+        } finally {
+          setMetadataEnriching(false);
+        }
+      }
+    }
+
     await refreshLibrary();
   }
 
