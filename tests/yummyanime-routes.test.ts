@@ -190,6 +190,49 @@ describe("YummyAnime local API routes", () => {
     expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/users/42/lists/12"))).toBe(true);
   });
 
+  it("imports direct anime rows from the documented user lists endpoint", async () => {
+    process.env.YUMMY_APPLICATION_TOKEN = "public-app-token";
+    const fetcher = vi.fn(async (url: string) => {
+      const payload = url.endsWith("/profile") ? { response: { id: 42 } }
+        : { response: [
+          {
+            anime_id: 101, title: "Санка Рэа", year: 2012,
+            poster: { huge: "https://img.example/101.jpg" },
+            user: { rating: 8, list: { is_fav: true, list: { id: 0, title: "Смотрю", href: "/list/0" } } },
+          },
+          {
+            anime_id: 202, title: "Из якудза в идолы", year: 2022,
+            user: { rating: 7, list: { is_fav: false, list: { id: 2, title: "Просмотрено", href: "/list/2" } } },
+          },
+        ] };
+      return { ok: true, status: 200, async text() { return JSON.stringify(payload); } };
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const deps = dependencies({ yummyanime: { accessToken: "private-user-token", userId: 42, refreshedAt: Date.now() } });
+    const res = responseCapture();
+    await handleYummyAnimeRequest({ method: "GET" }, res, new URL("http://127.0.0.1/api/yummyanime/lists"), deps);
+
+    expect(res.status).toBe(200);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls[1]?.[0]).toContain("/users/42/lists");
+    expect(fetcher.mock.calls.some(([url]) => String(url).match(/\\/lists\\/\\d+$/))).toBe(false);
+    expect(res.json().entries).toHaveLength(2);
+    expect(res.json().lists).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 0, name: "Смотрю", rowCount: 1 }),
+      expect.objectContaining({ id: 2, name: "Просмотрено", rowCount: 1 }),
+    ]));
+    expect(normalizeYummyLists(res.json()).map((row) => ({
+      title: row.anime.titles.romaji,
+      status: row.entry.status,
+      favorite: row.entry.favorite,
+      score: row.entry.score,
+    }))).toEqual([
+      { title: "Санка Рэа", status: "WATCHING", favorite: true, score: 80 },
+      { title: "Из якудза в идолы", status: "COMPLETED", favorite: false, score: 70 },
+    ]);
+    expect(res.json().diagnostics).toMatchObject({ definitionsCount: 2, fetchedRows: 2 });
+  });
+
   it("adds and removes favorites through the documented independent favorite route", async () => {
     process.env.YUMMY_APPLICATION_TOKEN = "public-app-token";
     const fetcher = vi.fn(async (_url: string, _options?: RequestInit) => ({ ok: true, status: 200, async text() { return JSON.stringify({ response: true }); } }));
