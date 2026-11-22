@@ -2032,6 +2032,9 @@ function App() {
     }),
     [library, filters],
   );
+  const selectedManualImportTargets = Object.values(importManualMappings).filter(Boolean);
+  const hasDuplicateManualImportTargets = new Set(selectedManualImportTargets).size !== selectedManualImportTargets.length;
+  const manualImportMappingCount = selectedManualImportTargets.length;
 
   const searchResults = useMemo(
     () => filterLibrary(library, { ...filters, query: searchQuery }).sort((a, b) => {
@@ -2786,7 +2789,9 @@ function App() {
                   <div className="eyebrow">IMPORT CENTER</div>
                   <h2>Предварительный просмотр импорта</h2>
                   <p>
-                    Новые тайтлы будут добавлены автоматически. Совпадения определяются только по точным ID, а похожие названия не объединяются.
+                    {importFormat === "Anixart export"
+                      ? "Совпадения по точным ID объединяются автоматически. Похожие названия показаны только как подсказки и объединяются лишь после твоего выбора."
+                      : "Новые тайтлы будут добавлены автоматически. Совпадения определяются только по точным ID, а похожие названия не объединяются."}
                   </p>
                 </div>
 
@@ -2811,12 +2816,12 @@ function App() {
 
                 <div className="import-summary-card new">
                   <span>Новые</span>
-                  <strong>{importAnalysis.summary.new}</strong>
+                  <strong>{Math.max(0, importAnalysis.summary.new - (importFormat === "Anixart export" ? manualImportMappingCount : 0))}</strong>
                 </div>
 
                 <div className="import-summary-card matched">
                   <span>Совпадения</span>
-                  <strong>{importAnalysis.summary.matched}</strong>
+                  <strong>{importAnalysis.summary.matched + (importFormat === "Anixart export" ? manualImportMappingCount : 0)}</strong>
                 </div>
 
               </div>
@@ -2824,6 +2829,7 @@ function App() {
               <div className="import-file-info">
                 <span>Формат: {importFormat || `JSON v${importSnapshot.schemaVersion}`}</span>
                 <span>Записей библиотеки: {importSnapshot.entries.length}</span>
+                {importSnapshot.schemaVersion === 4 && <span>Записей источника: {importSnapshot.sourceEntries.length}</span>}
               </div>
 
               {importFormat === "Anixart export" && Object.keys(importSuggestions).length > 0 && (
@@ -2846,7 +2852,11 @@ function App() {
                         >
                           <option value="">Оставить отдельной записью</option>
                           {suggestions.map((suggestion) => (
-                            <option key={suggestion.anime.id} value={suggestion.anime.id}>
+                            <option
+                              key={suggestion.anime.id}
+                              value={suggestion.anime.id}
+                              disabled={Object.entries(importManualMappings).some(([otherId, targetId]) => otherId !== importedId && targetId === suggestion.anime.id)}
+                            >
                               {suggestion.anime.titles.english ?? suggestion.anime.titles.romaji ?? suggestion.anime.id}
                               {" · совпадение "}{Math.round(suggestion.score * 100)}%
                             </option>
@@ -2884,6 +2894,13 @@ function App() {
                 </div>
               )}
 
+              {hasDuplicateManualImportTargets && (
+                <div className="import-safety-note">
+                  <strong>Повторное сопоставление.</strong>
+                  <p>Один локальный тайтл выбран для нескольких записей экспорта. Выбери разные цели или оставь лишние записи отдельными.</p>
+                </div>
+              )}
+
               <div className="import-safety-note">
                 <strong>Готово к импорту.</strong>
                 <p>
@@ -2913,6 +2930,7 @@ function App() {
                   onClick={() => void handleConfirmImport()}
                   disabled={
                     importing ||
+                    hasDuplicateManualImportTargets ||
                     (importIdentityDiagnostics?.provider === "shikimori" &&
                       importIdentityDiagnostics.matchedInLibrary === 0)
                   }
