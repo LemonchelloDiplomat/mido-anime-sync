@@ -177,6 +177,7 @@ pub struct NativeHttpRequest {
     method: Option<String>,
     headers: Option<HashMap<String, String>>,
     body: Option<String>,
+    body_base64: Option<String>,
     response_type: Option<String>,
     #[allow(dead_code)]
     with_credentials: Option<bool>,
@@ -216,7 +217,11 @@ pub async fn streaming_http_request(request: NativeHttpRequest) -> Result<Native
     let method = request.method.as_deref().unwrap_or("GET").to_uppercase();
     let method = reqwest::Method::from_bytes(method.as_bytes())
         .map_err(|_| "Unsupported HTTP method.".to_string())?;
-    let body = request.body.unwrap_or_default();
+    let body = if let Some(encoded) = request.body_base64 {
+        STANDARD.decode(encoded).map_err(|_| "Invalid binary request body.".to_string())?
+    } else {
+        request.body.unwrap_or_default().into_bytes()
+    };
     if body.len() > MAX_HTTP_BODY_BYTES {
         return Err("Provider request body is too large.".to_string());
     }
@@ -228,6 +233,7 @@ pub async fn streaming_http_request(request: NativeHttpRequest) -> Result<Native
                 attempt.stop()
             } else if attempt.url().scheme() == "https"
                 && attempt.url().host_str().map(allowed_provider_host).unwrap_or(false)
+                && attempt.previous().last().and_then(|previous| previous.host_str()) == attempt.url().host_str()
             {
                 attempt.follow()
             } else {
