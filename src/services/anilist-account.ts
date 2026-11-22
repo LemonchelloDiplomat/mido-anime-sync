@@ -8,8 +8,8 @@ interface AniListApiEntry {
   repeat: number;
   notes?: string | null;
   updatedAt: number;
-  startedAt?: { year?: number | null; month?: number | null; day?: number | null };
-  completedAt?: { year?: number | null; month?: number | null; day?: number | null };
+  startedAt?: { year?: number | null; month?: number | null; day?: number | null } | null;
+  completedAt?: { year?: number | null; month?: number | null; day?: number | null } | null;
   media: {
     id: number;
     idMal: number | null;
@@ -53,7 +53,7 @@ function normalizeScore(score: number, format: AniListScoreFormat): number | nul
   }
 }
 
-function formatDate(value?: AniListApiEntry["startedAt"]): string | null {
+function formatDate(value?: AniListApiEntry["startedAt"] | null): string | null {
   if (!value?.year || !value.month || !value.day) return null;
   return String(value.year) + "-" + String(value.month).padStart(2, "0") + "-" + String(value.day).padStart(2, "0");
 }
