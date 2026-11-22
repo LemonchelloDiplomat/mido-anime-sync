@@ -47,7 +47,25 @@ describe("shared tracker entry metadata", () => {
     });
   });
 
-  it("ignores invalid shared values instead of overwriting provider data", () => {
+  it("passes explicit null dates to AniList so they are cleared remotely", () => {
+    expect(mergeSharedMetadataIntoProviderMetadata("anilist", {
+      rewatchCount: 2,
+      startedAt: null,
+      completedAt: null,
+    }, {
+      notes: "keep this note",
+      repeat: 1,
+      startedAt: "2024-01-01",
+      completedAt: "2024-02-01",
+    })).toEqual({
+      notes: "keep this note",
+      repeat: 2,
+      startedAt: null,
+      completedAt: null,
+    });
+  });
+
+  it("ignores invalid shared values instead of overwriting provider data", () =>
     expect(mergeSharedMetadataIntoProviderMetadata("mal", {
       rewatchCount: -1,
       startedAt: "2025-02-30",
