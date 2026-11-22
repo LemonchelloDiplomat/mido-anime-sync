@@ -1,8 +1,40 @@
 const DEFAULT_BATCH_SIZE = 50;
 
 function normalizeAnimeId(value) {
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  if (typeof value === "string" && !/^\\d+$/.test(value.trim())) return null;
   const id = typeof value === "number" ? value : Number(value);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+function readMyAnimeListId(anime) {
+  return normalizeAnimeId(
+    anime?.myanimelist_id ?? anime?.mal_id ?? anime?.malId,
+  );
+}
+
+/**
+ * Summarizes how much of a Shikimori account can be linked to MAL IDs.
+ * This is diagnostic metadata only; it never guesses an identity.
+ */
+export function getShikimoriIdentityCoverage(rates) {
+  if (!Array.isArray(rates)) {
+    throw new Error("Shikimori вернул список в неожиданном формате.");
+  }
+  const total = rates.length;
+  const withMyAnimeListId = rates.filter((rate) => readMyAnimeListId(rate?.anime) !== null).length;
+  const missingAnimeIds = rates
+    .filter((rate) => readMyAnimeListId(rate?.anime) === null)
+    .map((rate) => normalizeAnimeId(rate?.anime?.id))
+    .filter((id) => id !== null)
+    .slice(0, 10);
+
+  return {
+    total,
+    withMyAnimeListId,
+    withoutMyAnimeListId: total - withMyAnimeListId,
+    sampleMissingAnimeIds: missingAnimeIds,
+  };
 }
 
 /**
@@ -35,7 +67,7 @@ export async function enrichShikimoriAnimeRates(
     }
     // A usable MAL ID is already enough for cross-provider matching.
     // Avoid extra Shikimori requests for entries that already carry it.
-    if (!normalizeAnimeId(rate.anime.myanimelist_id) && !seenIds.has(id)) {
+    if (readMyAnimeListId(rate.anime) === null && !seenIds.has(id)) {
       seenIds.add(id);
       ids.push(id);
     }
@@ -80,8 +112,8 @@ export async function enrichShikimoriAnimeRates(
   return rates.map((rate) => {
     const id = normalizeAnimeId(rate.anime.id);
     const detail = detailsById.get(id);
-    const detailedMalId = normalizeAnimeId(detail?.myanimelist_id);
-    const existingMalId = normalizeAnimeId(rate.anime.myanimelist_id);
+    const detailedMalId = readMyAnimeListId(detail);
+    const existingMalId = readMyAnimeListId(rate.anime);
     const myanimelistId = detailedMalId || existingMalId || null;
 
     return {
