@@ -253,8 +253,12 @@ describe("Shikimori GraphQL userRates import", () => {
     expect(result).toHaveLength(51);
     expect(result[0]?.anime.id).toBe(101500001);
     expect(result[0]?.anime.malId).toBe("1000");
-    expect(result[0]?.anime.aired_on).toBe("2020-01-01");
-    expect(result[0]?.anime.image.original).toBe("/uploads/poster/animes/101500001/original.jpg");
+    const firstAnime = result[0]?.anime as {
+      aired_on?: string;
+      image?: { original?: string | null };
+    };
+    expect(firstAnime.aired_on).toBe("2020-01-01");
+    expect(firstAnime.image?.original).toBe("/uploads/poster/animes/101500001/original.jpg");
     expect(result[50]?.anime.malId).toBeNull();
     expect(getShikimoriIdentityCoverage(result)).toMatchObject({
       total: 51, withMyAnimeListId: 50, withoutMyAnimeListId: 1,
