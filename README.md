@@ -89,3 +89,27 @@ npm run check:server
 npm run check:extension
 npm run build
 ~~~
+
+
+## Native application shells
+
+The project now has a Tauri 2 Windows shell scaffold and a Capacitor 8 Android configuration. To install the native tooling and generate the Android Studio project, run:
+
+```powershell
+npm run setup:platforms
+```
+
+Then use:
+
+```powershell
+npm run tauri:dev
+npm run tauri:build
+npm run cap:sync
+npm run cap:open:android
+```
+
+Windows builds require the Rust MSVC toolchain, Microsoft C++ Build Tools, and WebView2. Android builds require Android Studio and the Android SDK.
+
+The native account platform layer uses Windows Credential Manager for Tauri sessions and Android Keystore-backed encrypted storage for Capacitor sessions. Provider sessions remain device-local and are not part of library synchronization.
+
+**Current packaging limitation:** the existing local Node.js API server is started in Tauri development mode, but is not yet bundled as a production sidecar. Android also cannot run the Node server as-is. The native shell is therefore a development scaffold until those API responsibilities are moved into native commands or packaged as a managed sidecar. See [docs/platform-shells.md](docs/platform-shells.md).
