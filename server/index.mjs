@@ -524,7 +524,6 @@ async function handleRequest(request, response) {
       let pages = 0;
       while (next && pages < 100) {
         const parsed = new URL(next);
-        if (parsed.hostname !== "api.myanimelist.net" || !parsed.pathname.startsWith("/v2/users/")) throw new Error("MyAnimeList вернул недопустимую ссылку пагинации.");
         if (
           parsed.protocol !== "https:" ||
           parsed.hostname !== "api.myanimelist.net" ||
