@@ -33,7 +33,9 @@ export async function enrichShikimoriAnimeRates(
     if (!id) {
       throw new Error("Shikimori вернул запись без корректного ID аниме.");
     }
-    if (!seenIds.has(id)) {
+    // A usable MAL ID is already enough for cross-provider matching.
+    // Avoid extra Shikimori requests for entries that already carry it.
+    if (!normalizeAnimeId(rate.anime.myanimelist_id) && !seenIds.has(id)) {
       seenIds.add(id);
       ids.push(id);
     }
