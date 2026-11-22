@@ -71,16 +71,6 @@ export interface SharedAnimeEntryMetadata {
   completedAt?: string | null;
 }
 
-  animeId: string;
-  status: AnimeStatus;
-  progress: number;
-  score: number | null;
-  favorite: boolean;
-  updatedAt: string;
-  source: ServiceId | "local";
-  sourceMetadata?: Record<string, unknown>;
-}
-
 export type AnimeSourceEntry = AnimeListEntry;
 
 export type SyncOperationStatus = "pending" | "in_progress" | "succeeded" | "failed" | "cancelled";
