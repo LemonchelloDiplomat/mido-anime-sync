@@ -18,11 +18,19 @@ function providerMetadataMatches(
   actual: AnimeListEntry,
 ): boolean {
   const expectedMetadata = expected.sourceMetadata;
-  if (!expectedMetadata) return true;
   const actualMetadata = actual.sourceMetadata ?? {};
-  return PROVIDER_METADATA_FIELDS[provider].every((field) => {
+  const providerFieldsMatch = !expectedMetadata || PROVIDER_METADATA_FIELDS[provider].every((field) => {
     if (!(field in expectedMetadata)) return true;
     return JSON.stringify(expectedMetadata[field]) === JSON.stringify(actualMetadata[field]);
+  });
+  if (!providerFieldsMatch) return false;
+
+  const expectedShared = expected.sharedMetadata;
+  if (!expectedShared) return true;
+  const actualShared = actual.sharedMetadata ?? {};
+  return (["rewatchCount", "startedAt", "completedAt"] as const).every((field) => {
+    if (!(field in expectedShared)) return true;
+    return JSON.stringify(expectedShared[field]) === JSON.stringify(actualShared[field]);
   });
 }
 
