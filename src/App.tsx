@@ -30,6 +30,7 @@ import { parseShikimoriAccountList } from "./services/shikimori-account.js";
 import { StreamingCatalogPanel } from "./components/StreamingCatalogPanel.js";
 import { StreamingTrackerPanel } from "./components/StreamingTrackerPanel.js";
 import { reconcileStreamingAccountSnapshot } from "./services/streaming-account-import.js";
+import { normalizeAnimeGoAccountList, type AnimeGoAccountListPayload } from "./services/animego-account-import.js";
 import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
 import { detectRemoteDeletions } from "./core/safe-deletions.js";
 import { executeRemoteDeletions, resolvePendingRemoteDeletionIntents } from "./core/remote-deletion.js";
@@ -152,6 +153,8 @@ function App() {
 
   const [library, setLibrary] = useState<LibraryItem[]>([]);
   const [pendingWatchEvent, setPendingWatchEvent] = useState<WatchEvent | null>(null);
+  const [pendingAnimeGoImportId, setPendingAnimeGoImportId] = useState("");
+  const requestedAnimeGoImports = useRef(new Set<string>());
   const [pendingWatchEventId, setPendingWatchEventId] = useState("");
   const [watchEventTargetId, setWatchEventTargetId] = useState("");
   const [watchEventSaving, setWatchEventSaving] = useState(false);
@@ -220,6 +223,45 @@ function App() {
   const [historyError, setHistoryError] = useState("");
   const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | SyncProvider>("all");
   const [historyStatusFilter, setHistoryStatusFilter] = useState<"all" | SyncOperation["status"]>("all");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const importId = params.get("animegoImportId") || "";
+    if (/^[0-9a-f-]{36}$/i.test(importId)) setPendingAnimeGoImportId(importId);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingAnimeGoImportId || !repository || loading) return;
+    if (requestedAnimeGoImports.current.has(pendingAnimeGoImportId)) return;
+    requestedAnimeGoImports.current.add(pendingAnimeGoImportId);
+
+    const importId = pendingAnimeGoImportId;
+    const handleMessage = (event: MessageEvent) => {
+      if (event.source !== window || event.origin !== window.location.origin) return;
+      const data = event.data;
+      if (data?.source !== "mido-anime-extension" ||
+          data?.type !== "ANIMEGO_IMPORT_RESULT" || data.importId !== importId) return;
+      if (!data.result?.ok || !data.result.payload) {
+        setError(data.result?.error || "Не удалось получить список AnimeGO из расширения.");
+        return;
+      }
+      void importAnimeGoAccountList(data.result.payload as AnimeGoAccountListPayload)
+        .then(() => {
+          window.postMessage({ source: "mido-anime-app", type: "ACK_ANIMEGO_IMPORT", importId }, window.location.origin);
+          const params = new URLSearchParams(window.location.search);
+          params.delete("animegoImportId");
+          const query = params.toString();
+          window.history.replaceState({}, "", window.location.pathname + (query ? "?" + query : "") + window.location.hash);
+          setPendingAnimeGoImportId("");
+        })
+        .catch((error: unknown) => {
+          setError(error instanceof Error ? error.message : "Не удалось импортировать список AnimeGO.");
+        });
+    };
+    window.addEventListener("message", handleMessage);
+    window.postMessage({ source: "mido-anime-app", type: "REQUEST_ANIMEGO_IMPORT", importId }, window.location.origin);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [pendingAnimeGoImportId, repository, loading]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -548,18 +590,18 @@ function App() {
     }
   }
 
-  async function importYummyAnimeSnapshot(snapshot: AnimeSnapshotV4) {
+  async function importStreamingAccountSnapshot(snapshot: AnimeSnapshotV4, provider: "animego" | "yummyanime") {
     if (!repository) throw new Error("Локальная библиотека ещё не готова.");
     const currentItems = await repository.getAll();
     const reconciled = reconcileStreamingAccountSnapshot(
       snapshot,
       currentItems.map((item) => item.anime),
     );
-    // Some Yummy list responses omit progress, score or favorite. Preserve the
-    // last known Yummy source value instead of interpreting omission as zero/null/false.
+    // Account-list endpoints often omit progress, score or favorite. Preserve
+    // the last known provider value instead of interpreting omission as zero/null/false.
     const sourceEntries = await Promise.all(reconciled.sourceEntries.map(async (entry) => {
       const previous = (await repository!.getSourceEntries(entry.animeId))
-        .find((item) => item.source === "yummyanime");
+        .find((item) => item.source === provider);
       if (!previous) return entry;
       return {
         ...entry,
@@ -570,6 +612,29 @@ function App() {
     }));
     await repository.mergeSnapshot({ ...reconciled, sourceEntries });
     await refreshLibrary();
+  }
+
+  async function importYummyAnimeSnapshot(snapshot: AnimeSnapshotV4) {
+    await importStreamingAccountSnapshot(snapshot, "yummyanime");
+  }
+
+  async function importAnimeGoAccountList(payload: AnimeGoAccountListPayload) {
+    const normalized = normalizeAnimeGoAccountList(payload);
+    const snapshot: AnimeSnapshotV4 = {
+      schemaVersion: 4,
+      exportedAt: new Date().toISOString(),
+      anime: normalized.rows.map((row) => row.anime),
+      entries: [],
+      sourceEntries: normalized.rows.map((row) => row.entry),
+      conflictResolutions: [],
+      animeRelations: [],
+    };
+    await importStreamingAccountSnapshot(snapshot, "animego");
+    window.alert(
+      "Импорт AnimeGO завершён. Добавлено или обновлено записей: " +
+      normalized.rows.length + ". Пропущено некорректных строк: " + normalized.skipped +
+      ". Прогресс и избранное не изменялись.",
+    );
   }
 
   async function refreshLibrary() {
