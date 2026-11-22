@@ -38,6 +38,16 @@ describe("YummyAnime tracker normalization",()=>{
   });
   expect(result[0]?.entry.score).toBe(90);
  });
+ it("treats zero user and catalog ratings as not rated",()=>{
+  const result=normalizeYummyLists({profile:{},lists:[],entries:[{
+   anime_id:32,title:"Unrated",list_id:1,rating:{average:0},
+   user:{rating:0,list:{list:{id:1,title:"Смотрю"}}},
+  }],count:1});
+  expect(result).toHaveLength(1);
+  expect(result[0]?.anime.averageScore).toBeUndefined();
+  expect(result[0]?.entry.score).toBeNull();
+  expect(result[0]?.entry.sourceMetadata?.scoreKnown).toBe(false);
+ });
  it("does not guess statuses from numeric IDs when list labels are unknown",()=>{
   const result=normalizeYummyLists({profile:{},lists:[{id:3,name:"Custom shelf"}],entries:[
    {anime_id:21,list_id:3,title:"Custom list entry"},
