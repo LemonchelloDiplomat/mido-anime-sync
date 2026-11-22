@@ -83,6 +83,7 @@ export async function enrichShikimoriAnimeRates(
   fetchAnimeBatch,
   fetchAnimeById,
   batchSize = DEFAULT_BATCH_SIZE,
+  { resolveMissingIndividually = true } = {},
 ) {
   if (!Array.isArray(rates)) {
     throw new Error("Shikimori вернул список в неожиданном формате.");
@@ -131,17 +132,21 @@ export async function enrichShikimoriAnimeRates(
 
     // Some Shikimori REST responses omit entries for a multi-ID query. Resolve
     // only those omissions via /api/animes/:id instead of failing the whole list.
-    const missing = batchIds.filter((id) => !detailsById.has(id));
-    for (const id of missing) {
-      const detail = await fetchAnimeById(id);
-      const detailId = normalizeAnimeId(detail?.id);
-      if (!detail || detailId !== id) {
-        throw new Error(
-          "Shikimori не вернул подробные данные для ID аниме " + id +
-          " ни в пакетном запросе, ни в запросе по отдельному ID. Импорт остановлен.",
-        );
+    // GraphQL batch mode must not fan out into hundreds of serial requests.
+    // Missing mappings remain null and are surfaced by identity diagnostics.
+    if (resolveMissingIndividually) {
+      const missing = batchIds.filter((id) => !detailsById.has(id));
+      for (const id of missing) {
+        const detail = await fetchAnimeById(id);
+        const detailId = normalizeAnimeId(detail?.id);
+        if (!detail || detailId !== id) {
+          throw new Error(
+            "Shikimori не вернул подробные данные для ID аниме " + id +
+            " ни в пакетном запросе, ни в запросе по отдельному ID. Импорт остановлен.",
+          );
+        }
+        detailsById.set(id, detail);
       }
-      detailsById.set(id, detail);
     }
   }
 
