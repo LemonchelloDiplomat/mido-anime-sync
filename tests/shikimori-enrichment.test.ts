@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { enrichShikimoriAnimeRates, fetchShikimoriAnimeIdentityBatch, getShikimoriIdentityCoverage, SHIKIMORI_ANIME_IDENTITY_QUERY } from "../server/shikimori-enrichment.mjs";
+import { enrichShikimoriAnimeRates, fetchShikimoriAnimeRates, fetchShikimoriAnimeIdentityBatch, getShikimoriIdentityCoverage, SHIKIMORI_ANIME_IDENTITY_QUERY, SHIKIMORI_USER_ANIME_RATES_QUERY } from "../server/shikimori-enrichment.mjs";
 
 function rate(id: number, overrides: { myanimelist_id?: number | null } = {}) {
   return {
@@ -209,5 +209,64 @@ describe("Shikimori anime_rates enrichment", () => {
     const fetchBatch = vi.fn();
     await expect(enrichShikimoriAnimeRates([], fetchBatch, async (id) => ({ id }))).resolves.toEqual([]);
     expect(fetchBatch).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("Shikimori GraphQL userRates import", () => {
+  it("loads all pages with the documented 50-item maximum and keeps native and MAL IDs separate", async () => {
+    const firstPage = Array.from({ length: 50 }, (_, index) => ({
+      id: String(index + 1),
+      status: "completed",
+      score: 8,
+      episodes: 12,
+      rewatches: 1,
+      text: "",
+      updatedAt: "2026-11-20T10:00:00Z",
+      anime: {
+        id: String(101500001 + index),
+        malId: String(1000 + index),
+        name: "Anime " + index,
+        russian: null,
+        kind: "tv",
+        episodes: 12,
+        score: "8.1",
+        airedOn: "2020-01-01",
+      },
+    }));
+    const secondPage = [{
+      id: "51", status: "planned", score: 0, episodes: 0, rewatches: 0,
+      anime: { id: "101500051", malId: null, name: "No MAL mapping" },
+    }];
+    const requestGraphql = vi.fn()
+      .mockResolvedValueOnce({ userRates: firstPage })
+      .mockResolvedValueOnce({ userRates: secondPage });
+
+    const result = await fetchShikimoriAnimeRates(requestGraphql);
+
+    expect(requestGraphql).toHaveBeenNthCalledWith(1, SHIKIMORI_USER_ANIME_RATES_QUERY, { page: 1, limit: 50 });
+    expect(requestGraphql).toHaveBeenNthCalledWith(2, SHIKIMORI_USER_ANIME_RATES_QUERY, { page: 2, limit: 50 });
+    expect(result).toHaveLength(51);
+    expect(result[0]?.anime.id).toBe(101500001);
+    expect(result[0]?.anime.malId).toBe("1000");
+    expect(result[50]?.anime.malId).toBeNull();
+    expect(getShikimoriIdentityCoverage(result)).toMatchObject({
+      total: 51, withMyAnimeListId: 50, withoutMyAnimeListId: 1,
+    });
+  });
+
+  it("rejects malformed userRates pages instead of importing a partial list", async () => {
+    await expect(fetchShikimoriAnimeRates(async () => ({ userRates: null })))
+      .rejects.toThrow("не вернул userRates");
+  });
+
+  it("rejects duplicate rate or anime IDs across pages", async () => {
+    const duplicate = {
+      id: "1", status: "completed", anime: { id: "10", name: "Duplicate" },
+    };
+    const requestGraphql = vi.fn()
+      .mockResolvedValueOnce({ userRates: [duplicate, { ...duplicate, id: "2" }] });
+    await expect(fetchShikimoriAnimeRates(requestGraphql, { pageSize: 2 }))
+      .rejects.toThrow("повторяющуюся запись");
   });
 });
