@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { NativeInvoke } from "../src/services/platform/native-platform-adapters.js";
 import {
   createStreamingRuntimeFromHost,
   initializeStreamingRuntimeFromHost,
@@ -23,7 +24,7 @@ describe("native streaming runtime bootstrap", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("composes the Windows runtime when the trusted Tauri bridge exists", () => {
-    const invoke = vi.fn(async <T,>() => null as T);
+    const invoke: NativeInvoke = async <T,>() => null as T;
     const host: StreamingRuntimeHost = { __TAURI__: { core: { invoke } } };
 
     const runtime = createStreamingRuntimeFromHost(host);
