@@ -22,11 +22,11 @@ describe("streaming provider contracts", () => {
   it("declares account and progress capabilities only where implemented", () => {
     expect(STREAMING_PROVIDER_CAPABILITIES.yummyanime).toMatchObject({
       accountConnection: true, listImport: true, listWrite: true,
-      watchProgressRead: true, watchProgressWrite: true,
+      watchProgressRead: false, watchProgressWrite: false,
     });
     expect(getStreamingProviderCapabilities("animego")).toMatchObject({
       catalogSearch: true, titleDetails: true,
-      accountConnection: false, listImport: true, listWrite: false,
+      accountConnection: false, listImport: false, listWrite: false,
       watchProgressRead: true, watchProgressWrite: false,
     });
     expect(getStreamingProviderCapabilities("anixart")).toMatchObject({
