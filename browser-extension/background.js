@@ -230,7 +230,118 @@ chrome.tabs?.onUpdated?.addListener((tabId, changeInfo, tab) => {
   }
 });
 
-chrome.runtime.onMessage.addListener((message, sender) => {
+async function handleAnimeGoListExport(message, sender, sendResponse) {
+  try {
+    const senderUrl = new URL(sender.url || sender.tab?.url || "");
+    const host = senderUrl.hostname.toLowerCase();
+    const allowed = ["animego.me", "anime-go.org", "animego.online"]
+      .some((domain) => host === domain || host.endsWith("." + domain));
+    if (!allowed || !/^\/(?:profile|user)\//.test(senderUrl.pathname)) {
+      throw new Error("Импорт доступен только на странице профиля AnimeGO.");
+    }
+    const payload = message.payload;
+    if (!payload || ![1, 2, 3, 4, 5, 6].includes(Number(payload.listType)) ||
+        !Array.isArray(payload.entries) || payload.entries.length === 0 || payload.entries.length > 5000) {
+      throw new Error("Некорректный список AnimeGO или превышен лимит 5000 записей.");
+    }
+    const sourceUrl = new URL(String(payload.sourceUrl || ""));
+    if (sourceUrl.origin !== senderUrl.origin || sourceUrl.pathname !== senderUrl.pathname) {
+      throw new Error("Адрес списка не совпадает с открытой страницей профиля.");
+    }
+    const entries = payload.entries.flatMap((row) => {
+      if (!row || typeof row !== "object") return [];
+      const animeId = String(row.animeId || "").trim();
+      const title = String(row.title || "").trim().slice(0, 300);
+      if (!/^\d+$/.test(animeId) || !title) return [];
+      const score = row.score == null ? null : Number(row.score);
+      let posterUrl = null;
+      try {
+        const candidate = new URL(String(row.posterUrl || ""));
+        if (candidate.protocol === "https:" || candidate.protocol === "http:") posterUrl = candidate.toString();
+      } catch {}
+      return [{
+        animeId,
+        title,
+        originalTitle: typeof row.originalTitle === "string" ? row.originalTitle.trim().slice(0, 300) : null,
+        score: Number.isFinite(score) && score >= 1 && score <= 10 ? score : null,
+        posterUrl,
+      }];
+    });
+    if (!entries.length) throw new Error("В списке не найдено записей с корректными AnimeGO ID.");
+    const importId = crypto.randomUUID();
+    const storageKey = "animeGoAccountImport:" + importId;
+    await chrome.storage.local.set({
+      [storageKey]: {
+        listType: Number(payload.listType),
+        sourceUrl: sourceUrl.toString(),
+        entries,
+        createdAt: new Date().toISOString(),
+      },
+    });
+    const settings = await chrome.storage.local.get({ appUrl: "http://127.0.0.1:5173" });
+    const destination = new URL(settings.appUrl);
+    if (destination.protocol !== "http:" ||
+        !["127.0.0.1", "localhost"].includes(destination.hostname) ||
+        !["5173", "3001", "4173"].includes(destination.port || "80")) {
+      await chrome.storage.local.remove(storageKey);
+      throw new Error("Некорректный адрес локального приложения. Проверь настройки расширения.");
+    }
+    destination.searchParams.set("animegoImportId", importId);
+    await chrome.tabs.create({ url: destination.toString() });
+    sendResponse({ ok: true, count: entries.length });
+  } catch (error) {
+    sendResponse({ ok: false, error: error instanceof Error ? error.message : "Не удалось передать список AnimeGO." });
+  }
+}
+
+function isLocalAppSender(sender) {
+  try {
+    const url = new URL(sender.url || sender.tab?.url || "");
+    return url.protocol === "http:" &&
+      ["127.0.0.1", "localhost"].includes(url.hostname) &&
+      ["5173", "3001", "4173"].includes(url.port || "80");
+  } catch { return false; }
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "MIDAHOSHI_ANIMEGO_LIST_EXPORT") {
+    void handleAnimeGoListExport(message, sender, sendResponse);
+    return true;
+  }
+
+  if (message?.type === "MIDAHOSHI_GET_ANIMEGO_IMPORT") {
+    void (async () => {
+      try {
+        if (!isLocalAppSender(sender)) throw new Error("Запрос импорта разрешён только локальному приложению.");
+        const importId = String(message.importId || "");
+        if (!/^[0-9a-f-]{36}$/i.test(importId)) throw new Error("Некорректный ID импорта.");
+        const storageKey = "animeGoAccountImport:" + importId;
+        const stored = await chrome.storage.local.get({ [storageKey]: null });
+        sendResponse(stored[storageKey]
+          ? { ok: true, payload: stored[storageKey] }
+          : { ok: false, error: "Переданный список AnimeGO не найден или уже импортирован." });
+      } catch (error) {
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : "Не удалось получить список AnimeGO." });
+      }
+    })();
+    return true;
+  }
+
+  if (message?.type === "MIDAHOSHI_ACK_ANIMEGO_IMPORT") {
+    void (async () => {
+      try {
+        if (!isLocalAppSender(sender)) throw new Error("Подтверждение разрешено только локальному приложению.");
+        const importId = String(message.importId || "");
+        if (!/^[0-9a-f-]{36}$/i.test(importId)) throw new Error("Некорректный ID импорта.");
+        await chrome.storage.local.remove("animeGoAccountImport:" + importId);
+        sendResponse({ ok: true });
+      } catch (error) {
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : "Не удалось подтвердить импорт." });
+      }
+    })();
+    return true;
+  }
+
   if (message?.type === "MIDAHOSHI_DISMISS_ALERT") {
     void enqueueToolbarMutation(async () => {
       const state = await getToolbarState();
