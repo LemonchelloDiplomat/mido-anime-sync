@@ -1322,6 +1322,12 @@ function App() {
         const localMatch = localItems.find(
           (item) => item.anime.externalIds[providerSource] === change.externalId,
         );
+        const existingRemoteAnime = snapshot.anime.find(
+          (anime) => anime.externalIds[providerSource] === change.externalId,
+        );
+        const existingRemoteEntry = existingRemoteAnime
+          ? snapshot.entries.find((entry) => entry.animeId === existingRemoteAnime.id)
+          : undefined;
         return {
           id: `${sessionId}-remote-${index}`,
           sessionId,
@@ -1330,7 +1336,10 @@ function App() {
           kind: index < remoteCreates.length ? "create" : "update",
           animeId: localMatch?.anime.id ?? change.entry.animeId,
           externalId: change.externalId,
-          entry: structuredClone(change.entry),
+          entry: structuredClone({
+            ...change.entry,
+            ...(existingRemoteEntry?.sourceMetadata ? { sourceMetadata: existingRemoteEntry.sourceMetadata } : {}),
+          }),
           status: "pending",
           attempts: 0,
           createdAt: journalCreatedAt,
