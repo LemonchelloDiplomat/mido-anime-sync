@@ -55,7 +55,7 @@ export function StreamingTrackerPanel({ items, onImport }: {
         const listId=mapping[item.entry.status];
         return [
           ...(listId?[{externalId,kind:"list" as const,listId:Number(listId)}]:[]),
-          {externalId,kind:"favorite" as const,favorite:item.entry.favorite},
+          ...(item.entry.favorite?[{externalId,kind:"favorite" as const,favorite:true}]:[]),
         ];
       });
       const result=await runConfirmedTrackerWrites(operations,operation=>
@@ -95,7 +95,7 @@ export function StreamingTrackerPanel({ items, onImport }: {
           </select>
         </label>)}
       </div>
-      <p className="integration-security-note">Отправляются статусы по выбранной карте и состояние избранного для тайтлов с точным YummyAnime ID. Прогресс и оценка пока не обновляются. Не назначай один список нескольким статусам, если не хочешь неоднозначных результатов.</p>
+      <p className="integration-security-note">Отправляются статусы по выбранной карте и добавление в избранное для тайтлов с точным YummyAnime ID. Снятие избранного, прогресс и оценка пока не синхронизируются. Не назначай один список нескольким статусам, если не хочешь неоднозначных результатов.</p>
     </>:<>
       <div className="streaming-tracker-login">
         <input value={login} onChange={event=>setLogin(event.target.value)} placeholder="Логин YummyAnime" autoComplete="username"/>
