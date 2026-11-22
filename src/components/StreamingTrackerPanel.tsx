@@ -11,9 +11,10 @@ const STATUS_LABELS: Record<AnimeStatus,string> = {
   PLANNING:"Запланировано", WATCHING:"Смотрю", COMPLETED:"Просмотрено",
   ON_HOLD:"Отложено", DROPPED:"Брошено", REWATCHING:"Пересматриваю",
 };
-export function StreamingTrackerPanel({ items, onImport }: {
+export function StreamingTrackerPanel({ items, onImport, onImportAnixart }: {
   items: LibraryRow[];
   onImport: (rows: NormalizedRow[]) => Promise<void>;
+  onImportAnixart: (file: File) => Promise<{ imported: number; skipped: number }>;
 }) {
   const [status,setStatus]=useState<YummyAccountStatus|null>(null);
   const [login,setLogin]=useState("");
@@ -73,6 +74,14 @@ export function StreamingTrackerPanel({ items, onImport }: {
     }catch(e){setError(e instanceof Error?e.message:"Не удалось обновить списки.");}
     finally{setBusy(false);}
   }
+  async function importAnixartFile(file:File){
+    setBusy(true);setError("");setMessage("");
+    try{
+      const result=await onImportAnixart(file);
+      setMessage("Предпросмотр Anixart готов: "+result.imported+" записей, пропущено: "+result.skipped+". Проверь сопоставления в блоке импорта и подтверди перенос.");
+    }catch(e){setError(e instanceof Error?e.message:"Не удалось прочитать экспорт Anixart.");}
+    finally{setBusy(false);}
+  }
   async function disconnect(){
     setBusy(true);setError("");setMessage("");
     try{await yummyTrackerApi.logout();setStatus({...status!,connected:false,username:null});setLists([]);setMessage("Аккаунт отключён.");}
@@ -111,9 +120,14 @@ export function StreamingTrackerPanel({ items, onImport }: {
       </div>
     </>}
     <div className="streaming-tracker-provider-limitations">
-      <h4>Другие площадки</h4>
+      <h4>Импорт других площадок</h4>
       <p><strong>AnimeGO:</strong> {getStreamingTrackerCapabilities("animego").reason}</p>
-      <p><strong>Anixart:</strong> {getStreamingTrackerCapabilities("anixart").reason}</p>
+      <p><strong>Anixart:</strong> официальный экспорт закладок CSV или TXT. Пароль и API не нужны.</p>
+      <label className="streaming-tracker-import-file">
+        <span>{busy?"Обработка файла...":"Выбрать экспорт Anixart (.csv или .txt)"}</span>
+        <input type="file" accept=".csv,.txt,text/csv,text/plain" disabled={busy} onChange={event=>{const file=event.target.files?.[0];if(file)void importAnixartFile(file);event.currentTarget.value="";}}/>
+      </label>
+      <p className="integration-security-note">В Anixart: Настройки → Данные и память → Экспорт закладок. Включи «Статус просмотра» и «Моя оценка», если эти поля доступны в настройках экспорта.</p>
     </div>
     {message&&<p role="status">{message}</p>}
     {error&&<p className="error-message" role="alert">{error}</p>}
