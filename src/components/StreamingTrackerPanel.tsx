@@ -51,12 +51,19 @@ export function StreamingTrackerPanel({ items, onImport }: {
       let skipped=0;
       const operations=items.flatMap(item=>{
         const externalId=item.anime.externalIds.yummyanime;
-        const listId=item.entry?mapping[item.entry.status]:"";
-        if(!externalId||!item.entry||!listId){skipped++;return [];}
-        return [{externalId,listId:Number(listId)}];
+        if(!externalId||!item.entry){skipped++;return [];}
+        const listId=mapping[item.entry.status];
+        return [
+          ...(listId?[{externalId,kind:"list" as const,listId:Number(listId)}]:[]),
+          {externalId,kind:"favorite" as const,favorite:item.entry.favorite},
+        ];
       });
-      const result=await runConfirmedTrackerWrites(operations,operation=>yummyTrackerApi.setList(operation.externalId,operation.listId));
-      setMessage("Обновлено списков: "+result.succeeded.length+". Пропущено без ID или выбранного соответствия: "+skipped+"."+(result.failed?" Остановлено на ID "+result.failed.externalId+": "+result.error:result.cancelled?" Операция отменена.":""));
+      const result=await runConfirmedTrackerWrites(operations,operation=>
+        operation.kind==="list"
+          ? yummyTrackerApi.setList(operation.externalId,operation.listId!)
+          : yummyTrackerApi.setFavorite(operation.externalId,Boolean(operation.favorite))
+      );
+      setMessage("Выполнено операций: "+result.succeeded.length+". Пропущено без ID или записи: "+skipped+"."+(result.failed?" Остановлено на ID "+result.failed.externalId+": "+result.error:result.cancelled?" Операция отменена.":""));
     }catch(e){setError(e instanceof Error?e.message:"Не удалось обновить списки.");}
     finally{setBusy(false);}
   }
@@ -76,7 +83,7 @@ export function StreamingTrackerPanel({ items, onImport }: {
       <div className="integration-state connected">Подключён</div>
       <div className="streaming-tracker-actions">
         <button className="add-button" disabled={busy} onClick={()=>void importList()}>{busy?"Подождите...":"Импортировать список"}</button>
-        <button className="secondary-button" disabled={busy||options.length===0} onClick={()=>void syncStatuses()}>Отправить статусы</button>
+        <button className="secondary-button" disabled={busy||options.length===0} onClick={()=>void syncStatuses()}>Отправить статусы и избранное</button>
         <button className="secondary-button" disabled={busy} onClick={()=>void disconnect()}>Отключить</button>
       </div>
       <p>Найдено распознанных записей: {importCount??"не проверено"}. Для отправки статусов сначала вручную сопоставь статусы приложения со списками сайта.</p>
@@ -88,7 +95,7 @@ export function StreamingTrackerPanel({ items, onImport }: {
           </select>
         </label>)}
       </div>
-      <p className="integration-security-note">Отправляются только статусы и только для тайтлов с точным YummyAnime ID. Прогресс, оценка и избранное этим API-маршрутом не изменяются. Не назначай один список нескольким статусам, если не хочешь неоднозначных результатов.</p>
+      <p className="integration-security-note">Отправляются статусы по выбранной карте и состояние избранного для тайтлов с точным YummyAnime ID. Прогресс и оценка пока не обновляются. Не назначай один список нескольким статусам, если не хочешь неоднозначных результатов.</p>
     </>:<>
       <div className="streaming-tracker-login">
         <input value={login} onChange={event=>setLogin(event.target.value)} placeholder="Логин YummyAnime" autoComplete="username"/>
