@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $DataDir = Join-Path $Root ".local-data"
 $PidFile = Join-Path $DataDir "windows-launcher.json"
