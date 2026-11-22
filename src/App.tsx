@@ -1328,6 +1328,11 @@ function App() {
         const existingRemoteEntry = existingRemoteAnime
           ? remoteSnapshot.entries.find((entry) => entry.animeId === existingRemoteAnime.id)
           : undefined;
+        const entryForJournal = structuredClone(change.entry);
+        delete entryForJournal.sourceMetadata;
+        if (existingRemoteEntry?.sourceMetadata) {
+          entryForJournal.sourceMetadata = structuredClone(existingRemoteEntry.sourceMetadata);
+        }
         return {
           id: `${sessionId}-remote-${index}`,
           sessionId,
@@ -1336,10 +1341,7 @@ function App() {
           kind: index < remoteCreates.length ? "create" : "update",
           animeId: localMatch?.anime.id ?? change.entry.animeId,
           externalId: change.externalId,
-          entry: structuredClone({
-            ...change.entry,
-            ...(existingRemoteEntry?.sourceMetadata ? { sourceMetadata: existingRemoteEntry.sourceMetadata } : {}),
-          }),
+          entry: entryForJournal,
           status: "pending",
           attempts: 0,
           createdAt: journalCreatedAt,
