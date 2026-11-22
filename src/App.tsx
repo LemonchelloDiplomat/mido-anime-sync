@@ -18,6 +18,7 @@ import type {
 } from "./core/types.js";
 
 import { BrowserAnimeRepository } from "./storage/browser-repository.js";
+import { resolveLibraryDatabaseName } from "./storage/database-name.js";
 import { validateSnapshot } from "./storage/snapshot-validation.js";
 import { DEFAULT_LIBRARY_FILTERS, filterLibrary, type LibraryFilters } from "./core/library-filter.js";
 import { aniListMetadataProvider, fetchAniListAnimeDetails, getAniListMetadataCandidates, searchAniListAnime, type AniListAnimeDetails } from "./services/anilist.js";
@@ -241,7 +242,11 @@ function App() {
 
     async function initialize() {
       try {
-        const db = await BrowserAnimeRepository.open();
+        const databaseName = resolveLibraryDatabaseName(
+          window.location.search,
+          import.meta.env.DEV,
+        );
+        const db = await BrowserAnimeRepository.open(databaseName);
 
         if (cancelled) {
           db.close();

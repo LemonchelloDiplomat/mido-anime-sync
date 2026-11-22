@@ -198,6 +198,46 @@ describe("snapshot validation fallback", () => {
     });
   });
 
+  it("preserves aggregate entries for anime without source entries in mixed snapshots", () => {
+    const secondEntry: AnimeListEntry = {
+      ...makeEntry(),
+      animeId: "legacy-anime-2",
+      progress: 9,
+      source: "local",
+    };
+    const providerEntry: AnimeListEntry = {
+      ...makeEntry(),
+      progress: 3,
+      source: "anilist",
+    };
+
+    const snapshot = validateSnapshot({
+      schemaVersion: 4,
+      exportedAt: "2026-11-15T12:00:00.000Z",
+      anime,
+      entries: [makeEntry(), secondEntry],
+      sourceEntries: [providerEntry],
+      conflictResolutions: [],
+      animeRelations: [],
+    });
+
+    expect(snapshot.sourceEntries).toHaveLength(2);
+    expect(snapshot.sourceEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          animeId: "legacy-anime",
+          source: "anilist",
+          progress: 3,
+        }),
+        expect.objectContaining({
+          animeId: "legacy-anime-2",
+          source: "local",
+          progress: 9,
+        }),
+      ]),
+    );
+  });
+
   it("converts V1 snapshots to V4", () => {
     const snapshot = validateSnapshot({
       schemaVersion: 1,

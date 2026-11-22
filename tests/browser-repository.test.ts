@@ -539,6 +539,128 @@ describe("BrowserAnimeRepository merge", () => {
   });
 });
 
+describe("BrowserAnimeRepository real-world two-title backup round-trip", () => {
+  it("preserves Sankarea provider entries and YummyAnime watch metadata alongside a local-only title", async () => {
+    const sourceRepo = await createRepository();
+    const targetRepo = await createRepository();
+    const exportedAt = "2026-11-22T13:22:41.593Z";
+
+    const sankarea: AnimeIdentity = {
+      ...makeAnime("anilist:11499"),
+      titles: { english: "Sankarea", synonyms: [] },
+      externalIds: { anilist: "11499", myanimelist: "11499" },
+      year: 2012,
+      format: "TV",
+      episodes: 12,
+      genres: ["Comedy", "Romance", "Supernatural"],
+      averageScore: 7,
+      startDate: "2012-04-06",
+      releaseStatus: "RELEASED",
+    };
+    const blackClover: AnimeIdentity = {
+      ...makeAnime("anilist:195604"),
+      titles: { english: "Black Clover 2nd Season", synonyms: [] },
+      externalIds: { anilist: "195604", myanimelist: "61967" },
+      year: 2026,
+      format: "TV",
+      episodes: null,
+      genres: ["Action", "Adventure", "Fantasy"],
+      averageScore: 8.8,
+      startDate: "2026-10-03",
+      releaseStatus: "ONGOING",
+    };
+
+    await sourceRepo.saveAnime(sankarea);
+    await sourceRepo.saveAnime(blackClover);
+    await sourceRepo.saveSourceEntries([
+      {
+        animeId: sankarea.id,
+        source: "local",
+        status: "PLANNING",
+        progress: 0,
+        score: null,
+        favorite: false,
+        updatedAt: "2026-11-20T02:05:37.795Z",
+      },
+      {
+        animeId: sankarea.id,
+        source: "yummyanime",
+        status: "WATCHING",
+        progress: 4,
+        score: null,
+        favorite: false,
+        updatedAt: "2026-11-20T02:05:37.795Z",
+        sourceMetadata: {
+          lastEpisode: 4,
+          lastWatchedUrl: "https://old.yummyani.me/",
+          lastWatchedAt: "2026-11-20T02:05:37.795Z",
+          lastPositionSeconds: 1331,
+          lastDurationSeconds: 1451,
+        },
+      },
+      {
+        animeId: blackClover.id,
+        source: "local",
+        status: "PLANNING",
+        progress: 0,
+        score: null,
+        favorite: false,
+        updatedAt: exportedAt,
+      },
+    ]);
+
+    const exported = await sourceRepo.snapshot();
+    exported.exportedAt = exportedAt;
+
+    expect(exported.schemaVersion).toBe(4);
+    expect(exported.anime).toHaveLength(2);
+    expect(exported.entries).toHaveLength(2);
+    expect(exported.sourceEntries).toHaveLength(3);
+
+    await targetRepo.importSnapshot(exported);
+
+    const restored = await targetRepo.snapshot();
+    expect(restored.anime).toEqual(exported.anime);
+    expect(restored.sourceEntries).toEqual(exported.sourceEntries);
+    expect(restored.entries).toEqual(exported.entries);
+    expect(await targetRepo.getSourceEntries(sankarea.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: "local", status: "PLANNING", progress: 0 }),
+        expect.objectContaining({
+          source: "yummyanime",
+          status: "WATCHING",
+          progress: 4,
+          sourceMetadata: {
+            lastEpisode: 4,
+            lastWatchedUrl: "https://old.yummyani.me/",
+            lastWatchedAt: "2026-11-20T02:05:37.795Z",
+            lastPositionSeconds: 1331,
+            lastDurationSeconds: 1451,
+          },
+        }),
+      ]),
+    );
+    expect(await targetRepo.getEntry(sankarea.id)).toMatchObject({
+      source: "yummyanime",
+      status: "WATCHING",
+      progress: 4,
+    });
+    expect(await targetRepo.getEntry(blackClover.id)).toMatchObject({
+      source: "local",
+      status: "PLANNING",
+      progress: 0,
+    });
+
+    const secondExport = await targetRepo.snapshot();
+    await targetRepo.importSnapshot(secondExport);
+    expect(await targetRepo.snapshot()).toMatchObject({
+      anime: exported.anime,
+      entries: exported.entries,
+      sourceEntries: exported.sourceEntries,
+    });
+  });
+});
+
 describe("BrowserAnimeRepository V3 backups", () => {
   it("exports manual conflict resolutions in schema version 3", async () => {
     const repo = await createRepository();
@@ -608,6 +730,119 @@ describe("BrowserAnimeRepository V3 backups", () => {
       animeId: "stale-anime",
       field: "status",
     });
+  });
+
+  it("cancels unfinished sync operations and sessions when importing a replacement snapshot", async () => {
+    const repo = await createRepository();
+    const now = "2026-11-17T12:00:00.000Z";
+
+    await repo.saveAnime(makeAnime("old-anime"));
+    await repo.saveSourceEntry(makeEntry("old-anime", 4, now));
+
+    const session: SyncSession = {
+      sessionId: "import-session",
+      provider: "anilist",
+      status: "running",
+      startedAt: now,
+      operationCount: 1,
+      succeededCount: 0,
+      failedCount: 0,
+      pendingCount: 1,
+      unchangedCount: 0,
+      conflictCount: 0,
+      recoveredCount: 0,
+    };
+    const operation: SyncOperation = {
+      id: "pending-import-operation",
+      sessionId: session.sessionId,
+      provider: "anilist",
+      direction: "remote",
+      kind: "update",
+      animeId: "old-anime",
+      entry: { ...makeEntry("old-anime", 4, now), source: "anilist" },
+      status: "pending",
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await repo.saveSyncSession(session);
+    await repo.saveSyncOperations([operation]);
+
+    await repo.importSnapshot(makeSnapshot(["new-anime"], 7));
+
+    expect(await repo.getAnime("old-anime")).toBeUndefined();
+    expect(await repo.getAnime("new-anime")).toBeDefined();
+    expect(await repo.getUnfinishedSyncOperations()).toEqual([]);
+    expect(await repo.getSyncOperations()).toEqual([
+      expect.objectContaining({
+        id: operation.id,
+        animeId: "old-anime",
+        status: "cancelled",
+      }),
+    ]);
+    expect(await repo.getSyncSessions()).toEqual([
+      expect.objectContaining({
+        sessionId: session.sessionId,
+        status: "cancelled",
+        pendingCount: 0,
+      }),
+    ]);
+  });
+
+  it("keeps the existing library intact when a replacement snapshot is invalid", async () => {
+    const repo = await createRepository();
+    const existing = makeAnime("existing-before-invalid-restore");
+    const existingEntry = makeEntry(existing.id, 6, "2026-11-17T12:00:00.000Z");
+    await repo.saveAnimeWithEntry(existing, existingEntry);
+
+    await expect(repo.restoreSnapshot({
+      schemaVersion: 4,
+      exportedAt: "2026-11-17T12:00:00.000Z",
+      anime: [makeAnime("incoming-anime")],
+      entries: [{
+        ...makeEntry("missing-anime", 2, "2026-11-17T12:00:00.000Z"),
+      }],
+      sourceEntries: [],
+      conflictResolutions: [],
+      animeRelations: [],
+    })).rejects.toThrow("Entry references missing anime");
+
+    expect(await repo.getAnime(existing.id)).toEqual(existing);
+    expect(await repo.getSourceEntries(existing.id)).toEqual([existingEntry]);
+    expect(await repo.getEntry(existing.id)).toMatchObject({ progress: 6 });
+    expect(await repo.getAnime("incoming-anime")).toBeUndefined();
+  });
+
+  it("restores aggregate-only anime from a mixed snapshot without data loss", async () => {
+    const repo = await createRepository();
+    const first = makeAnime("provider-backed-anime");
+    const second = makeAnime("legacy-only-anime");
+    const providerEntry = {
+      ...makeEntry(first.id, 4, "2026-11-17T12:00:00.000Z"),
+      source: "anilist" as const,
+    };
+    const legacyEntry = {
+      ...makeEntry(second.id, 9, "2026-11-17T12:00:00.000Z"),
+      source: "local" as const,
+    };
+
+    await repo.restoreSnapshot({
+      schemaVersion: 4,
+      exportedAt: "2026-11-17T12:00:00.000Z",
+      anime: [first, second],
+      entries: [providerEntry, legacyEntry],
+      sourceEntries: [providerEntry],
+      conflictResolutions: [],
+      animeRelations: [],
+    });
+
+    expect(await repo.getAnime(first.id)).toEqual(first);
+    expect(await repo.getAnime(second.id)).toEqual(second);
+    expect(await repo.getSourceEntries(first.id)).toEqual([providerEntry]);
+    expect(await repo.getSourceEntries(second.id)).toEqual([legacyEntry]);
+    expect(await repo.getEntry(first.id)).toMatchObject({ progress: 4, source: "anilist" });
+    expect(await repo.getEntry(second.id)).toMatchObject({ progress: 9, source: "local" });
   });
 
   it("imports a V2 backup without conflict resolutions", async () => {
@@ -1132,6 +1367,91 @@ describe("BrowserAnimeRepository relations", () => {
     expect(await repo.getAnime(anime.id)).toMatchObject({ externalIds: { shikimori: "42" } });
   });
 
+  it("cancels unfinished sync sessions that reference an anime being deleted", async () => {
+    const repo = await createRepository();
+    const now = "2026-11-20T12:00:00.000Z";
+    const animeIds = ["deleted-anime", "same-session-anime", "unrelated-anime"];
+
+    for (const id of animeIds) {
+      await repo.saveAnime(makeAnime(id));
+    }
+
+    const createOperation = (id: string, sessionId: string): SyncOperation => ({
+      id: `operation-${id}`,
+      sessionId,
+      provider: "anilist",
+      direction: "remote",
+      kind: "update",
+      animeId: id,
+      entry: { ...makeEntry(id, 4, now), source: "anilist" },
+      status: "pending",
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const createSession = (sessionId: string, operationCount: number): SyncSession => ({
+      sessionId,
+      provider: "anilist",
+      status: "running",
+      startedAt: now,
+      operationCount,
+      succeededCount: 0,
+      failedCount: 0,
+      pendingCount: operationCount,
+      unchangedCount: 0,
+      conflictCount: 0,
+      recoveredCount: 0,
+    });
+
+    await repo.saveSyncSession(createSession("affected-session", 2));
+    await repo.saveSyncSession(createSession("unrelated-session", 1));
+    await repo.saveSyncOperations([
+      createOperation("deleted-anime", "affected-session"),
+      createOperation("same-session-anime", "affected-session"),
+      createOperation("unrelated-anime", "unrelated-session"),
+    ]);
+
+    await repo.deleteAnime("deleted-anime");
+
+    const operations = await repo.getSyncOperations();
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "operation-deleted-anime",
+          animeId: "deleted-anime",
+          status: "cancelled",
+        }),
+        expect.objectContaining({
+          id: "operation-same-session-anime",
+          animeId: "same-session-anime",
+          status: "cancelled",
+        }),
+        expect.objectContaining({
+          id: "operation-unrelated-anime",
+          animeId: "unrelated-anime",
+          status: "pending",
+        }),
+      ]),
+    );
+    expect(await repo.getUnfinishedSyncOperations()).toEqual([
+      expect.objectContaining({ id: "operation-unrelated-anime" }),
+    ]);
+    expect(await repo.getSyncSessions()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sessionId: "affected-session",
+          status: "cancelled",
+          pendingCount: 0,
+        }),
+        expect.objectContaining({
+          sessionId: "unrelated-session",
+          status: "running",
+          pendingCount: 1,
+        }),
+      ]),
+    );
+  });
+
   it("removes anime relations when deleting an anime", async () => {
     const repo = await createRepository();
 
@@ -1556,6 +1876,99 @@ describe("BrowserAnimeRepository sync operation journal", () => {
     ).rejects.toThrow("Unknown sync session: missing-session");
   });
 
+  it("upgrades a version 1 database through every schema version and preserves legacy entries", async () => {
+    const name = `anime-sync-v1-upgrade-${Date.now()}-${Math.random()}`;
+    const request = indexedDB.open(name, 1);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      database.createObjectStore("anime", { keyPath: "id" });
+      database.createObjectStore("entries", { keyPath: "animeId" });
+    };
+    const oldDatabase = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const anime = makeAnime("legacy-v1-anime");
+    const entry = {
+      ...makeEntry("legacy-v1-anime", 9, "2026-11-17T12:00:00.000Z"),
+      score: 85,
+      favorite: true,
+      sourceMetadata: { legacyNote: "must survive migration" },
+    };
+    await new Promise<void>((resolve, reject) => {
+      const transaction = oldDatabase.transaction(["anime", "entries"], "readwrite");
+      transaction.objectStore("anime").put(anime);
+      transaction.objectStore("entries").put(entry);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    oldDatabase.close();
+
+    const upgraded = await BrowserAnimeRepository.open(name);
+    repositories.push(upgraded);
+
+    expect(await upgraded.getAnime("legacy-v1-anime")).toEqual(anime);
+    expect(await upgraded.getEntry("legacy-v1-anime")).toEqual(entry);
+    expect(await upgraded.getSourceEntries("legacy-v1-anime")).toEqual([entry]);
+    expect(await upgraded.getSyncOperations()).toEqual([]);
+    expect(await upgraded.getSyncSessions()).toEqual([]);
+    expect(await upgraded.getDeletionIntents()).toEqual([]);
+  });
+
+  it("adds the version 7 deletion-intent store without changing version 6 sync history", async () => {
+    const name = `anime-sync-v6-upgrade-${Date.now()}-${Math.random()}`;
+    const request = indexedDB.open(name, 6);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      database.createObjectStore("anime", { keyPath: "id" });
+      database.createObjectStore("entries", { keyPath: "animeId" });
+      database.createObjectStore("sourceEntries", { keyPath: ["animeId", "source"] });
+      database.createObjectStore("conflictResolutions", { keyPath: "animeId" });
+      database.createObjectStore("animeRelations", { keyPath: "id" });
+      const operations = database.createObjectStore("syncOperations", { keyPath: "id" });
+      operations.createIndex("by-session", "sessionId");
+      operations.createIndex("by-status", "status");
+      operations.createIndex("by-provider", "provider");
+      const sessions = database.createObjectStore("syncSessions", { keyPath: "sessionId" });
+      sessions.createIndex("by-started-at", "startedAt");
+      sessions.createIndex("by-provider", "provider");
+      sessions.createIndex("by-status", "status");
+    };
+    const oldDatabase = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const session: SyncSession = {
+      sessionId: "v6-session",
+      provider: "anilist",
+      status: "succeeded",
+      startedAt: "2026-11-17T12:00:00.000Z",
+      finishedAt: "2026-11-17T12:00:05.000Z",
+      operationCount: 1,
+      succeededCount: 1,
+      failedCount: 0,
+      pendingCount: 0,
+      unchangedCount: 0,
+      conflictCount: 0,
+      recoveredCount: 0,
+    };
+    await new Promise<void>((resolve, reject) => {
+      const transaction = oldDatabase.transaction("syncSessions", "readwrite");
+      transaction.objectStore("syncSessions").put(session);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    oldDatabase.close();
+
+    const upgraded = await BrowserAnimeRepository.open(name);
+    repositories.push(upgraded);
+
+    expect(await upgraded.getSyncSessions()).toEqual([session]);
+    expect(await upgraded.getDeletionIntents()).toEqual([]);
+  });
+
   it("upgrades a version 5 journal and keeps unfinished operations readable", async () => {
     const name = `anime-sync-v5-upgrade-${Date.now()}-${Math.random()}`;
     const request = indexedDB.open(name, 5);
@@ -1831,3 +2244,175 @@ describe("BrowserAnimeRepository identity reconciliation", () => {
   });
 });
 
+
+describe("BrowserAnimeRepository migration regression", () => {
+  it("upgrades a version 2 database while preserving its provider baseline", async () => {
+    const name = `anime-sync-v2-upgrade-${Date.now()}-${Math.random()}`;
+    const request = indexedDB.open(name, 2);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      database.createObjectStore("anime", { keyPath: "id" });
+      database.createObjectStore("entries", { keyPath: "animeId" });
+      database.createObjectStore("sourceEntries", { keyPath: ["animeId", "source"] });
+    };
+    const oldDatabase = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const anime = makeAnime("legacy-v2-anime");
+    const entry = {
+      ...makeEntry("legacy-v2-anime", 6, "2026-11-17T12:00:00.000Z"),
+      source: "anilist" as const,
+      score: 88,
+      favorite: true,
+      sourceMetadata: { anilistEntryId: 2201 },
+    };
+    await new Promise<void>((resolve, reject) => {
+      const transaction = oldDatabase.transaction(
+        ["anime", "entries", "sourceEntries"],
+        "readwrite",
+      );
+      transaction.objectStore("anime").put(anime);
+      transaction.objectStore("entries").put(entry);
+      transaction.objectStore("sourceEntries").put(entry);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    oldDatabase.close();
+
+    const upgraded = await BrowserAnimeRepository.open(name);
+    repositories.push(upgraded);
+
+    expect(await upgraded.getAnime(anime.id)).toEqual(anime);
+    expect(await upgraded.getEntry(anime.id)).toEqual(entry);
+    expect(await upgraded.getSourceEntries(anime.id)).toEqual([entry]);
+    expect(await upgraded.getSyncOperations()).toEqual([]);
+    expect(await upgraded.getSyncSessions()).toEqual([]);
+    expect(await upgraded.getDeletionIntents()).toEqual([]);
+  });
+
+  it("upgrades a version 3 database while preserving conflict decisions", async () => {
+    const name = `anime-sync-v3-upgrade-${Date.now()}-${Math.random()}`;
+    const request = indexedDB.open(name, 3);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      database.createObjectStore("anime", { keyPath: "id" });
+      database.createObjectStore("entries", { keyPath: "animeId" });
+      database.createObjectStore("sourceEntries", { keyPath: ["animeId", "source"] });
+      database.createObjectStore("conflictResolutions", { keyPath: "animeId" });
+    };
+    const oldDatabase = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const anime = makeAnime("legacy-v3-anime");
+    const entry = makeEntry(anime.id, 7, "2026-11-17T12:00:00.000Z");
+    const resolution = {
+      animeId: anime.id,
+      status: "WATCHING" as const,
+      fingerprint: "legacy-v3-fingerprint",
+      resolvedAt: "2026-11-17T12:01:00.000Z",
+    };
+    await new Promise<void>((resolve, reject) => {
+      const transaction = oldDatabase.transaction(
+        ["anime", "entries", "sourceEntries", "conflictResolutions"],
+        "readwrite",
+      );
+      transaction.objectStore("anime").put(anime);
+      transaction.objectStore("entries").put(entry);
+      transaction.objectStore("sourceEntries").put(entry);
+      transaction.objectStore("conflictResolutions").put(resolution);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    oldDatabase.close();
+
+    const upgraded = await BrowserAnimeRepository.open(name);
+    repositories.push(upgraded);
+
+    expect(await upgraded.getAnime(anime.id)).toEqual(anime);
+    expect(await upgraded.getSourceEntries(anime.id)).toEqual([entry]);
+    expect(await upgraded.getConflictResolution(anime.id)).toEqual(resolution);
+    expect(await upgraded.getAnimeRelations()).toEqual([]);
+    expect(await upgraded.getSyncOperations()).toEqual([]);
+    expect(await upgraded.getSyncSessions()).toEqual([]);
+    expect(await upgraded.getDeletionIntents()).toEqual([]);
+  });
+});
+
+describe("BrowserAnimeRepository duplicate merge idempotency", () => {
+  it("does not change the library when exact-identity reconciliation is repeated", async () => {
+    const repo = await createRepository();
+    const mal = makeAnime("mal:700");
+    mal.externalIds = { myanimelist: "700" };
+    const anilist = makeAnime("anilist:900");
+    anilist.externalIds = { myanimelist: "700", anilist: "900" };
+    await repo.saveAnime(mal);
+    await repo.saveAnime(anilist);
+    await repo.saveSourceEntry({
+      ...makeEntry(mal.id, 12, "2026-11-18T10:00:00.000Z"),
+      source: "myanimelist",
+      score: 91,
+      favorite: true,
+      sourceMetadata: { comments: "kept" },
+    });
+    await repo.saveSourceEntry({
+      ...makeEntry(anilist.id, 8, "2026-11-18T11:00:00.000Z"),
+      source: "anilist",
+      score: 87,
+      sourceMetadata: { repeat: 3 },
+    });
+
+    expect(await repo.reconcileExactIdentityDuplicates()).toEqual({
+      mergedPairs: 1,
+      skippedPairs: 0,
+    });
+    const firstSnapshot = await repo.snapshot();
+
+    expect(await repo.reconcileExactIdentityDuplicates()).toEqual({
+      mergedPairs: 0,
+      skippedPairs: 0,
+    });
+    const secondSnapshot = await repo.snapshot();
+
+    expect(secondSnapshot.anime).toEqual(firstSnapshot.anime);
+    expect(secondSnapshot.entries).toEqual(firstSnapshot.entries);
+    expect(secondSnapshot.sourceEntries).toEqual(firstSnapshot.sourceEntries);
+    expect(secondSnapshot.conflictResolutions).toEqual(firstSnapshot.conflictResolutions);
+    expect(secondSnapshot.animeRelations).toEqual(firstSnapshot.animeRelations);
+    expect(secondSnapshot.deletionIntents).toEqual(firstSnapshot.deletionIntents);
+  });
+});
+
+
+describe("BrowserAnimeRepository duplicate conflict safety", () => {
+  it("keeps records separate when one shared provider ID hides a conflicting external ID", async () => {
+    const repo = await createRepository();
+    const first = makeAnime("first-record");
+    first.externalIds = { myanimelist: "100", anilist: "200" };
+    const second = makeAnime("second-record");
+    second.externalIds = { myanimelist: "100", anilist: "999" };
+    await repo.saveAnime(first);
+    await repo.saveAnime(second);
+    const firstEntry = {
+      ...makeEntry(first.id, 5, "2026-11-18T10:00:00.000Z"),
+      source: "myanimelist" as const,
+    };
+    const secondEntry = {
+      ...makeEntry(second.id, 7, "2026-11-18T11:00:00.000Z"),
+      source: "anilist" as const,
+    };
+    await repo.saveSourceEntry(firstEntry);
+    await repo.saveSourceEntry(secondEntry);
+
+    const result = await repo.reconcileExactIdentityDuplicates();
+
+    expect(result).toEqual({ mergedPairs: 0, skippedPairs: 1 });
+    expect(await repo.getAnime(first.id)).toEqual(first);
+    expect(await repo.getAnime(second.id)).toEqual(second);
+    expect(await repo.getSourceEntries(first.id)).toEqual([firstEntry]);
+    expect(await repo.getSourceEntries(second.id)).toEqual([secondEntry]);
+  });
+});

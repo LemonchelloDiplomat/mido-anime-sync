@@ -475,10 +475,19 @@ export function validateSnapshot(value: unknown): AnimeSnapshotV4 {
         ? []
         : validateSourceEntries(v.sourceEntries, animeIds);
 
-    sourceEntries =
-      validatedSourceEntries.length > 0
-        ? validatedSourceEntries
-        : structuredClone(entries);
+    // A snapshot may contain a mixture of modern provider baselines and
+    // legacy aggregate-only entries. Preserve the latter per anime instead of
+    // treating the presence of any source entry as proof that every anime has
+    // provider-level data.
+    const sourceEntryAnimeIds = new Set(
+      validatedSourceEntries.map((entry) => entry.animeId),
+    );
+    sourceEntries = [
+      ...validatedSourceEntries.map((entry) => structuredClone(entry)),
+      ...entries
+        .filter((entry) => !sourceEntryAnimeIds.has(entry.animeId))
+        .map((entry) => structuredClone(entry)),
+    ];
 
     if (v.schemaVersion === 3 || v.schemaVersion === 4) {
       conflictResolutions = validateConflictResolutions(
