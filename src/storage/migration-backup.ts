@@ -6,8 +6,17 @@ export const MIGRATION_BACKUP_RETENTION = 3;
 
 export interface MigrationBackupStore {
   name: string;
+  keyPath: string | string[] | null;
+  autoIncrement: boolean;
+  indexes: Array<{
+    name: string;
+    keyPath: string | string[];
+    unique: boolean;
+    multiEntry: boolean;
+  }>;
   records: unknown[];
   recordCount: number;
+  checksum: string;
 }
 
 export interface MigrationBackup {
@@ -30,6 +39,38 @@ interface MigrationBackupDB extends DBSchema {
     key: string;
     value: MigrationBackup;
   };
+}
+
+function normalizeForChecksum(value: unknown): unknown {
+  if (value instanceof Date) return { $date: value.toISOString() };
+  if (Array.isArray(value)) return value.map(normalizeForChecksum);
+  if (value && typeof value === "object") {
+    if (value instanceof ArrayBuffer) {
+      return { $arrayBuffer: Array.from(new Uint8Array(value)) };
+    }
+    if (ArrayBuffer.isView(value)) {
+      return {
+        $typedArray: value.constructor.name,
+        values: Array.from(value as unknown as ArrayLike<number>),
+      };
+    }
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, nested]) => [key, normalizeForChecksum(nested)]),
+    );
+  }
+  return value;
+}
+
+function createStoreChecksum(records: unknown[]): string {
+  const serialized = JSON.stringify(normalizeForChecksum(records));
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < serialized.length; index += 1) {
+    hash ^= serialized.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 function openExistingDatabase(name: string): Promise<IDBDatabase | null> {
@@ -80,10 +121,26 @@ function readAllStores(database: IDBDatabase): Promise<MigrationBackupStore[]> {
       const request = transaction.objectStore(name).getAll();
       request.onerror = () => fail(request.error ?? new Error(`Не удалось прочитать хранилище ${name}.`));
       request.onsuccess = () => {
+        const sourceStore = transaction.objectStore(name);
+        const records = request.result.map((record) => structuredClone(record));
         stores.push({
           name,
-          records: request.result.map((record) => structuredClone(record)),
-          recordCount: request.result.length,
+          keyPath: Array.isArray(sourceStore.keyPath)
+            ? [...sourceStore.keyPath]
+            : sourceStore.keyPath,
+          autoIncrement: sourceStore.autoIncrement,
+          indexes: Array.from(sourceStore.indexNames).map((indexName) => {
+            const index = sourceStore.index(indexName);
+            return {
+              name: index.name,
+              keyPath: Array.isArray(index.keyPath) ? [...index.keyPath] : index.keyPath,
+              unique: index.unique,
+              multiEntry: index.multiEntry,
+            };
+          }),
+          records,
+          recordCount: records.length,
+          checksum: createStoreChecksum(records),
         });
       };
     }
@@ -118,7 +175,11 @@ function validateBackup(backup: MigrationBackup): void {
       typeof store.name !== "string" ||
       names.has(store.name) ||
       !Array.isArray(store.records) ||
-      store.recordCount !== store.records.length
+      store.recordCount !== store.records.length ||
+      typeof store.checksum !== "string" ||
+      store.checksum !== createStoreChecksum(store.records) ||
+      typeof store.autoIncrement !== "boolean" ||
+      !Array.isArray(store.indexes)
     ) {
       throw new Error("Резервная копия содержит повреждённое хранилище.");
     }
