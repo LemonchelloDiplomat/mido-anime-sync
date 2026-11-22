@@ -24,9 +24,9 @@ npx cap sync android
 ```
 
 The app detects `Capacitor.isNativePlatform()` and
-`Capacitor.getPlatform() === "android"`, then dynamically loads
-`SecureStorage` from `@capnative/capacitor-secure-storage` and
-`CapacitorHttp` from `@capacitor/core`. Capacitor's native plugin registry
+`Capacitor.getPlatform() === "android"`. It then dynamically loads
+`SecureStorage` from `@capnative/capacitor-secure-storage`; `CapacitorHttp`
+is provided by the already bundled `@capacitor/core` runtime. Capacitor's native plugin registry
 is populated by `npx cap sync android`. The optional Android modules are not
 loaded in a normal browser build.
 
