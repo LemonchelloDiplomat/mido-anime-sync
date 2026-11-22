@@ -152,6 +152,10 @@ function App() {
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState("");
   const [hideAnimeInMyLists, setHideAnimeInMyLists] = useState(false);
+  const [catalogSort, setCatalogSort] = useState<"date-desc" | "date-asc" | "score" | "title" | "episodes">("date-desc");
+  const [catalogFormat, setCatalogFormat] = useState<"all" | AnimeFormat>("all");
+  const [catalogYear, setCatalogYear] = useState("all");
+  const [catalogStatus, setCatalogStatus] = useState<"all" | AnimeReleaseStatus>("all");
   const [addingCatalogId, setAddingCatalogId] = useState<string | null>(null);
   const [catalogActionMessage, setCatalogActionMessage] = useState("");
   const [selectedAnime, setSelectedAnime] = useState<AnimeIdentity | null>(null);
@@ -205,6 +209,22 @@ function App() {
   const [historyError, setHistoryError] = useState("");
   const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | SyncProvider>("all");
   const [historyStatusFilter, setHistoryStatusFilter] = useState<"all" | SyncOperation["status"]>("all");
+
+  const visibleCatalogResults = useMemo(() => {
+    const filtered = catalogResults.filter((anime) =>
+      (catalogFormat === "all" || anime.format === catalogFormat) &&
+      (catalogYear === "all" || String(anime.year ?? "") === catalogYear) &&
+      (catalogStatus === "all" || anime.releaseStatus === catalogStatus)
+    );
+    return filtered.sort((a, b) => {
+      if (catalogSort === "score") return (b.averageScore ?? -1) - (a.averageScore ?? -1);
+      if (catalogSort === "title") return (a.titles.english ?? a.titles.romaji ?? a.titles.native ?? "").localeCompare(b.titles.english ?? b.titles.romaji ?? b.titles.native ?? "");
+      if (catalogSort === "episodes") return (b.episodes ?? -1) - (a.episodes ?? -1);
+      const dateA = a.startDate ? Date.parse(a.startDate) : a.year ? Date.UTC(a.year, 0, 1) : 0;
+      const dateB = b.startDate ? Date.parse(b.startDate) : b.year ? Date.UTC(b.year, 0, 1) : 0;
+      return catalogSort === "date-asc" ? dateA - dateB : dateB - dateA;
+    });
+  }, [catalogResults, catalogSort, catalogFormat, catalogYear, catalogStatus]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -2897,16 +2917,44 @@ function App() {
             )}
 
             <div className="catalog-heading-row">
-              <div className="search-results-heading"><h2>В каталоге AniList</h2><span>{catalogResults.filter((anime) => !hideAnimeInMyLists || !library.some(({ anime: local }) => local.id === anime.id || (anime.externalIds.myanimelist != null && local.externalIds.myanimelist === anime.externalIds.myanimelist) || (anime.externalIds.anilist != null && local.externalIds.anilist === anime.externalIds.anilist))).length}</span></div>
+              <div className="search-results-heading"><h2>В каталоге AniList</h2><span>{visibleCatalogResults.filter((anime) => !hideAnimeInMyLists || !library.some(({ anime: local }) => local.id === anime.id || (anime.externalIds.myanimelist != null && local.externalIds.myanimelist === anime.externalIds.myanimelist) || (anime.externalIds.anilist != null && local.externalIds.anilist === anime.externalIds.anilist))).length}</span></div>
               <label className="catalog-hide-toggle"><input type="checkbox" checked={hideAnimeInMyLists} onChange={(event) => setHideAnimeInMyLists(event.target.checked)} /> Скрыть аниме из моих списков</label>
+            </div>
+            <div className="catalog-filters" aria-label="Фильтры каталога AniList">
+              <label>Сортировка
+                <select className="filter-select" value={catalogSort} onChange={(event) => setCatalogSort(event.target.value as typeof catalogSort)}>
+                  <option value="date-desc">Сначала новые</option>
+                  <option value="date-asc">Сначала старые</option>
+                  <option value="score">По рейтингу</option>
+                  <option value="episodes">По числу эпизодов</option>
+                  <option value="title">По названию</option>
+                </select>
+              </label>
+              <label>Формат
+                <select className="filter-select" value={catalogFormat} onChange={(event) => setCatalogFormat(event.target.value as typeof catalogFormat)}>
+                  <option value="all">Все форматы</option>
+                  <option value="TV">TV</option><option value="MOVIE">Фильм</option><option value="OVA">OVA</option><option value="ONA">ONA</option><option value="SPECIAL">Special</option>
+                </select>
+              </label>
+              <label>Год
+                <select className="filter-select" value={catalogYear} onChange={(event) => setCatalogYear(event.target.value)}>
+                  <option value="all">Любой год</option>
+                  {[...new Set(catalogResults.map((anime) => anime.year).filter((year): year is number => year != null))].sort((a, b) => b - a).map((year) => <option key={year} value={String(year)}>{year}</option>)}
+                </select>
+              </label>
+              <label>Статус
+                <select className="filter-select" value={catalogStatus} onChange={(event) => setCatalogStatus(event.target.value as typeof catalogStatus)}>
+                  <option value="all">Любой статус</option><option value="ONGOING">Выходит</option><option value="RELEASED">Завершено</option><option value="ANNOUNCED">Анонсировано</option>
+                </select>
+              </label>
             </div>
             {catalogLoading && <p className="catalog-hint">Ищем аниме в AniList...</p>}
             {catalogError && <p className="catalog-error" role="alert">{catalogError}</p>}
             {catalogActionMessage && <p className="catalog-success" role="status">{catalogActionMessage}</p>}
             {searchQuery.trim().length >= 2 && !catalogLoading && !catalogError && catalogResults.length === 0 && <p className="catalog-hint">В каталоге AniList ничего не найдено.</p>}
-            {catalogResults.length > 0 && (
+            {visibleCatalogResults.length > 0 && (
               <div className="search-results-list">
-                {catalogResults
+                {visibleCatalogResults
                   .filter((anime) => !hideAnimeInMyLists || !library.some(({ anime: local }) =>
                     local.id === anime.id ||
                     (anime.externalIds.myanimelist != null && local.externalIds.myanimelist === anime.externalIds.myanimelist) ||

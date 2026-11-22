@@ -102,12 +102,25 @@ describe("AnimeGO public catalog adapter", () => {
           <div style="background-image: url('/background.jpg')"></div>
         </a>
       </div>`;
-    expect(parseAnimeGoSearch(html).map((item) => item.posterUrl)).toEqual([
+    const items = parseAnimeGoSearch(html);
+    expect(items.map((item) => item.posterUrl)).toEqual([
       "https://img.cdngos.com/v/250x350/anime/69/69d16a4ca28d1312818966",
       "https://cdn.example/lazy.jpg",
       "https://animego.me/large.jpg",
       "https://animego.me/background.jpg",
     ]);
+  });
+
+  it("reads AnimeGO poster srcsets and release years from the result card", () => {
+    const html = `
+      <div class="ani-grid__item">
+        <a title="Example Anime" href="/anime/example-anime-5001"><picture><source data-lazy-srcset="/small.jpg 320w, /large.jpg 900w"></picture></a>
+        <span>2024</span>
+      </div>`;
+    expect(parseAnimeGoSearch(html)[0]).toMatchObject({
+      posterUrl: "https://animego.me/large.jpg",
+      year: 2024,
+    });
   });
 
   it("extracts poster URLs from unquoted lazy attributes and non-image background wrappers", () => {
