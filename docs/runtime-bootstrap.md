@@ -13,8 +13,10 @@ adapters. No session material is copied into React state or browser storage.
 
 ## Android
 
-Run `npm run setup:platforms` to install the Capacitor 8 dependencies and
-`@capnative/capacitor-secure-storage`. Then run:
+Install the repository dependencies with `npm ci`. The Capacitor runtime and
+secure-storage plugin are pinned in `package.json` and `package-lock.json`.
+Run `npm run setup:platforms` to install the native Android and Tauri tooling.
+Then run:
 
 ```sh
 npm run build
