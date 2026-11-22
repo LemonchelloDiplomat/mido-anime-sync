@@ -78,7 +78,7 @@ describe("native streaming runtime bootstrap", () => {
   });
 
   it("prefers the Tauri bridge if both native host markers are present", async () => {
-    const invoke = vi.fn(async <T,>() => null as T);
+    const invoke: NativeInvoke = async <T,>() => null as T;
     const loader = vi.fn(async () => createAndroidModules());
     const runtime = await initializeStreamingRuntimeFromHost({
       __TAURI__: { core: { invoke } },
