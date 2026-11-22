@@ -56,6 +56,23 @@ describe("import preview", () => {
     expect(preview.items[0]?.matchedAnime?.id).toBe("anilist:2");
   });
 
+  it("matches a Shikimori entry to an existing AniList/MAL identity through MAL ID", () => {
+    const imported = createAnime({
+      id: "shikimori:32998",
+      externalIds: { shikimori: "32998", myanimelist: "32998" },
+    });
+    const existing = createAnime({
+      id: "mal:32998",
+      externalIds: { myanimelist: "32998", anilist: "9876" },
+    });
+
+    const preview = createImportPreview([imported], [existing]);
+
+    expect(preview.items[0]?.status).toBe("matched");
+    expect(preview.items[0]?.matchedAnime?.id).toBe("mal:32998");
+    expect(preview.summary).toEqual({ total: 1, new: 0, matched: 1 });
+  });
+
   it("does not merge similar titles when external IDs differ", () => {
     const imported = createAnime({
       id: "mal:season-2",
