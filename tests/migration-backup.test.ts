@@ -69,9 +69,9 @@ describe("pre-migration IndexedDB backups", () => {
 
     const backupDb = await openDB(backupName, 1);
     const persisted = await backupDb.get("backups", backup!.id);
-    expect(persisted?.stores.find((store) => store.name === "syncOperations")?.records)
+    expect(persisted?.stores.find((store: { name: string }) => store.name === "syncOperations")?.records)
       .toEqual([{ id: "operation-1", status: "pending" }]);
-    expect(persisted?.stores.find((store) => store.name === "syncSessions")?.records)
+    expect(persisted?.stores.find((store: { name: string }) => store.name === "syncSessions")?.records)
       .toEqual([{ id: "session-1", status: "running" }]);
     backupDb.close();
   });
