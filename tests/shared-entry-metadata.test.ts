@@ -65,7 +65,7 @@ describe("shared tracker entry metadata", () => {
     });
   });
 
-  it("ignores invalid shared values instead of overwriting provider data", () =>
+  it("ignores invalid shared values instead of overwriting provider data", () => {
     expect(mergeSharedMetadataIntoProviderMetadata("mal", {
       rewatchCount: -1,
       startedAt: "2025-02-30",
