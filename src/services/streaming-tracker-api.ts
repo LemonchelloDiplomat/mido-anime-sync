@@ -35,9 +35,8 @@ function statusFor(list:Record<string,unknown>,row:Record<string,unknown>,userLi
   userList.list_name,
  );
  for(const [pattern,status] of STATUS_ALIASES) if(pattern.test(label)) return status;
- // YummyAnime system list IDs are stable in its account API. Custom/favorites lists stay unmapped.
- const systemStatus:Record<string,AnimeStatus>={"0":"WATCHING","1":"PLANNING","2":"COMPLETED","3":"DROPPED","5":"ON_HOLD"};
- return systemStatus[listId]||null;
+ // Numeric IDs alone are not sufficient: custom lists can use the same IDs.
+ return null;
 }
 /** Normalizes both the API's nested account rows and the local server's flattened list_id rows. */
 export function normalizeYummyLists(payload:YummyRawLists):Array<{anime:AnimeIdentity;entry:AnimeListEntry}>{
