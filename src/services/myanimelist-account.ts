@@ -129,6 +129,11 @@ export function parseMyAnimeListApiList(
       favorite: false,
       updatedAt,
       source: "myanimelist",
+      sharedMetadata: {
+        rewatchCount: Math.max(0, Number(list.num_times_rewatched) || 0),
+        ...(safeDate(list.start_date) ? { startedAt: safeDate(list.start_date) } : {}),
+        ...(safeDate(list.finish_date) ? { completedAt: safeDate(list.finish_date) } : {}),
+      },
       sourceMetadata: {
         originalStatus: list.status,
         originalScore: list.score,
