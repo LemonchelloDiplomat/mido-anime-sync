@@ -27,7 +27,7 @@ export interface CapacitorHttpPlugin {
 }
 
 export interface CapacitorSecureStoragePlugin {
-  get(options: { key: string }): Promise<{ value: string }>;
+  get(options: { key: string }): Promise<{ value: string | null }>;
   set(options: { key: string; value: string }): Promise<unknown>;
   remove(options: { key: string }): Promise<unknown>;
 }
