@@ -1760,11 +1760,25 @@ function App() {
 
       const mappings: Record<string, string> = {};
       const mappedTargets = new Set<string>();
+      let manualMappedCount = 0;
 
       for (const item of freshAnalysis.items) {
-        const match = item.matchedAnime;
+        const selectedTargetId = importManualMappings[item.imported.id];
+        const selectedTarget = selectedTargetId
+          ? currentLibrary.find((candidate) => candidate.anime.id === selectedTargetId)?.anime
+          : null;
+        if (selectedTargetId && !selectedTarget) {
+          throw new Error("Выбранная запись для ручного сопоставления больше не существует.");
+        }
+        const match = item.matchedAnime ?? selectedTarget;
         if (!match || match.id === item.imported.id) continue;
 
+        for (const [service, externalId] of Object.entries(item.imported.externalIds)) {
+          const existingExternalId = match.externalIds[service as keyof AnimeIdentity["externalIds"]];
+          if (existingExternalId && externalId && existingExternalId !== externalId) {
+            throw new Error("Нельзя объединить записи: внешний ID " + service + " различается.");
+          }
+        }
         if (mappedTargets.has(match.id)) {
           throw new Error(
             `Несколько импортируемых записей указывают на один и тот же тайтл в библиотеке: ${match.titles.english ?? match.titles.romaji ?? match.id}.`,
@@ -1773,6 +1787,7 @@ function App() {
 
         mappedTargets.add(match.id);
         mappings[item.imported.id] = match.id;
+        if (!item.matchedAnime && selectedTarget) manualMappedCount += 1;
       }
 
       // Автоматически создаём резервную копию перед безопасным добавлением/слиянием.
@@ -1782,15 +1797,17 @@ function App() {
       await repository.mergeSnapshotWithMappings(importSnapshot, mappings);
       await refreshLibrary();
 
-      const importedCount = freshAnalysis.summary.new;
-      const matchedCount = freshAnalysis.summary.matched;
+      const importedCount = freshAnalysis.summary.new - manualMappedCount;
+      const matchedCount = freshAnalysis.summary.matched + manualMappedCount;
 
       setImportSnapshot(null);
       setImportAnalysis(null);
       setImportFormat("");
+      setImportSuggestions({});
+      setImportManualMappings({});
 
       window.alert(
-        `Импорт завершён! Новых тайтлов добавлено: ${importedCount}. Точных совпадений объединено: ${matchedCount}. Резервная копия скачана.`,
+        `Импорт завершён! Новых тайтлов добавлено: ${importedCount}. Совпадений объединено: ${matchedCount} (включая ручные сопоставления). Резервная копия скачана.`,
       );
       if (freshAnalysis.items.some((item) => item.imported.externalIds.myanimelist)) {
         void runMetadataEnrichment();
