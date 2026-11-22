@@ -107,7 +107,11 @@ function createRows(
     seen.add(identityId);
     const original = String(record.original || "").trim().slice(0, 300);
     const alternatives = String(record.alternatives || "").split(/[;|]/).map((value) => value.trim()).filter(Boolean).slice(0, 20);
-    const score = parseScore(String(record.score || ""));
+    const scoreText = String(record.score ?? "").trim();
+    const favoriteText = String(record.favorite ?? "").trim();
+    const scoreKnown = hasScoreColumn && scoreText.length > 0;
+    const favoriteKnown = hasFavoriteColumn && favoriteText.length > 0;
+    const score = scoreKnown ? parseScore(scoreText) : null;
     const identity: AnimeIdentity = {
       id: identityId,
       titles: { romaji: title, synonyms: [...new Set([original, ...alternatives].filter((value) => value && value !== title))] },
@@ -118,13 +122,13 @@ function createRows(
       status,
       progress: 0,
       score,
-      favorite: hasFavoriteColumn ? parseBoolean(String(record.favorite || "")) : false,
+      favorite: favoriteKnown ? parseBoolean(favoriteText) : false,
       updatedAt: now,
       source: "anixart",
       sourceMetadata: {
         progressKnown: false,
-        scoreKnown: hasScoreColumn,
-        favoriteKnown: hasFavoriteColumn,
+        scoreKnown,
+        favoriteKnown,
         importedFrom: "official-export",
       },
     };
