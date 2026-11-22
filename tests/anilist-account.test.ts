@@ -46,6 +46,7 @@ describe("AniList account list importer", () => {
       score: 85,
       favorite: true,
       source: "anilist",
+      sharedMetadata: { rewatchCount: 1, startedAt: "2026-01-02", completedAt: "2026-02-03" },
       sourceMetadata: {
         anilistEntryId: 77,
         repeat: 1,
