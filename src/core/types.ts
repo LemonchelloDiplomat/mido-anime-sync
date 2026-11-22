@@ -56,6 +56,28 @@ export interface AnimeListEntry {
   favorite: boolean;
   updatedAt: string;
   source: ServiceId | "local";
+  /** Cross-provider fields with equivalent meaning and compatible semantics. */
+  sharedMetadata?: SharedAnimeEntryMetadata;
+  /** Fields whose meaning or behavior belongs to one provider only. */
+  sourceMetadata?: Record<string, unknown>;
+}
+
+export interface SharedAnimeEntryMetadata {
+  /** Total number of completed rewatches, where supported by the provider. */
+  rewatchCount?: number;
+  /** Calendar date when the user started watching this entry. */
+  startedAt?: string | null;
+  /** Calendar date when the user completed this entry. */
+  completedAt?: string | null;
+}
+
+  animeId: string;
+  status: AnimeStatus;
+  progress: number;
+  score: number | null;
+  favorite: boolean;
+  updatedAt: string;
+  source: ServiceId | "local";
   sourceMetadata?: Record<string, unknown>;
 }
 
