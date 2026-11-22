@@ -172,6 +172,47 @@ describe("unfinished sync operation recovery", () => {
 
 
 describe("Shikimori sync recovery", () => {
+
+  it("does not mark a Shikimori update recovered when provider metadata differs", async () => {
+    const remoteAnime: AnimeIdentity = {
+      id: "shikimori:41",
+      titles: { english: "Example anime", synonyms: [] },
+      externalIds: { shikimori: "41" },
+    };
+    const expected = {
+      ...entry(remoteAnime.id, "local"),
+      source: "shikimori" as const,
+      sourceMetadata: { shikimoriRateId: 901, rewatches: 3, text: "keep this note" },
+    };
+    const actual = { ...expected, sourceMetadata: { ...expected.sourceMetadata, text: "old note" } };
+    const updateOperation = operation({
+      id: "sync-shikimori-metadata",
+      sessionId: "sync-shikimori-metadata",
+      provider: "shikimori",
+      kind: "update",
+      externalId: "41",
+      entry: expected,
+    });
+    const update = vi.fn(async () => undefined);
+    const result = await reconcileUnfinishedSyncOperations(
+      [updateOperation],
+      "shikimori",
+      {
+        schemaVersion: 4,
+        exportedAt: "2026-11-17T10:00:00.000Z",
+        anime: [remoteAnime],
+        entries: [actual],
+        sourceEntries: [actual],
+        conflictResolutions: [],
+        animeRelations: [],
+      },
+      { getSourceEntries: vi.fn(async () => []), updateSyncOperation: update },
+    );
+
+    expect(result.recoveredOperations).toBe(0);
+    expect(update).toHaveBeenCalledWith(updateOperation.id, expect.objectContaining({ status: "failed" }));
+  });
+
   it("compares scores at Shikimori's ten-point precision", async () => {
     const remoteAnime: AnimeIdentity = {
       id: "shikimori:41",
