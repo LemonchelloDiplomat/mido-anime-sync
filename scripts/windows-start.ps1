@@ -63,7 +63,7 @@ try {
     }
     try {
       $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 2
-      if ($response.StatusCode -eq 200) { $ready = $true; break }
+      if ($response.StatusCode -eq 200 -and (Test-Port 3001)) { $ready = $true; break }
     } catch {}
   }
   if (-not $ready) {
