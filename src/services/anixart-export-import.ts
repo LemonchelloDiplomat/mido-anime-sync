@@ -77,13 +77,18 @@ function parseBoolean(value: string): boolean {
   return /^(1|true|yes|да|избранное|favorite|избран)$/i.test(value.trim());
 }
 
-function stableTitleId(title: string): string {
-  let hash = 2166136261;
-  for (const character of title.toLocaleLowerCase("ru").replace(/ё/g, "е").trim()) {
-    hash ^= character.codePointAt(0) || 0;
-    hash = Math.imul(hash, 16777619);
+function stableTitleId(identity: string): string {
+  const normalized = identity.toLocaleLowerCase("ru").replace(/ё/g, "е").trim();
+  let first = 2166136261;
+  let second = 5381;
+  for (const character of normalized) {
+    const code = character.codePointAt(0) || 0;
+    first ^= code;
+    first = Math.imul(first, 16777619);
+    second = Math.imul(second, 33) ^ code;
   }
-  return (hash >>> 0).toString(16).padStart(8, "0");
+  return (first >>> 0).toString(16).padStart(8, "0") +
+    (second >>> 0).toString(16).padStart(8, "0");
 }
 
 function createRows(
@@ -102,11 +107,13 @@ function createRows(
     if (!title || title.length > 300 || !status) { skipped += 1; continue; }
     const externalId = String(record.id || "").trim();
     const hasExactId = /^\d+$/.test(externalId);
-    const identityId = hasExactId ? "anixart:" + externalId : "anixart:export:" + stableTitleId(title);
-    if (seen.has(identityId)) { skipped += 1; continue; }
-    seen.add(identityId);
     const original = String(record.original || "").trim().slice(0, 300);
     const alternatives = String(record.alternatives || "").split(/[;|]/).map((value) => value.trim()).filter(Boolean).slice(0, 20);
+    const identityId = hasExactId
+      ? "anixart:" + externalId
+      : "anixart:export:" + stableTitleId([title, original, ...alternatives].join("|"));
+    if (seen.has(identityId)) { skipped += 1; continue; }
+    seen.add(identityId);
     const scoreText = String(record.score ?? "").trim();
     const favoriteText = String(record.favorite ?? "").trim();
     const scoreKnown = hasScoreColumn && scoreText.length > 0;
