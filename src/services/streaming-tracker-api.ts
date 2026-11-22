@@ -54,12 +54,13 @@ function mapFormat(value:unknown):AnimeFormat|undefined{
 function mapAgeRating(value:unknown,title?:unknown):AnimeAgeRating|null{
  const label=String(title??"").toLowerCase();
  const numeric=numberValue(value);
- if(/18|r\+|rx|adult|для взрослых/.test(label)||numeric!==null&&numeric>=18)return "R+";
- if(/17|r-?17|r$/.test(label)||numeric!==null&&numeric>=16)return "R17";
- if(/13|pg-?13/.test(label)||numeric!==null&&numeric>=12)return "PG13";
- if(/pg/.test(label)||numeric!==null&&numeric>=6)return "PG";
- if(/g|без ограничений/.test(label)||numeric===0)return "G";
- return null;
+ if(/r\\+|rx|adult|18|для взрослых/.test(label))return "R+";
+ if(/r-?17|17|16/.test(label))return "R17";
+ if(/pg-?13|13|12/.test(label))return "PG13";
+ if(/\\bpg\\b|6/.test(label))return "PG";
+ if(/\\bg\\b|0|без ограничений/.test(label))return "G";
+ // YummyAnime's min_age.value is an enum (0 through 5), not an age in years.
+ switch(numeric){case 0:return "G";case 1:return "PG";case 2:return "PG13";case 3:return "R17";case 4:case 5:return "R+";default:return null;}
 }
 function mapReleaseStatus(value:unknown):AnimeReleaseStatus|undefined{
  const label=String(value??"").toLowerCase();
