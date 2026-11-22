@@ -14,7 +14,7 @@
 - Tauri 2 application configuration and Rust entry point.
 - Windows Credential Manager-backed secure secret commands through the Rust `keyring` crate.
 - Secret values are base64 chunked before being written to Credential Manager, so session payloads are not limited to one small credential blob. The manifest is switched only after all new chunks are written.
-- Native HTTP command uses `reqwest`, accepts only HTTPS requests to `animego.me` / subdomains and `anixart.site` / subdomains, restricts request headers, caps request/response sizes, and only follows redirects inside the provider allowlist.
+- Native HTTP command uses `reqwest`, binds the requested provider ID to its own HTTPS host allowlist (`animego.me` or `anixart.site` and their subdomains), restricts methods and headers, caps request/response sizes, and only follows same-host redirects.
 - Response headers are allowlisted; `Set-Cookie` is never returned to the web UI.
 
 ### Android / Capacitor
@@ -22,7 +22,7 @@
 - Capacitor app configuration with native `CapacitorHttp` enabled.
 - Platform adapter contracts for native HTTP and secure storage.
 - Android secure storage is wired to the injected `@capnative/capacitor-secure-storage` plugin interface, which uses Android Keystore-backed AES-GCM storage and has no web fallback.
-- Native HTTP is wired to the Capacitor native HTTP plugin interface.
+- Native HTTP is wired to the Capacitor native HTTP plugin interface, with the same provider-to-host checks enforced in the TypeScript adapter.
 
 ## First-time setup
 
