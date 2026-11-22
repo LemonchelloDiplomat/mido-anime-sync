@@ -70,6 +70,35 @@ describe("AniList account list importer", () => {
     expect(parseAniListAccountList(make(2.4), "POINT_3").entries[0]?.score).toBe(80);
   });
 
+  it("preserves explicitly empty AniList dates as null shared metadata", () => {
+    const snapshot = parseAniListAccountList([{
+      id: 78,
+      status: "COMPLETED",
+      score: 80,
+      progress: 12,
+      repeat: 0,
+      notes: null,
+      updatedAt: 1794830400,
+      startedAt: null,
+      completedAt: null,
+      media: {
+        id: 154588,
+        idMal: null,
+        title: { romaji: "Date-less title", english: null, native: null },
+      },
+    }], "POINT_100");
+
+    expect(snapshot.entries[0]?.sharedMetadata).toEqual({
+      rewatchCount: 0,
+      startedAt: null,
+      completedAt: null,
+    });
+    expect(snapshot.entries[0]?.sourceMetadata).toMatchObject({
+      startedAt: null,
+      completedAt: null,
+    });
+  });
+
   it("rejects duplicate AniList media IDs", () => {
     const entry = {
       id: 1, status: "PLANNING", score: 0, progress: 0, repeat: 0, updatedAt: 1,
