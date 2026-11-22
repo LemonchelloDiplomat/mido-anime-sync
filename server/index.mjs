@@ -20,6 +20,8 @@ const MAL_API = "https://api.myanimelist.net/v2";
 const MAL_OAUTH = "https://myanimelist.net/v1/oauth2";
 const ANILIST_GRAPHQL = "https://graphql.anilist.co";
 const SHIKIMORI_API = "https://shikimori.io/api";
+// Shikimori REST and GraphQL use different routes. GraphQL is NOT mounted at /api.
+const SHIKIMORI_GRAPHQL = SHIKIMORI_API + "/graphql";
 const SHIKIMORI_OAUTH = "https://shikimori.io/oauth";
 let shikimoriQueue = Promise.resolve();
 let shikimoriLastRequestAt = 0;
@@ -281,7 +283,7 @@ async function shikimoriRequest(pathname, tokens, options = {}) {
 async function shikimoriGraphqlRequest(query, variables, tokens) {
   const accessToken = await getShikimoriAccessToken(tokens);
   await acquireShikimoriRequestSlot();
-  const payload = await fetchJson(SHIKIMORI_API, {
+  const payload = await fetchJson(SHIKIMORI_GRAPHQL, {
     method: "POST",
     headers: {
       "User-Agent": process.env.SHIKIMORI_USER_AGENT || "mido-anime-sync/0.5.0",
