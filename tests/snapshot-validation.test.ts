@@ -740,3 +740,47 @@ describe("Shikimori deletion intent snapshots", () => {
     });
   });
 });
+
+
+describe("shared entry metadata validation", () => {
+  it("preserves valid canonical tracker metadata in snapshots", () => {
+    const entry = {
+      ...makeEntry(),
+      sharedMetadata: {
+        rewatchCount: 2,
+        startedAt: "2025-01-02",
+        completedAt: "2025-02-03",
+      },
+    };
+    const snapshot = validateSnapshot({
+      schemaVersion: 4,
+      exportedAt: "2026-11-15T12:00:00.000Z",
+      anime: [anime[0]],
+      entries: [entry],
+      sourceEntries: [entry],
+      conflictResolutions: [],
+      animeRelations: [],
+    });
+    expect(snapshot.entries[0]?.sharedMetadata).toEqual(entry.sharedMetadata);
+  });
+
+  it("rejects invalid shared rewatch counts and calendar dates", () => {
+    const base = {
+      schemaVersion: 4,
+      exportedAt: "2026-11-15T12:00:00.000Z",
+      anime: [anime[0]],
+      entries: [makeEntry()],
+      sourceEntries: [makeEntry()],
+      conflictResolutions: [],
+      animeRelations: [],
+    };
+    expect(() => validateSnapshot({
+      ...base,
+      entries: [{ ...makeEntry(), sharedMetadata: { rewatchCount: -1 } }],
+    })).toThrow(/shared rewatch count/i);
+    expect(() => validateSnapshot({
+      ...base,
+      entries: [{ ...makeEntry(), sharedMetadata: { startedAt: "2025-02-30" } }],
+    })).toThrow(/shared entry date/i);
+  });
+});
