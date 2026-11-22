@@ -8,6 +8,7 @@ import { handleYummyAnimeRequest } from "./yummyanime-routes.mjs";
 import { handleAnimeGoRequest } from "./animego-routes.mjs";
 import { handleAnixArtRequest } from "./anixart-routes.mjs";
 import { fetchAniListAnimeList } from "./anilist-list.mjs";
+import { enrichShikimoriAnimeRates } from "./shikimori-enrichment.mjs";
 
 const ROOT = process.cwd();
 const DATA_DIR = path.join(ROOT, ".local-data");
@@ -771,7 +772,10 @@ async function handleRequest(request, response) {
         page += 1;
       }
       if (page > 100) throw new Error("Список Shikimori слишком большой: достигнут лимит страниц.");
-      return sendJson(response, 200, { data: items, count: items.length });
+      const enrichedItems = await enrichShikimoriAnimeRates(items, (ids) =>
+        shikimoriRequest("/animes?ids=" + encodeURIComponent(ids.join(",")), tokens),
+      );
+      return sendJson(response, 200, { data: enrichedItems, count: enrichedItems.length });
     } catch (error) {
       return sendJson(response, error.status || 502, { error: error.message });
     }
