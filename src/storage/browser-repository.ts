@@ -19,6 +19,12 @@ import type {
 } from "../core/types.js";
 
 import { validateSnapshot, validateEntry } from "./snapshot-validation.js";
+import {
+  createMigrationBackupIfNeeded,
+  listMigrationBackups,
+  restoreMigrationBackup as restoreStoredMigrationBackup,
+  type MigrationBackup,
+} from "./migration-backup.js";
 
 interface AnimeSyncDB extends DBSchema {
   anime: {
@@ -61,6 +67,10 @@ interface AnimeSyncDB extends DBSchema {
     key: string;
     value: SyncDeletionIntent;
     indexes: { "by-provider": string; "by-created-at": string };
+  };
+  appMetadata: {
+    key: string;
+    value: { key: string; value: number | string; updatedAt: string };
   };
 }
 
@@ -422,13 +432,23 @@ function assertRelationsReferenceExistingAnime(
   }
 }
 
+export const LIBRARY_DATABASE_SCHEMA_VERSION = 8;
+
 export class BrowserAnimeRepository {
   private constructor(private readonly db: IDBPDatabase<AnimeSyncDB>) {}
 
   static async open(
     databaseName = "midahoshi-anime-sync",
   ): Promise<BrowserAnimeRepository> {
-    const db = await openDB<AnimeSyncDB>(databaseName, 7, {
+    // A complete copy of every existing object store must be committed and
+    // verified before IndexedDB is allowed to run a schema upgrade.
+    await createMigrationBackupIfNeeded(
+      databaseName,
+      LIBRARY_DATABASE_SCHEMA_VERSION,
+    );
+
+    let connection: IDBPDatabase<AnimeSyncDB> | undefined;
+    const opening = openDB<AnimeSyncDB>(databaseName, LIBRARY_DATABASE_SCHEMA_VERSION, {
       upgrade(database, oldVersion, _newVersion, transaction) {
         if (oldVersion < 1) {
           database.createObjectStore("anime", {
@@ -489,10 +509,27 @@ export class BrowserAnimeRepository {
           deletions.createIndex("by-provider", "provider");
           deletions.createIndex("by-created-at", "createdAt");
         }
+
+        if (oldVersion < 8) {
+          const metadata = database.createObjectStore("appMetadata", {
+            keyPath: "key",
+          });
+          metadata.put({
+            key: "schemaVersion",
+            value: LIBRARY_DATABASE_SCHEMA_VERSION,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      },
+      // Close this tab's connection when another tab requests a schema upgrade.
+      // Otherwise an old tab can keep IndexedDB blocked indefinitely.
+      blocking() {
+        connection?.close();
       },
     });
+    connection = await opening;
 
-    return new BrowserAnimeRepository(db);
+    return new BrowserAnimeRepository(connection);
   }
 
 
@@ -2096,6 +2133,18 @@ export class BrowserAnimeRepository {
       await transactionDone.catch(() => undefined);
       throw error;
     }
+  }
+
+  async getMigrationBackups(): Promise<MigrationBackup[]> {
+    return listMigrationBackups(this.db.name);
+  }
+
+  async restoreMigrationBackup(backupId: string): Promise<{
+    backup: MigrationBackup;
+    safetyBackupId: string;
+    restoredRecordCount: number;
+  }> {
+    return restoreStoredMigrationBackup(this.db.name, backupId);
   }
 
   close(): void {

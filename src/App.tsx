@@ -156,6 +156,9 @@ function App() {
   const [watchEventSaving, setWatchEventSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [isOnline, setIsOnline] = useState(
+    () => typeof navigator === "undefined" || navigator.onLine,
+  );
 
   const [filters, setFilters] = useState<LibraryFilters>(DEFAULT_LIBRARY_FILTERS);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -219,6 +222,16 @@ function App() {
   const [historyError, setHistoryError] = useState("");
   const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | SyncProvider>("all");
   const [historyStatusFilter, setHistoryStatusFilter] = useState<"all" | SyncOperation["status"]>("all");
+
+  useEffect(() => {
+    const updateOnlineStatus = () => setIsOnline(navigator.onLine);
+    window.addEventListener("online", updateOnlineStatus);
+    window.addEventListener("offline", updateOnlineStatus);
+    return () => {
+      window.removeEventListener("online", updateOnlineStatus);
+      window.removeEventListener("offline", updateOnlineStatus);
+    };
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -565,6 +578,10 @@ function App() {
 
   async function runMetadataEnrichment() {
     if (!repository || metadataEnriching) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setMetadataEnrichmentError("Нет подключения к интернету. Локальная библиотека доступна, обогащение метаданных можно повторить позже.");
+      return;
+    }
 
     const db = repository;
     setMetadataEnriching(true);
@@ -822,6 +839,56 @@ function App() {
     }
   }
 
+  async function handleRestoreAutomaticBackup() {
+    if (!repository || restoring || restoreInProgressRef.current) return;
+    if (syncInProgressRef.current || accountSyncing || metadataEnriching || importing || saving || addingCatalogId) {
+      setError("Перед восстановлением дождись завершения синхронизации и других операций с библиотекой.");
+      return;
+    }
+
+    try {
+      const backups = await repository.getMigrationBackups();
+      const latest = backups[0];
+      if (!latest) {
+        setError("Автоматических резервных копий миграций пока нет. Они создаются перед обновлением схемы локальной базы.");
+        return;
+      }
+
+      const confirmed = window.confirm(
+        "Восстановить автоматическую резервную копию?\n\n" +
+        "Создана: " + new Date(latest.createdAt).toLocaleString() +
+        "\nВерсия базы: v" + latest.sourceVersion + " → v" + latest.targetVersion +
+        "\nХранилищ: " + latest.integrity.storeCount +
+        "\nЗаписей: " + latest.integrity.totalRecordCount +
+        "\n\nТекущая библиотека будет заменена данными копии. Перед восстановлением приложение создаст ещё одну защитную копию текущего состояния. Незавершённые операции синхронизации будут отменены, автоматическая отправка изменений не выполняется. Продолжить?"
+      );
+      if (!confirmed) return;
+
+      restoreInProgressRef.current = true;
+      setRestoring(true);
+      setError("");
+
+      const result = await repository.restoreMigrationBackup(latest.id);
+      await refreshLibrary();
+      const [operations, sessions] = await Promise.all([
+        repository.getSyncOperations(),
+        repository.getSyncSessions(),
+      ]);
+      setHistoryOperations(operations);
+      setHistorySessionRecords(sessions);
+      window.alert(
+        "Автоматическая резервная копия восстановлена.\n" +
+        "Восстановлено записей: " + result.restoredRecordCount +
+        "\nПеред восстановлением сохранена защитная копия текущего состояния."
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось восстановить автоматическую резервную копию.");
+    } finally {
+      restoreInProgressRef.current = false;
+      setRestoring(false);
+    }
+  }
+
   async function handleReconcileIdentityDuplicates() {
     if (!repository || reconcilingDuplicates) return;
     const activeRepository = repository;
@@ -948,6 +1015,10 @@ function App() {
 
   async function handleImportFromAccount(provider: SyncProvider) {
     if (!repository || importing) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setIntegrationStatusError("Нет подключения к интернету. Локальная библиотека доступна, импорт возобновится после подключения.");
+      return;
+    }
     setImporting(true);
     setError("");
     try {
@@ -1006,6 +1077,10 @@ function App() {
 
   async function handleSyncToAccount(provider: SyncProvider) {
     if (!repository || accountSyncing || syncInProgressRef.current || restoreInProgressRef.current) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setIntegrationStatusError("Нет подключения к интернету. Все локальные изменения сохранены. Повтори синхронизацию после восстановления связи.");
+      return;
+    }
 
     // Web Locks prevents another tab from running an account sync while this
     // tab reconciles old sessions. Without it, sync remains available but stale
@@ -2096,6 +2171,12 @@ function App() {
         </header>
 
         <div className="content">
+          {!isOnline && (
+            <div className="offline-status" role="status" aria-live="polite">
+              <strong>Офлайн-режим</strong>
+              <span>Локальная библиотека и её редактирование доступны. Внешние каталоги, импорт и синхронизация заработают после восстановления интернета. Изменения останутся на этом устройстве.</span>
+            </div>
+          )}
           {pendingWatchEvent && (
             <section className="watch-event-panel">
               <div className="watch-event-heading">
@@ -2521,6 +2602,14 @@ function App() {
               disabled={loading || !repository || importing || restoring || accountSyncing !== null || metadataEnriching || saving || addingCatalogId !== null}
             >
               ↻ Восстановить резервную копию
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => void handleRestoreAutomaticBackup()}
+              disabled={loading || !repository || importing || restoring || accountSyncing !== null || metadataEnriching || saving || addingCatalogId !== null}
+            >
+              ↶ Восстановить автоматическую копию
             </button>
             <input
               ref={restoreFileInputRef}

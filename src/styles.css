@@ -2053,3 +2053,27 @@ button:disabled {
 .streaming-player-dialog video { display: block; width: 100%; max-height: 72vh; aspect-ratio: 16 / 9; border: 0; border-radius: 8px; background: #000; }
 .streaming-player-dialog p { margin: 10px 0 0; color: var(--muted, #888); font-size: 0.85rem; }
 @media (max-width: 640px) { .streaming-player-backdrop { padding: 8px; } .streaming-player-dialog { padding: 10px; } }
+
+
+.offline-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px solid #d7a84b;
+  border-radius: 12px;
+  background: rgba(215, 168, 75, 0.1);
+  color: var(--text-primary, #f4f1fa);
+}
+
+.offline-status strong {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.offline-status span {
+  color: var(--text-secondary, #aaa4b8);
+  font-size: 12px;
+  line-height: 1.5;
+}
