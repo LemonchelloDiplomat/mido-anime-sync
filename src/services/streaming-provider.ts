@@ -27,24 +27,28 @@ export const STREAMING_PROVIDER_CAPABILITIES: Record<StreamingProviderId, Stream
     catalogSearch: true, titleDetails: true, seasonsAndEpisodes: true, voiceTracks: true,
     accountConnection: true, listImport: true, listWrite: true,
     watchProgressRead: true, watchProgressWrite: true,
+    limitations: [
+      "API заявлен владельцем как personal use only; для коммерческого распространения нужно отдельное разрешение.",
+      "Списки и избранное синхронизируются отдельно; изменение списка не обновляет прогресс и оценку.",
+    ],
   },
   animego: {
     catalogSearch: true, titleDetails: true, seasonsAndEpisodes: true, voiceTracks: true,
-    accountConnection: false, listImport: false, listWrite: false,
+    accountConnection: false, listImport: true, listWrite: false,
     watchProgressRead: true, watchProgressWrite: false,
     limitations: [
-      "Личный API аккаунта и списков не подтверждён.",
-      "Состояние просмотра доступно только через браузерное расширение.",
+      "Импорт выполняется через браузерное расширение на открытой странице профиля, по одному статусному списку за раз.",
+      "Обратная запись статусов, прогресса и оценок пока не реализована.",
     ],
   },
   anixart: {
     catalogSearch: true, titleDetails: true, seasonsAndEpisodes: true, voiceTracks: true,
-    accountConnection: false, listImport: false, listWrite: false,
+    accountConnection: false, listImport: true, listWrite: false,
     watchProgressRead: true, watchProgressWrite: false,
     limitations: [
-      "Интеграция относится к публичному сайту AnixART, а не к мобильному приложению.",
-      "Синхронизация мобильного аккаунта не поддерживается.",
-      "Состояние просмотра доступно через браузерное расширение.",
+      "Списки мобильного приложения импортируются из собственного CSV/TXT экспорта; пароль и неофициальный API не используются.",
+      "Обратная запись статусов, прогресса и оценок пока не реализована.",
+      "Состояние просмотра доступно через браузерное расширение для сайта AnixART отдельно.",
     ],
   },
 };

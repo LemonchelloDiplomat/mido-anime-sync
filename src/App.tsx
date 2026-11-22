@@ -28,8 +28,12 @@ import { parseMyAnimeListApiList } from "./services/myanimelist-account.js";
 import { parseAniListAccountList, type AniListScoreFormat } from "./services/anilist-account.js";
 import { parseShikimoriAccountList } from "./services/shikimori-account.js";
 import { StreamingCatalogPanel } from "./components/StreamingCatalogPanel.js";
+import { StreamingTrackerPanel } from "./components/StreamingTrackerPanel.js";
 import { reconcileStreamingAccountSnapshot } from "./services/streaming-account-import.js";
+import { normalizeAnimeGoAccountList, type AnimeGoAccountListPayload } from "./services/animego-account-import.js";
+import { parseAnixartBookmarkExport } from "./services/anixart-export-import.js";
 import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
+import { suggestTrackerMatches, type TrackerMatchSuggestion } from "./services/streaming-tracker-sync.js";
 import { detectRemoteDeletions } from "./core/safe-deletions.js";
 import { executeRemoteDeletions, resolvePendingRemoteDeletionIntents } from "./core/remote-deletion.js";
 import { reconcileUnfinishedSyncOperations } from "./core/sync-recovery.js";
@@ -151,6 +155,8 @@ function App() {
 
   const [library, setLibrary] = useState<LibraryItem[]>([]);
   const [pendingWatchEvent, setPendingWatchEvent] = useState<WatchEvent | null>(null);
+  const [pendingAnimeGoImportId, setPendingAnimeGoImportId] = useState("");
+  const requestedAnimeGoImports = useRef(new Set<string>());
   const [pendingWatchEventId, setPendingWatchEventId] = useState("");
   const [watchEventTargetId, setWatchEventTargetId] = useState("");
   const [watchEventSaving, setWatchEventSaving] = useState(false);
@@ -184,6 +190,8 @@ function App() {
   const [importAnalysis, setImportAnalysis] = useState<ImportPreview | null>(
     null,
   );
+  const [importSuggestions, setImportSuggestions] = useState<Record<string, TrackerMatchSuggestion[]>>({});
+  const [importManualMappings, setImportManualMappings] = useState<Record<string, string>>({});
 
   const [importFormat, setImportFormat] = useState("");
   const [importIdentityDiagnostics, setImportIdentityDiagnostics] = useState<ImportIdentityDiagnostics | null>(null);
@@ -219,6 +227,45 @@ function App() {
   const [historyError, setHistoryError] = useState("");
   const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | SyncProvider>("all");
   const [historyStatusFilter, setHistoryStatusFilter] = useState<"all" | SyncOperation["status"]>("all");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const importId = params.get("animegoImportId") || "";
+    if (/^[0-9a-f-]{36}$/i.test(importId)) setPendingAnimeGoImportId(importId);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingAnimeGoImportId || !repository || loading) return;
+    if (requestedAnimeGoImports.current.has(pendingAnimeGoImportId)) return;
+    requestedAnimeGoImports.current.add(pendingAnimeGoImportId);
+
+    const importId = pendingAnimeGoImportId;
+    const handleMessage = (event: MessageEvent) => {
+      if (event.source !== window || event.origin !== window.location.origin) return;
+      const data = event.data;
+      if (data?.source !== "mido-anime-extension" ||
+          data?.type !== "ANIMEGO_IMPORT_RESULT" || data.importId !== importId) return;
+      if (!data.result?.ok || !data.result.payload) {
+        setError(data.result?.error || "Не удалось получить список AnimeGO из расширения.");
+        return;
+      }
+      void importAnimeGoAccountList(data.result.payload as AnimeGoAccountListPayload)
+        .then(() => {
+          window.postMessage({ source: "mido-anime-app", type: "ACK_ANIMEGO_IMPORT", importId }, window.location.origin);
+          const params = new URLSearchParams(window.location.search);
+          params.delete("animegoImportId");
+          const query = params.toString();
+          window.history.replaceState({}, "", window.location.pathname + (query ? "?" + query : "") + window.location.hash);
+          setPendingAnimeGoImportId("");
+        })
+        .catch((error: unknown) => {
+          setError(error instanceof Error ? error.message : "Не удалось импортировать список AnimeGO.");
+        });
+    };
+    window.addEventListener("message", handleMessage);
+    window.postMessage({ source: "mido-anime-app", type: "REQUEST_ANIMEGO_IMPORT", importId }, window.location.origin);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [pendingAnimeGoImportId, repository, loading]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -547,15 +594,114 @@ function App() {
     }
   }
 
-  async function importYummyAnimeSnapshot(snapshot: AnimeSnapshotV4) {
+  async function importStreamingAccountSnapshot(snapshot: AnimeSnapshotV4, provider: "animego" | "yummyanime") {
     if (!repository) throw new Error("Локальная библиотека ещё не готова.");
     const currentItems = await repository.getAll();
     const reconciled = reconcileStreamingAccountSnapshot(
       snapshot,
       currentItems.map((item) => item.anime),
     );
-    await repository.mergeSnapshot(reconciled);
+    // Account-list endpoints often omit progress, score or favorite. Preserve
+    // the last known provider value instead of interpreting omission as zero/null/false.
+    const sourceEntries = await Promise.all(reconciled.sourceEntries.map(async (entry) => {
+      const previous = (await repository!.getSourceEntries(entry.animeId))
+        .find((item) => item.source === provider);
+      if (!previous) return entry;
+      return {
+        ...entry,
+        ...(entry.sourceMetadata?.progressKnown === false ? { progress: previous.progress } : {}),
+        ...(entry.sourceMetadata?.scoreKnown === false ? { score: previous.score } : {}),
+        ...(entry.sourceMetadata?.favoriteKnown === false ? { favorite: previous.favorite } : {}),
+      };
+    }));
+    await repository.mergeSnapshot({ ...reconciled, sourceEntries });
+
+    // YummyAnime does not publish an exact premiere date in its anime-card schema.
+    // When it supplies an exact MAL ID, resolve missing catalog fields by that ID
+    // through AniList rather than guessing dates from the year or title.
+    if (provider === "yummyanime") {
+      const metadataCandidates = getAniListMetadataCandidates(reconciled.anime);
+      if (metadataCandidates.length > 0) {
+        setMetadataEnriching(true);
+        setMetadataEnrichmentError("");
+        setMetadataProgress({
+          provider: aniListMetadataProvider.name,
+          completed: 0,
+          total: metadataCandidates.length,
+          matched: 0,
+          missing: 0,
+        });
+        try {
+          await aniListMetadataProvider.enrich(reconciled.anime, {
+            onBatch: async (batch) => {
+              for (const match of batch.matches) {
+                await repository!.updateAnimeMetadata(match.animeId, match.metadata);
+              }
+              setMetadataProgress({
+                provider: aniListMetadataProvider.name,
+                completed: batch.completed,
+                total: batch.total,
+                matched: batch.matched,
+                missing: batch.missing,
+              });
+            },
+          });
+        } catch (metadataError) {
+          setMetadataEnrichmentError(
+            metadataError instanceof Error
+              ? "Импорт YummyAnime выполнен, но часть метаданных AniList не обновлена: " + metadataError.message
+              : "Импорт YummyAnime выполнен, но метаданные AniList не удалось обновить.",
+          );
+        } finally {
+          setMetadataEnriching(false);
+        }
+      }
+    }
+
     await refreshLibrary();
+  }
+
+  async function importYummyAnimeSnapshot(snapshot: AnimeSnapshotV4) {
+    await importStreamingAccountSnapshot(snapshot, "yummyanime");
+  }
+
+  async function importAnimeGoAccountList(payload: AnimeGoAccountListPayload) {
+    const normalized = normalizeAnimeGoAccountList(payload);
+    const snapshot: AnimeSnapshotV4 = {
+      schemaVersion: 4,
+      exportedAt: new Date().toISOString(),
+      anime: normalized.rows.map((row) => row.anime),
+      entries: [],
+      sourceEntries: normalized.rows.map((row) => row.entry),
+      conflictResolutions: [],
+      animeRelations: [],
+    };
+    await importStreamingAccountSnapshot(snapshot, "animego");
+    window.alert(
+      "Импорт AnimeGO завершён. Добавлено или обновлено записей: " +
+      normalized.rows.length + ". Пропущено некорректных строк: " + normalized.skipped +
+      ". Прогресс и избранное не изменялись.",
+    );
+  }
+
+  async function prepareAnixartExportImport(file: File): Promise<{ imported: number; skipped: number }> {
+    if (!repository) throw new Error("Локальная библиотека ещё не готова.");
+    if (file.size > 25 * 1024 * 1024) throw new Error("Файл Anixart слишком большой. Максимум 25 МБ.");
+    const result = parseAnixartBookmarkExport(await file.text(), file.name);
+    const localAnime = library.map((item) => item.anime);
+    const analysis = createImportPreview(result.snapshot.anime, localAnime);
+    const suggestions = Object.fromEntries(analysis.items
+      .filter((item) => item.status === "new")
+      .map((item) => [item.imported.id, suggestTrackerMatches(item.imported, localAnime, 5)])
+      .filter(([, matches]) => (matches as TrackerMatchSuggestion[]).length > 0));
+    setImportSnapshot(result.snapshot);
+    setImportIdentityDiagnostics(null);
+    setImportFormat("Anixart export");
+    setImportAnalysis(analysis);
+    setImportSuggestions(suggestions);
+    setImportManualMappings({});
+    setError("");
+    return { imported: result.snapshot.anime.length, skipped: result.skipped };
   }
 
   async function refreshLibrary() {
@@ -699,6 +845,8 @@ function App() {
   }
 
   async function handleImportFile(event: ChangeEvent<HTMLInputElement>) {
+    setImportSuggestions({});
+    setImportManualMappings({});
     const input = event.currentTarget;
     const file = input.files?.[0];
 
@@ -948,6 +1096,8 @@ function App() {
 
   async function handleImportFromAccount(provider: SyncProvider) {
     if (!repository || importing) return;
+    setImportSuggestions({});
+    setImportManualMappings({});
     setImporting(true);
     setError("");
     try {
@@ -1657,11 +1807,25 @@ function App() {
 
       const mappings: Record<string, string> = {};
       const mappedTargets = new Set<string>();
+      let manualMappedCount = 0;
 
       for (const item of freshAnalysis.items) {
-        const match = item.matchedAnime;
+        const selectedTargetId = importManualMappings[item.imported.id];
+        const selectedTarget = selectedTargetId
+          ? currentLibrary.find((candidate) => candidate.anime.id === selectedTargetId)?.anime
+          : null;
+        if (selectedTargetId && !selectedTarget) {
+          throw new Error("Выбранная запись для ручного сопоставления больше не существует.");
+        }
+        const match = item.matchedAnime ?? selectedTarget;
         if (!match || match.id === item.imported.id) continue;
 
+        for (const [service, externalId] of Object.entries(item.imported.externalIds)) {
+          const existingExternalId = match.externalIds[service as keyof AnimeIdentity["externalIds"]];
+          if (existingExternalId && externalId && existingExternalId !== externalId) {
+            throw new Error("Нельзя объединить записи: внешний ID " + service + " различается.");
+          }
+        }
         if (mappedTargets.has(match.id)) {
           throw new Error(
             `Несколько импортируемых записей указывают на один и тот же тайтл в библиотеке: ${match.titles.english ?? match.titles.romaji ?? match.id}.`,
@@ -1670,24 +1834,43 @@ function App() {
 
         mappedTargets.add(match.id);
         mappings[item.imported.id] = match.id;
+        if (!item.matchedAnime && selectedTarget) manualMappedCount += 1;
       }
 
       // Автоматически создаём резервную копию перед безопасным добавлением/слиянием.
       const backup = await repository.snapshot();
       downloadSnapshot(backup);
 
-      await repository.mergeSnapshotWithMappings(importSnapshot, mappings);
+      let snapshotToMerge = importSnapshot;
+      if (importSnapshot.schemaVersion === 4) {
+        const sourceEntries = await Promise.all(importSnapshot.sourceEntries.map(async (entry) => {
+          const targetId = mappings[entry.animeId] ?? entry.animeId;
+          const previous = (await repository!.getSourceEntries(targetId))
+            .find((existing) => existing.source === entry.source);
+          if (!previous) return entry;
+          return {
+            ...entry,
+            ...(entry.sourceMetadata?.progressKnown === false ? { progress: previous.progress } : {}),
+            ...(entry.sourceMetadata?.scoreKnown === false ? { score: previous.score } : {}),
+            ...(entry.sourceMetadata?.favoriteKnown === false ? { favorite: previous.favorite } : {}),
+          };
+        }));
+        snapshotToMerge = { ...importSnapshot, sourceEntries };
+      }
+      await repository.mergeSnapshotWithMappings(snapshotToMerge, mappings);
       await refreshLibrary();
 
-      const importedCount = freshAnalysis.summary.new;
-      const matchedCount = freshAnalysis.summary.matched;
+      const importedCount = freshAnalysis.summary.new - manualMappedCount;
+      const matchedCount = freshAnalysis.summary.matched + manualMappedCount;
 
       setImportSnapshot(null);
       setImportAnalysis(null);
       setImportFormat("");
+      setImportSuggestions({});
+      setImportManualMappings({});
 
       window.alert(
-        `Импорт завершён! Новых тайтлов добавлено: ${importedCount}. Точных совпадений объединено: ${matchedCount}. Резервная копия скачана.`,
+        `Импорт завершён! Новых тайтлов добавлено: ${importedCount}. Совпадений объединено: ${matchedCount} (включая ручные сопоставления). Резервная копия скачана.`,
       );
       if (freshAnalysis.items.some((item) => item.imported.externalIds.myanimelist)) {
         void runMetadataEnrichment();
@@ -1892,6 +2075,9 @@ function App() {
     }),
     [library, filters],
   );
+  const selectedManualImportTargets = Object.values(importManualMappings).filter(Boolean);
+  const hasDuplicateManualImportTargets = new Set(selectedManualImportTargets).size !== selectedManualImportTargets.length;
+  const manualImportMappingCount = selectedManualImportTargets.length;
 
   const searchResults = useMemo(
     () => filterLibrary(library, { ...filters, query: searchQuery }).sort((a, b) => {
@@ -2255,6 +2441,22 @@ function App() {
                   </article>
                 );
               })}
+              <StreamingTrackerPanel
+                items={library}
+                onImportAnixart={prepareAnixartExportImport}
+                onImport={async (rows) => {
+                  const snapshot: AnimeSnapshotV4 = {
+                    schemaVersion: 4,
+                    exportedAt: new Date().toISOString(),
+                    anime: rows.map((row) => row.anime),
+                    entries: [],
+                    sourceEntries: rows.map((row) => row.entry),
+                    conflictResolutions: [],
+                    animeRelations: [],
+                  };
+                  await importYummyAnimeSnapshot(snapshot);
+                }}
+              />
               <div className="integration-security-note">
                 <strong>Безопасность:</strong> токены сохраняются локально в зашифрованном виде. Не публикуй .env.local и папку .local-data.
               </div>
@@ -2630,7 +2832,9 @@ function App() {
                   <div className="eyebrow">IMPORT CENTER</div>
                   <h2>Предварительный просмотр импорта</h2>
                   <p>
-                    Новые тайтлы будут добавлены автоматически. Совпадения определяются только по точным ID, а похожие названия не объединяются.
+                    {importFormat === "Anixart export"
+                      ? "Совпадения по точным ID объединяются автоматически. Похожие названия показаны только как подсказки и объединяются лишь после твоего выбора."
+                      : "Новые тайтлы будут добавлены автоматически. Совпадения определяются только по точным ID, а похожие названия не объединяются."}
                   </p>
                 </div>
 
@@ -2655,12 +2859,12 @@ function App() {
 
                 <div className="import-summary-card new">
                   <span>Новые</span>
-                  <strong>{importAnalysis.summary.new}</strong>
+                  <strong>{Math.max(0, importAnalysis.summary.new - (importFormat === "Anixart export" ? manualImportMappingCount : 0))}</strong>
                 </div>
 
                 <div className="import-summary-card matched">
                   <span>Совпадения</span>
-                  <strong>{importAnalysis.summary.matched}</strong>
+                  <strong>{importAnalysis.summary.matched + (importFormat === "Anixart export" ? manualImportMappingCount : 0)}</strong>
                 </div>
 
               </div>
@@ -2668,7 +2872,44 @@ function App() {
               <div className="import-file-info">
                 <span>Формат: {importFormat || `JSON v${importSnapshot.schemaVersion}`}</span>
                 <span>Записей библиотеки: {importSnapshot.entries.length}</span>
+                {importSnapshot.schemaVersion === 4 && <span>Записей источника: {importSnapshot.sourceEntries.length}</span>}
               </div>
+
+              {importFormat === "Anixart export" && Object.keys(importSuggestions).length > 0 && (
+                <div className="import-title-suggestions">
+                  <strong>Ручное сопоставление похожих названий</strong>
+                  <p>Предлагаемые совпадения не применяются автоматически. Выбери правильный тайтл или оставь запись отдельной.</p>
+                  {Object.entries(importSuggestions).map(([importedId, suggestions]) => {
+                    const imported = importSnapshot.anime.find((anime) => anime.id === importedId);
+                    if (!imported) return null;
+                    return (
+                      <label key={importedId}>
+                        <span>{imported.titles.english ?? imported.titles.romaji ?? imported.id}</span>
+                        <select
+                          value={importManualMappings[importedId] ?? ""}
+                          onChange={(event) => setImportManualMappings((previous) => ({
+                            ...previous,
+                            [importedId]: event.target.value,
+                          }))}
+                          disabled={importing}
+                        >
+                          <option value="">Оставить отдельной записью</option>
+                          {suggestions.map((suggestion) => (
+                            <option
+                              key={suggestion.anime.id}
+                              value={suggestion.anime.id}
+                              disabled={Object.entries(importManualMappings).some(([otherId, targetId]) => otherId !== importedId && targetId === suggestion.anime.id) || importAnalysis.items.some((item) => item.imported.id !== importedId && item.matchedAnime?.id === suggestion.anime.id)}
+                            >
+                              {suggestion.anime.titles.english ?? suggestion.anime.titles.romaji ?? suggestion.anime.id}
+                              {" · совпадение "}{Math.round(suggestion.score * 100)}%
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
 
               {importIdentityDiagnostics?.provider === "shikimori" && (
                 <div className="import-safety-note">
@@ -2693,6 +2934,13 @@ function App() {
                   {importIdentityDiagnostics.matchedInLibrary === 0 && (
                     <p>Импорт заблокирован: нет ни одного подтверждённого совпадения с библиотекой. Новые записи не будут добавлены.</p>
                   )}
+                </div>
+              )}
+
+              {hasDuplicateManualImportTargets && (
+                <div className="import-safety-note">
+                  <strong>Повторное сопоставление.</strong>
+                  <p>Один локальный тайтл выбран для нескольких записей экспорта. Выбери разные цели или оставь лишние записи отдельными.</p>
                 </div>
               )}
 
@@ -2725,6 +2973,7 @@ function App() {
                   onClick={() => void handleConfirmImport()}
                   disabled={
                     importing ||
+                    hasDuplicateManualImportTargets ||
                     (importIdentityDiagnostics?.provider === "shikimori" &&
                       importIdentityDiagnostics.matchedInLibrary === 0)
                   }
@@ -2870,15 +3119,20 @@ function App() {
                     "Без названия";
 
                   const totalEpisodes = anime.episodes;
-                  const progress = entry?.progress ?? 0;
+                  const progressKnown = entry?.sourceMetadata?.progressKnown !== false;
+                  const progress = progressKnown ? entry?.progress ?? 0 : null;
 
                   const percent =
-                    typeof totalEpisodes === "number" && totalEpisodes > 0
-                      ? Math.min(
-                          100,
-                          Math.round((progress / totalEpisodes) * 100),
-                        )
+                    progress !== null && typeof totalEpisodes === "number" && totalEpisodes > 0
+                      ? Math.min(100, Math.round((progress / totalEpisodes) * 100))
                       : 0;
+                  const releaseStatusLabel = anime.releaseStatus === "ONGOING"
+                    ? "Выходит"
+                    : anime.releaseStatus === "ANNOUNCED"
+                      ? "Анонсировано"
+                      : anime.releaseStatus === "RELEASED"
+                        ? "Завершено"
+                        : null;
 
                   return (
                     <article className="anime-card" key={anime.id}>
@@ -2887,7 +3141,9 @@ function App() {
                       <div className="anime-details">
                         <h3>{title}</h3>
                         <p className="anime-subtitle">{anime.titles.romaji ?? " "}</p>
-                        <div className="anime-catalog-meta">{anime.format ?? "Формат не указан"}{anime.year ? ` · ${anime.year}` : ""}{anime.genres?.length ? ` · ${anime.genres.join(", ")}` : ""}</div>
+                        <div className="anime-catalog-meta">
+                          {[anime.format, anime.year, anime.ageRating, anime.startDate, releaseStatusLabel, anime.episodes != null ? `${anime.episodes} эп.` : null, ...(anime.genres ?? [])].filter(Boolean).join(" · ") || "Метаданные пока не добавлены"}
+                        </div>
 
                         {entry && (
                           <>
@@ -2909,21 +3165,19 @@ function App() {
 
                             <div className="progress-info">
                               <span>
-                                {typeof totalEpisodes === "number" &&
-                                totalEpisodes > 0
-                                  ? `Эпизод ${progress} из ${totalEpisodes}`
-                                  : `Просмотрено ${progress} эпизодов`}
+                                {progress === null
+                                  ? `Прогресс просмотра не предоставлен${typeof totalEpisodes === "number" ? ` · всего ${totalEpisodes} эп.` : ""}`
+                                  : typeof totalEpisodes === "number" && totalEpisodes > 0
+                                    ? `Эпизод ${progress} из ${totalEpisodes}`
+                                    : `Просмотрено ${progress} эпизодов`}
                               </span>
 
                               <span>
-                                {typeof totalEpisodes === "number" &&
-                                totalEpisodes > 0
-                                  ? `${percent}%`
-                                  : ""}
+                                {progress !== null && typeof totalEpisodes === "number" && totalEpisodes > 0 ? `${percent}%` : ""}
                               </span>
                             </div>
 
-                            {typeof totalEpisodes === "number" &&
+                            {progress !== null && typeof totalEpisodes === "number" &&
                               totalEpisodes > 0 && (
                                 <div className="progress-track">
                                   <div

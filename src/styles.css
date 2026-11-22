@@ -929,6 +929,35 @@ button:disabled {
   font-size: 11px;
 }
 
+.import-title-suggestions {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #45405a;
+  border-radius: 10px;
+  background: #1b1926;
+}
+.import-title-suggestions > p {
+  margin: 0;
+  color: #a6a4b4;
+  font-size: 12px;
+}
+.import-title-suggestions label {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(240px, 1.2fr);
+  align-items: center;
+  gap: 12px;
+  color: #dedbea;
+  font-size: 12px;
+}
+.import-title-suggestions select {
+  min-width: 0;
+  width: 100%;
+}
+@media (max-width: 900px) {
+  .import-title-suggestions label { grid-template-columns: 1fr; }
+}
+
 .import-results {
   display: grid;
   gap: 8px;
@@ -2053,3 +2082,94 @@ button:disabled {
 .streaming-player-dialog video { display: block; width: 100%; max-height: 72vh; aspect-ratio: 16 / 9; border: 0; border-radius: 8px; background: #000; }
 .streaming-player-dialog p { margin: 10px 0 0; color: var(--muted, #888); font-size: 0.85rem; }
 @media (max-width: 640px) { .streaming-player-backdrop { padding: 8px; } .streaming-player-dialog { padding: 10px; } }
+
+
+.streaming-tracker-provider {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, .25));
+  border-radius: 14px;
+}
+.streaming-tracker-account-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+.integration-provider-mark--yummyanime {
+  background: #563f8f;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -.06em;
+}
+.streaming-tracker-account-header .integration-provider-info {
+  flex: 1;
+}
+.streaming-tracker-actions button {
+  white-space: nowrap;
+}
+.streaming-tracker-actions,
+.streaming-tracker-login {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.streaming-tracker-login input {
+  min-width: 180px;
+  flex: 1 1 220px;
+}
+.streaming-tracker-mapping {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+.streaming-tracker-mapping label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-secondary, inherit);
+  font-size: .9rem;
+}
+.streaming-tracker-mapping select {
+  width: 100%;
+  min-width: 0;
+}
+.streaming-tracker-provider p {
+  margin: 0;
+}
+
+.streaming-tracker-import-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, .3));
+  border-radius: 9px;
+  color: var(--text-primary, inherit);
+  cursor: pointer;
+}
+.streaming-tracker-import-file:hover {
+  border-color: var(--accent, #a98ad9);
+}
+.streaming-tracker-import-file input {
+  max-width: 100%;
+  min-width: 0;
+  color: var(--text-secondary, inherit);
+  font-size: .82rem;
+}
+
+.streaming-tracker-provider-limitations {
+  display: grid;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color, rgba(128, 128, 128, .2));
+}
+.streaming-tracker-provider-limitations h4,
+.streaming-tracker-provider-limitations p {
+  margin: 0;
+}

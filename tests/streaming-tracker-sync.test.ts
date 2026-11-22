@@ -1,0 +1,12 @@
+import {describe,expect,it} from "vitest";
+import type {AnimeIdentity,AnimeListEntry} from "../src/core/types.js";
+import {createStreamingTrackerSyncPlan,findExactTrackerMatch,suggestTrackerMatches} from "../src/services/streaming-tracker-sync.js";
+function anime(id:string,title:string,externalId?:string):AnimeIdentity{return{id,titles:{english:title,synonyms:[]},externalIds:externalId?{yummyanime:externalId}:{},year:2020,format:"TV"};}
+function entry(animeId:string,progress:number,updatedAt="2026-01-01T00:00:00.000Z"):AnimeListEntry{return{animeId,status:"WATCHING",progress,score:null,favorite:false,updatedAt,source:"yummyanime"};}
+describe("streaming tracker sync",()=>{
+ it("automatically matches only unique exact provider IDs",()=>{const local=[anime("local:1","Example","77")];expect(findExactTrackerMatch(anime("remote:1","Other","77"),local,"yummyanime")?.id).toBe("local:1");expect(findExactTrackerMatch(anime("remote:2","Example"),local,"yummyanime")).toBeNull();expect(findExactTrackerMatch(anime("remote:3","Example","77"),[...local,anime("local:2","Duplicate","77")],"yummyanime")).toBeNull();});
+ it("suggests title candidates for manual review",()=>{const found=suggestTrackerMatches(anime("r","Fullmetal Alchemist"),[anime("l1","Fullmetal Alchemist"),anime("l2","Naruto")]);expect(found).toHaveLength(1);expect(found[0]?.anime.id).toBe("l1");});
+ it("plans a local-only progress change as a remote update",()=>{const a=anime("l","Example","77");const plan=createStreamingTrackerSyncPlan("yummyanime",[{anime:a,entry:entry("l",5),baseline:entry("l",4)}],[{anime:anime("r","Example","77"),entry:entry("r",4)}]);expect(plan.remoteUpdates[0]?.entry.progress).toBe(5);expect(plan.conflicts).toHaveLength(0);});
+ it("never infers a deletion from a missing remote row",()=>{const a=anime("l","Example","77");const plan=createStreamingTrackerSyncPlan("yummyanime",[{anime:a,entry:entry("l",2),baseline:entry("l",2)}],[]);expect(plan.deletions).toEqual([]);expect(plan.unmatchedLocal).toHaveLength(1);expect(plan.remoteUpdates).toHaveLength(0);});
+ it("reports concurrent changes on the same field",()=>{const a=anime("l","Example","77");const plan=createStreamingTrackerSyncPlan("yummyanime",[{anime:a,entry:entry("l",6),baseline:entry("l",4)}],[{anime:anime("r","Example","77"),entry:entry("r",5)}]);expect(plan.conflicts[0]?.field).toBe("progress");expect(plan.remoteUpdates).toHaveLength(0);});
+});
