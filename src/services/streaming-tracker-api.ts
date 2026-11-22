@@ -35,7 +35,7 @@ export function normalizeYummyLists(payload:YummyRawLists):Array<{anime:AnimeIde
  const result:Array<{anime:AnimeIdentity;entry:AnimeListEntry}>=[];
  for(const row of payload.entries){
   const nested=row.anime&&typeof row.anime==="object"?row.anime as Record<string,unknown>:{};
-  const id=textValue(row.anime_id,row.id,nested.id); const title=textValue(nested.title,nested.name,row.title,row.name);
+  const id=String(row.anime_id??row.id??nested.id??"").trim(); const title=textValue(nested.title,nested.name,row.title,row.name);
   const listId=String(row.list_id??row.list??nested.list_id??""); const status=statusFor(definitions.get(listId)||row,row);
   if(!/^\d+$/.test(id)||!title||!status)continue;
   const year=numberValue(nested.year,row.year); const episodes=numberValue(nested.episodes,nested.episode_count,row.episodes);
