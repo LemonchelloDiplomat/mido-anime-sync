@@ -25,7 +25,7 @@ const CAPABILITIES: Record<StreamingProviderId, StreamingTrackerCapabilities> = 
   },
   anixart: {
     accountConnection:false,listImport:false,listStatusWrite:false,progressWrite:false,scoreWrite:false,favoriteWrite:false,
-    reason:"Доступная спецификация неофициальная и привязана к версии клиента. Не включаем парольную авторизацию и запись до подтверждения разрешённого стабильного API.",
+    reason:"Аккаунт API не подключается. Импорт доступен через собственный CSV/TXT экспорт Anixart; пароль не запрашивается. Обратная запись не реализована.",
   },
 };
 export function getStreamingTrackerCapabilities(provider:StreamingProviderId):StreamingTrackerCapabilities{return{...CAPABILITIES[provider]};}
