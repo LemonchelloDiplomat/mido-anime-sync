@@ -45,7 +45,7 @@ describe("AnimeGO account service", () => {
         expect(body).toContain("_username=test-user");
         expect(body).toContain("_password=secret-pass");
         expect(body).toContain("_csrf_token=csrf-value");
-        expect(body).toContain("_remember_me=1");
+        expect(body).toContain("_remember_me=on");
         expect(options.headers.Cookie).toContain("preauth=one");
         return response("", 302, {
           Location: "/",
