@@ -26,7 +26,7 @@ describe("streaming provider contracts", () => {
     });
     expect(getStreamingProviderCapabilities("animego")).toMatchObject({
       catalogSearch: true, titleDetails: true,
-      accountConnection: false, listImport: false, listWrite: false,
+      accountConnection: true, listImport: false, listWrite: false,
       watchProgressRead: true, watchProgressWrite: false,
     });
     expect(getStreamingProviderCapabilities("anixart")).toMatchObject({

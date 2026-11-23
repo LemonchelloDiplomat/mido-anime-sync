@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { StreamingProviderId } from "../services/streaming-provider.js";
 import type { StreamingAccountStatus } from "../services/streaming-account-manager.js";
 import type { StreamingRuntime } from "../services/platform/streaming-runtime.js";
@@ -16,7 +16,7 @@ const PROVIDERS: ProviderCard[] = [
     id: "animego",
     name: "AnimeGO",
     description: "Аккаунт и личный список просмотра",
-    limitation: "Подключение через форму сайта. Чтение списка доступно; запись статусов на сайт пока отключена.",
+    limitation: "Вход через встроенное окно сайта Windows. Чтение списка подключим через защищённую нативную сессию следующим этапом.",
   },
   {
     id: "anixart",
@@ -48,9 +48,7 @@ export function StreamingAccountManagerPanel({
   const [listLoading, setListLoading] = useState(false);
   const [listImporting, setListImporting] = useState(false);
   const [listImportMessage, setListImportMessage] = useState("");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [rememberMe, setRememberMe] = useState(true);
+  const [authWindowOpened, setAuthWindowOpened] = useState(false);
   const [listPreview, setListPreview] = useState<AnimeGoAccountListResponse | null>(null);
   const [error, setError] = useState("");
 
@@ -81,22 +79,31 @@ export function StreamingAccountManagerPanel({
     void refresh();
   }, [refresh]);
 
-  async function connectAnimeGo(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!runtime || !username.trim() || !password) return;
+  async function beginAnimeGoWebAuth() {
+    if (!runtime?.accounts.beginConnect) return;
     setConnecting(true);
     setError("");
     try {
-      await runtime.accounts.connect("animego", {
-        username: username.trim(),
-        password,
-        rememberMe,
-      });
-      setPassword("");
+      await runtime.accounts.beginConnect("animego");
+      setAuthWindowOpened(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось открыть окно AnimeGO.");
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  async function completeAnimeGoWebAuth() {
+    if (!runtime?.accounts.completeConnect) return;
+    setConnecting(true);
+    setError("");
+    try {
+      await runtime.accounts.completeConnect("animego");
+      setAuthWindowOpened(false);
       setListPreview(null);
       await refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Не удалось подключить AnimeGO.");
+      setError(cause instanceof Error ? cause.message : "AnimeGO пока не подтвердил вход.");
     } finally {
       setConnecting(false);
     }
@@ -108,7 +115,7 @@ export function StreamingAccountManagerPanel({
     setError("");
     try {
       await runtime.accounts.disconnect(provider);
-      if (provider === "animego") setListPreview(null);
+      if (provider === "animego") { setListPreview(null); setAuthWindowOpened(false); }
       await refresh();
     } catch {
       setError("Не удалось отключить аккаунт. Проверь состояние подключения и повтори попытку.");
@@ -189,7 +196,9 @@ export function StreamingAccountManagerPanel({
               ? "Авторизация не реализована"
               : connected
                 ? "Подключён"
-                : status?.state === "expired"
+                : authWindowOpened && provider.id === "animego"
+                  ? "Ожидаем вход на сайте"
+                  : status?.state === "expired"
                   ? "Сессия истекла"
                   : status?.state === "error"
                     ? "Ошибка проверки"
@@ -208,43 +217,31 @@ export function StreamingAccountManagerPanel({
                 <p>{provider.description}</p>
                 <small>{connected && status?.accountLabel ? "Аккаунт: " + status.accountLabel : provider.limitation}</small>
 
-                {provider.id === "animego" && runtime?.platform === "web-local" && supported && !connected && (
-                  <form className="native-account-connect-form" onSubmit={(event) => void connectAnimeGo(event)}>
-                    <label>
-                      Логин или email AnimeGO
-                      <input
-                        type="text"
-                        autoComplete="username"
-                        value={username}
-                        onChange={(event) => setUsername(event.target.value)}
-                        maxLength={256}
-                        required
-                      />
-                    </label>
-                    <label>
-                      Пароль
-                      <input
-                        type="password"
-                        autoComplete="current-password"
-                        value={password}
-                        onChange={(event) => setPassword(event.target.value)}
-                        maxLength={1024}
-                        required
-                      />
-                    </label>
-                    <label className="native-account-remember">
-                      <input
-                        type="checkbox"
-                        checked={rememberMe}
-                        onChange={(event) => setRememberMe(event.target.checked)}
-                      />
-                      Запомнить сессию
-                    </label>
-                    <button className="secondary-button" type="submit" disabled={connecting || !username.trim() || !password}>
-                      {connecting ? "Подключаем..." : "Подключить AnimeGO"}
-                    </button>
-                    <small>Пароль передаётся только локальному API и не сохраняется. Сохраняется только сессия сайта.</small>
-                  </form>
+                {provider.id === "animego" && runtime?.platform === "windows-native" && supported && !connected && (
+                  <div className="native-account-connect-form">
+                    {!authWindowOpened ? (
+                      <>
+                        <button className="secondary-button" type="button" onClick={() => void beginAnimeGoWebAuth()} disabled={connecting}>
+                          {connecting ? "Открываем сайт..." : "Войти через сайт AnimeGO"}
+                        </button>
+                        <small>Откроется встроенное окно AnimeGO. Введи данные непосредственно на сайте, приложение не увидит пароль.</small>
+                      </>
+                    ) : (
+                      <>
+                        <p>Заверши вход в открывшемся окне AnimeGO, затем подтверди его здесь.</p>
+                        <button className="secondary-button" type="button" onClick={() => void completeAnimeGoWebAuth()} disabled={connecting}>
+                          {connecting ? "Проверяем сессию..." : "Я вошёл, проверить авторизацию"}
+                        </button>
+                        <button className="secondary-button" type="button" onClick={() => void beginAnimeGoWebAuth()} disabled={connecting}>
+                          Открыть окно входа снова
+                        </button>
+                        <small>Сессия проверяется и сохраняется в Windows Credential Manager. Cookies не передаются в интерфейс.</small>
+                      </>
+                    )}
+                  </div>
+                )}
+                {provider.id === "animego" && runtime?.platform === "web-local" && !connected && (
+                  <small>Вход через встроенное окно доступен в Windows-приложении. Запусти его командой npm run tauri:dev.</small>
                 )}
               </div>
 

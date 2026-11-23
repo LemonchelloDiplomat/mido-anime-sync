@@ -30,6 +30,7 @@
     "targets": ["nsis"],
     "category": "Utility",
     "shortDescription": "Local-first anime library and synchronization",
+    "icon": ["icons/icon.ico"],
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
