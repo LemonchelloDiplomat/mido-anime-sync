@@ -503,3 +503,24 @@ pub async fn animego_auth_status() -> Result<AnimeGoAuthStatus, String> {
 pub async fn animego_auth_disconnect() -> Result<(), String> {
     streaming_secret_remove(ANIMEGO_SESSION_KEY.to_string())
 }
+
+
+#[cfg(test)]
+mod animego_auth_tests {
+    use super::animego_user_from_html;
+
+    #[test]
+    fn recognizes_authenticated_homepage_user_payload() {
+        let html = r#"<html data-user="{&quot;id&quot;:1367030,&quot;username&quot;:&quot;demo-user&quot;}"><body></body></html>"#;
+        assert_eq!(
+            animego_user_from_html(html),
+            Some(("1367030".to_string(), Some("demo-user".to_string())))
+        );
+    }
+
+    #[test]
+    fn rejects_pages_without_authenticated_user_payload() {
+        assert_eq!(animego_user_from_html("<html><body>guest</body></html>"), None);
+        assert_eq!(animego_user_from_html(r#"<html data-user="{&quot;id&quot;:&quot;not-numeric&quot;}"></html>"#), None);
+    }
+}
