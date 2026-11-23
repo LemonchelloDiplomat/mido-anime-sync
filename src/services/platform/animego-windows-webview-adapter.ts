@@ -19,6 +19,7 @@ interface NativeAnimeGoAuthStatus {
 export class AnimeGoWindowsWebViewAdapter implements StreamingAccountAdapter {
   readonly provider = "animego" as const;
   private static readonly SESSION_MARKER = "windows-webview-session:v1";
+  private lastStatus: NativeAnimeGoAuthStatus | null = null;
 
   constructor(private readonly invoke: NativeInvoke) {}
 
@@ -32,6 +33,7 @@ export class AnimeGoWindowsWebViewAdapter implements StreamingAccountAdapter {
 
   async completeConnect(): Promise<StreamingAccountConnectResult> {
     const status = await this.invoke<NativeAnimeGoAuthStatus>("animego_auth_complete");
+    this.lastStatus = status;
     if (!status.connected) throw new Error("AnimeGO не подтвердил авторизацию.");
     return {
       sessionPayload: AnimeGoWindowsWebViewAdapter.SESSION_MARKER,
@@ -42,15 +44,18 @@ export class AnimeGoWindowsWebViewAdapter implements StreamingAccountAdapter {
   async validateSession(sessionPayload: string): Promise<boolean> {
     if (sessionPayload !== AnimeGoWindowsWebViewAdapter.SESSION_MARKER) return false;
     const status = await this.invoke<NativeAnimeGoAuthStatus>("animego_auth_status");
+    this.lastStatus = status;
     return status.connected;
   }
 
   async getSessionInfo(): Promise<{ accountLabel?: string | null }> {
-    const status = await this.invoke<NativeAnimeGoAuthStatus>("animego_auth_status");
+    const status = this.lastStatus ?? await this.invoke<NativeAnimeGoAuthStatus>("animego_auth_status");
+    this.lastStatus = status;
     return { accountLabel: status.accountLabel };
   }
 
   async disconnect(): Promise<void> {
     await this.invoke<void>("animego_auth_disconnect");
+    this.lastStatus = { connected: false, accountLabel: null, state: "disconnected" };
   }
 }
