@@ -22,7 +22,7 @@ export class WebApiStreamingAccountManager implements StreamingAccountManagerPor
   private readonly statuses = new Map<StreamingProviderId, StreamingAccountStatus>();
 
   constructor(
-    private readonly fetcher: typeof fetch = fetch,
+    private readonly fetcher: typeof fetch = globalThis.fetch.bind(globalThis),
     private readonly basePath = "/api/streaming/accounts",
   ) {}
 
