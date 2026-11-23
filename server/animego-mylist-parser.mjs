@@ -53,13 +53,14 @@ function extractDivBlocks(html) {
     const opening = stack.pop();
     if (!opening) continue;
     blocks.push({
+      start: opening.start,
       html: source.slice(opening.start, tokenPattern.lastIndex),
       innerHtml: source.slice(opening.innerStart, token.index),
       openingTag: opening.openingTag,
       classNames: classTokens(opening.openingTag),
     });
   }
-  return blocks.sort((a, b) => a.html.length - b.html.length);
+  return blocks.sort((a, b) => a.start - b.start);
 }
 
 function safeAnimeUrl(value, baseUrl) {
