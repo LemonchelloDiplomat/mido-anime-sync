@@ -372,7 +372,13 @@ fn animego_user_from_html(html: &str) -> Option<(String, Option<String>)> {
         .replace("&#39;", "'")
         .replace("&apos;", "'");
     let value: Value = serde_json::from_str(&decoded).ok()?;
-    let id = value.get("id").or_else(|| value.get("userId"))?.as_u64()?.to_string();
+    let id_value = value.get("id").or_else(|| value.get("userId"))?;
+    let id = id_value.as_str()
+        .map(str::to_string)
+        .or_else(|| id_value.as_u64().map(|value| value.to_string()))?;
+    if id.is_empty() || !id.chars().all(|character| character.is_ascii_digit()) {
+        return None;
+    }
     let label = ["username", "login", "name", "nickname"].iter()
         .find_map(|key| value.get(*key).and_then(Value::as_str))
         .map(|value| value.chars().take(100).collect::<String>());
