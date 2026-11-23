@@ -34,11 +34,11 @@ export const STREAMING_PROVIDER_CAPABILITIES: Record<StreamingProviderId, Stream
   },
   animego: {
     catalogSearch: true, titleDetails: true, seasonsAndEpisodes: true, voiceTracks: true,
-    accountConnection: false, listImport: false, listWrite: false,
+    accountConnection: true, listImport: false, listWrite: false,
     watchProgressRead: true, watchProgressWrite: false,
     limitations: [
       "Подключение использует форму сайта и локальную сессию; это не официальный публичный API. Чтение списка реализуется отдельно от записи статусов и прогресса.",
-      "Импорт списков и обратная запись статусов, прогресса и оценок недоступны без поддерживаемого API.",
+      "Чтение списка и обратная запись статусов, прогресса и оценок подключаются отдельными проверенными этапами после авторизации.",
     ],
   },
   anixart: {
