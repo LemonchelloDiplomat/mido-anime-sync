@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createAndroidStreamingRuntime,
+  createWebStreamingRuntime,
   createWindowsStreamingRuntime,
 } from "../src/services/platform/streaming-runtime.js";
 import type { StreamingAccountAdapter } from "../src/services/streaming-account-manager.js";
@@ -98,5 +99,36 @@ describe("platform streaming runtime composition", () => {
       provider: "animego", url: "https://anixart.site/profile",
     })).rejects.toThrow("provider allowlist");
     expect(http.request).not.toHaveBeenCalled();
+  });
+
+  it("retries local API health checks while the server is starting", async () => {
+    let healthAttempts = 0;
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/health") {
+        healthAttempts += 1;
+        if (healthAttempts === 1) return new Response("starting", { status: 503 });
+        return new Response(JSON.stringify({ ok: true, mode: "local", apiVersion: 1 }), { status: 200 });
+      }
+      const provider = path.includes("/animego/") ? "animego" : "anixart";
+      return new Response(JSON.stringify({
+        provider,
+        adapterAvailable: false,
+        status: {
+          provider,
+          connected: false,
+          connectedAt: null,
+          expiresAt: null,
+          accountLabel: null,
+          state: "unsupported",
+          errorMessage: null,
+        },
+      }), { status: 200 });
+    });
+
+    const runtime = await createWebStreamingRuntime(fetcher, { attempts: 3, delayMs: 0 });
+
+    expect(runtime?.platform).toBe("web-local");
+    expect(healthAttempts).toBe(2);
   });
 });
