@@ -1,8 +1,10 @@
-# Native streaming runtime application bootstrap
+# Streaming runtime application bootstrap
 
 The application entrypoint initializes the streaming runtime before React
 renders. Windows Tauri uses its trusted invoke bridge. Android detects the
-native Capacitor platform and loads the installed plugin modules.
+native Capacitor platform and loads the installed plugin modules. A browser
+build may connect to the existing local Node API and use its server-side
+account manager; it never stores provider secrets in browser storage.
 
 ## Windows
 
@@ -31,10 +33,24 @@ is populated by `npx cap sync android`. The optional Android modules are not
 loaded in a normal browser build.
 
 An explicit `window.__MIDO_STREAMING_ANDROID__` dependency injection bridge
-is still supported for tests and controlled embedding. The bootstrap never
-falls back to localStorage, IndexedDB, or browser fetch. If plugin loading
-fails, the app logs the native initialization error and leaves the local
-library available.
+is still supported for tests and controlled embedding. The native bootstrap never falls back to localStorage or IndexedDB. In a
+normal browser, the bootstrap checks for the trusted local API and composes
+the web runtime only when that API reports local mode. If the API is
+unavailable, the app keeps the local library available without an account
+runtime.
+
+## Browser local API
+
+The browser account manager calls only same-origin local API endpoints for
+non-secret account status. Provider sessions and provider HTTP requests must
+remain on the trusted local server. The current web routes deliberately report
+AnimeGO and Anixart adapters as unsupported; they do not accept passwords,
+cookies, tokens, or arbitrary upstream URLs.
+
+This is local browser support for the desktop/local application, not a
+public multi-user deployment. Public hosting requires authenticated user
+isolation and a separate encrypted per-user secret store. See
+[web-streaming-account-runtime.md](./web-streaming-account-runtime.md).
 
 ## Provider readiness
 
@@ -47,6 +63,6 @@ writes.
 ## Validation
 
 Unit tests cover Tauri detection, explicit Android dependency injection,
-native Android plugin loading, browser no-fallback behavior, and platform
-precedence. Native Windows and Android builds still require platform SDK
+native Android plugin loading, browser local API detection, browser-only
+fallback behavior, and platform precedence. Native Windows and Android builds still require platform SDK
 validation.
