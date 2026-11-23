@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { StreamingProviderId } from "../services/streaming-provider.js";
 import type { StreamingAccountStatus } from "../services/streaming-account-manager.js";
 import type { StreamingRuntime } from "../services/platform/streaming-runtime.js";
