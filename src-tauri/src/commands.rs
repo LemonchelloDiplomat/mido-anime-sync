@@ -352,26 +352,8 @@ fn animego_cookie_header(cookies: &[tauri::webview::Cookie<'static>]) -> Result<
     Ok(header)
 }
 
-fn animego_user_from_html(html: &str) -> Option<(String, Option<String>)> {
-    let tag_start = html.find("<html")?;
-    let tag_end = html[tag_start..].find('>')? + tag_start;
-    let tag = &html[tag_start..tag_end];
-    let attr_start = tag.find("data-user")?;
-    let after_name = &tag[attr_start + "data-user".len()..];
-    let equals = after_name.find('=')?;
-    let after_equals = after_name[equals + 1..].trim_start();
-    let quote = after_equals.chars().next()?;
-    if quote != '"' && quote != '\\'' { return None; }
-    let raw = &after_equals[1..];
-    let end = raw.find(quote)?;
-    let decoded = raw[..end]
-        .replace("&quot;", "\"")
-        .replace("&#34;", "\"")
-        .replace("&#x22;", "\"")
-        .replace("&amp;", "&")
-        .replace("&#39;", "'")
-        .replace("&apos;", "'");
-    let value: Value = serde_json::from_str(&decoded).ok()?;
+fn animego_user_from_json(raw: &str) -> Option<(String, Option<String>)> {
+    let value: Value = serde_json::from_str(raw).ok()?;
     let id_value = value.get("id").or_else(|| value.get("userId"))?;
     let id = id_value.as_str()
         .map(str::to_string)
@@ -385,27 +367,59 @@ fn animego_user_from_html(html: &str) -> Option<(String, Option<String>)> {
     Some((id, label))
 }
 
-async fn animego_verify_cookie_header(cookie_header: &str) -> Result<Option<(String, Option<String>)>, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .redirect(reqwest::redirect::Policy::none())
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36")
-        .build()
-        .map_err(|_| "Не удалось запустить сетевой клиент AnimeGO.".to_string())?;
-    let response = client.get(format!("{ANIMEGO_ORIGIN}/"))
-        .header(reqwest::header::COOKIE, cookie_header)
-        .header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml")
-        .send().await
-        .map_err(|_| "Не удалось проверить сессию AnimeGO. Проверь интернет и доступность сайта.".to_string())?;
-    if !response.status().is_success() {
-        return Ok(None);
+fn animego_user_from_html(html: &str) -> Option<(String, Option<String>)> {
+    let tag_start = html.find("<html")?;
+    let tag_end = html[tag_start..].find('>')? + tag_start;
+    let tag = &html[tag_start..tag_end];
+    let attr_start = tag.find("data-user")?;
+    let after_name = &tag[attr_start + "data-user".len()..];
+    let equals = after_name.find('=')?;
+    let after_equals = after_name[equals + 1..].trim_start();
+    let quote = after_equals.chars().next()?;
+    if quote != '"' && quote != '\'' { return None; }
+    let raw = &after_equals[1..];
+    let end = raw.find(quote)?;
+    let decoded = raw[..end]
+        .replace("&quot;", "\"")
+        .replace("&#34;", "\"")
+        .replace("&#x22;", "\"")
+        .replace("&amp;", "&")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'");
+    animego_user_from_json(&decoded)
+}
+
+async fn animego_user_from_webview(window: &tauri::WebviewWindow) -> Result<(String, Option<String>), String> {
+    let (sender, receiver) = std::sync::mpsc::channel::<String>();
+    window.eval_with_callback(
+        "JSON.stringify({ href: window.location.href, user: document.documentElement?.dataset?.user ?? null })",
+        move |result| { let _ = sender.send(result); },
+    ).map_err(|_| "Не удалось проверить страницу AnimeGO внутри WebView2.".to_string())?;
+
+    let callback_result = tauri::async_runtime::spawn_blocking(move || {
+        receiver.recv_timeout(std::time::Duration::from_secs(5))
+    }).await.map_err(|_| "Не удалось получить результат проверки AnimeGO.".to_string())?
+        .map_err(|_| "Страница AnimeGO не ответила на проверку авторизации.".to_string())?;
+
+    let mut payload: Value = serde_json::from_str(&callback_result)
+        .map_err(|_| "AnimeGO вернул некорректный результат проверки авторизации.".to_string())?;
+    if let Some(serialized) = payload.as_str() {
+        payload = serde_json::from_str(serialized)
+            .map_err(|_| "AnimeGO вернул некорректные данные профиля.".to_string())?;
     }
-    let html = response.text().await
-        .map_err(|_| "Не удалось прочитать ответ AnimeGO.".to_string())?;
-    if html.len() > 2 * 1024 * 1024 {
-        return Err("Ответ AnimeGO превышает допустимый размер.".to_string());
+
+    let page_url = payload.get("href").and_then(Value::as_str)
+        .ok_or_else(|| "Не удалось подтвердить адрес страницы AnimeGO.".to_string())?;
+    let parsed_url = reqwest::Url::parse(page_url)
+        .map_err(|_| "Некорректный адрес страницы AnimeGO.".to_string())?;
+    if parsed_url.scheme() != "https" || parsed_url.host_str() != Some("animego.me") {
+        return Err("Страница авторизации покинула домен AnimeGO.".to_string());
     }
-    Ok(animego_user_from_html(&html))
+
+    let user_json = payload.get("user").and_then(Value::as_str)
+        .ok_or_else(|| "AnimeGO ещё не подтвердил вход. Заверши авторизацию на сайте и повтори проверку.".to_string())?;
+    animego_user_from_json(user_json)
+        .ok_or_else(|| "Не удалось прочитать подтверждённый профиль AnimeGO.".to_string())
 }
 
 #[tauri::command]
@@ -446,10 +460,10 @@ pub async fn animego_auth_complete(app: tauri::AppHandle) -> Result<AnimeGoAuthS
         .map_err(|_| "Некорректный адрес AnimeGO.".to_string())?;
     let cookies = window.cookies_for_url(site_url)
         .map_err(|_| "Не удалось получить защищённую сессию из WebView2.".to_string())?;
-    let cookie_header = animego_cookie_header(&cookies)?;
-    let Some((user_id, account_label)) = animego_verify_cookie_header(&cookie_header).await? else {
-        return Err("AnimeGO ещё не подтвердил вход. Заверши авторизацию на сайте и повтори проверку.".to_string());
-    };
+    let _cookie_header = animego_cookie_header(&cookies)?;
+    // Verify the authenticated first-party page in WebView2 itself. This avoids
+    // a second network client request and keeps the sign-in path inside the site session.
+    let (user_id, account_label) = animego_user_from_webview(&window).await?;
 
     let cookie_pairs = cookies.iter()
         .filter(|cookie| !cookie.name().is_empty())
@@ -487,22 +501,19 @@ pub async fn animego_auth_status() -> Result<AnimeGoAuthStatus, String> {
     };
     let session: AnimeGoStoredSession = serde_json::from_str(&raw)
         .map_err(|_| "Сохранённая сессия AnimeGO повреждена. Подключи аккаунт заново.".to_string())?;
-    let cookie_header = session.cookies.iter()
-        .map(|(name, value)| format!("{name}={value}"))
-        .collect::<Vec<_>>().join("; ");
-    match animego_verify_cookie_header(&cookie_header).await? {
-        Some((user_id, account_label)) if user_id == session.user_id => {
-            Ok(AnimeGoAuthStatus {
-                connected: true,
-                account_label: account_label.or(session.account_label),
-                state: "connected",
-            })
-        }
-        _ => {
-            let _ = streaming_secret_remove(ANIMEGO_SESSION_KEY.to_string());
-            Ok(AnimeGoAuthStatus { connected: false, account_label: None, state: "expired" })
-        }
+    if session.cookies.is_empty() || session.user_id.is_empty() ||
+        !session.user_id.chars().all(|character| character.is_ascii_digit()) {
+        let _ = streaming_secret_remove(ANIMEGO_SESSION_KEY.to_string());
+        return Ok(AnimeGoAuthStatus { connected: false, account_label: None, state: "expired" });
     }
+    // Do not perform a background network probe here: AnimeGO may challenge
+    // non-browser clients. The actual session is verified in WebView2 at login
+    // and will be checked again when the native list adapter makes its request.
+    Ok(AnimeGoAuthStatus {
+        connected: true,
+        account_label: session.account_label,
+        state: "connected",
+    })
 }
 
 #[tauri::command]
