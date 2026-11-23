@@ -410,25 +410,33 @@ async fn animego_user_from_webview(window: &tauri::WebviewWindow) -> Result<(Str
 
 #[tauri::command]
 pub async fn animego_auth_open(app: tauri::AppHandle) -> Result<(), String> {
-    use tauri::{Manager, WebviewUrl};
-    use tauri::webview::WebviewWindowBuilder;
+    #[cfg(desktop)]
+    {
+        use tauri::{Manager, WebviewUrl};
+        use tauri::webview::WebviewWindowBuilder;
 
-    if let Some(window) = app.get_webview_window(ANIMEGO_AUTH_WINDOW) {
-        window.show().map_err(|_| "Не удалось показать окно AnimeGO.".to_string())?;
-        window.set_focus().map_err(|_| "Не удалось активировать окно AnimeGO.".to_string())?;
-        return Ok(());
+        if let Some(window) = app.get_webview_window(ANIMEGO_AUTH_WINDOW) {
+            window.show().map_err(|_| "Не удалось показать окно AnimeGO.".to_string())?;
+            window.set_focus().map_err(|_| "Не удалось активировать окно AnimeGO.".to_string())?;
+            return Ok(());
+        }
+
+        let url = format!("{ANIMEGO_ORIGIN}/login").parse()
+            .map_err(|_| "Некорректный адрес входа AnimeGO.".to_string())?;
+        WebviewWindowBuilder::new(&app, ANIMEGO_AUTH_WINDOW, WebviewUrl::External(url))
+            .title("Вход в AnimeGO")
+            .inner_size(1040.0, 780.0)
+            .min_inner_size(760.0, 560.0)
+            .resizable(true)
+            .build()
+            .map_err(|_| "Не удалось открыть встроенное окно AnimeGO.".to_string())?;
+        Ok(())
     }
-
-    let url = format!("{ANIMEGO_ORIGIN}/login").parse()
-        .map_err(|_| "Некорректный адрес входа AnimeGO.".to_string())?;
-    WebviewWindowBuilder::new(&app, ANIMEGO_AUTH_WINDOW, WebviewUrl::External(url))
-        .title("Вход в AnimeGO")
-        .inner_size(1040.0, 780.0)
-        .min_inner_size(760.0, 560.0)
-        .resizable(true)
-        .build()
-        .map_err(|_| "Не удалось открыть встроенное окно AnimeGO.".to_string())?;
-    Ok(())
+    #[cfg(mobile)]
+    {
+        let _ = app;
+        Err("Встроенная авторизация AnimeGO пока доступна только в Windows-приложении.".to_string())
+    }
 }
 
 #[tauri::command]
@@ -472,6 +480,7 @@ pub async fn animego_auth_complete(app: tauri::AppHandle) -> Result<AnimeGoAuthS
         .map_err(|_| "Не удалось подготовить защищённую сессию AnimeGO.".to_string())?;
     streaming_secret_set(ANIMEGO_SESSION_KEY.to_string(), serialized)?;
 
+    #[cfg(desktop)]
     let _ = window.close();
     Ok(AnimeGoAuthStatus {
         connected: true,
