@@ -31,13 +31,13 @@ function readAttribute(tag, name) {
 }
 
 function readUserFromHtml(html) {
-  const htmlTag = String(html).match(/<html\\b[^>]*>/i)?.[0] ?? "";
+  const htmlTag = String(html).match(/<html\b[^>]*>/i)?.[0] ?? "";
   const raw = readAttribute(htmlTag, "data-user");
   if (!raw) return null;
   try {
     const value = JSON.parse(raw);
     const id = String(value?.id ?? value?.userId ?? "");
-    if (!/^\\d+$/.test(id)) return null;
+    if (!/^\d+$/.test(id)) return null;
     const label = [value?.username, value?.login, value?.name, value?.nickname]
       .find((entry) => typeof entry === "string" && entry.trim());
     return { id, label: label ? String(label).trim().slice(0, 100) : null };
@@ -50,7 +50,7 @@ function responseSetCookies(headers) {
   if (typeof headers?.getSetCookie === "function") return headers.getSetCookie();
   const combined = headers?.get?.("set-cookie");
   if (!combined) return [];
-  return String(combined).split(/,(?=\\s*[^;,=\\s]+=[^;,]*)/g);
+  return String(combined).split(/,(?=\s*[^;,=\s]+=[^;,]*)/g);
 }
 
 function updateCookieJar(jar, headers) {
