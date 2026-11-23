@@ -11,9 +11,9 @@ function createStore() {
   const values = new Map<string, string>();
   return {
     values,
-    async get(key) { return values.get(key) ?? null; },
-    async set(key, value) { values.set(key, value); },
-    async remove(key) { values.delete(key); },
+    async get(key: string) { return values.get(key) ?? null; },
+    async set(key: string, value: string) { values.set(key, value); },
+    async remove(key: string) { values.delete(key); },
   };
 }
 
