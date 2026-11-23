@@ -39,6 +39,11 @@ export class WebApiStreamingAccountManager implements StreamingAccountManagerPor
     return { ...status };
   }
 
+  async connect(_provider: StreamingProviderId, _input: unknown): Promise<StreamingAccountStatus> {
+    // Credentials are intentionally not accepted by this browser facade.
+    throw new Error("Web provider login is not enabled until a verified server-side flow is implemented.");
+  }
+
   async restore(provider: StreamingProviderId): Promise<StreamingAccountStatus> {
     const response = await this.fetcher(
       this.endpoint(provider, "status"),
