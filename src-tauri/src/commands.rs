@@ -525,6 +525,15 @@ mod animego_auth_tests {
     }
 
     #[test]
+    fn accepts_string_account_ids_from_the_page_dataset() {
+        let html = r#"<html data-user="{&quot;id&quot;:&quot;1367030&quot;,&quot;name&quot;:&quot;demo&quot;}"></html>"#;
+        assert_eq!(
+            animego_user_from_html(html),
+            Some(("1367030".to_string(), Some("demo".to_string())))
+        );
+    }
+
+    #[test]
     fn rejects_pages_without_authenticated_user_payload() {
         assert_eq!(animego_user_from_html("<html><body>guest</body></html>"), None);
         assert_eq!(animego_user_from_html(r#"<html data-user="{&quot;id&quot;:&quot;not-numeric&quot;}"></html>"#), None);
