@@ -196,7 +196,9 @@ export function StreamingAccountManagerPanel({
               ? "Авторизация не реализована"
               : connected
                 ? "Подключён"
-                : status?.state === "expired"
+                : authWindowOpened && provider.id === "animego"
+                  ? "Ожидаем вход на сайте"
+                  : status?.state === "expired"
                   ? "Сессия истекла"
                   : status?.state === "error"
                     ? "Ошибка проверки"
@@ -229,6 +231,9 @@ export function StreamingAccountManagerPanel({
                         <p>Заверши вход в открывшемся окне AnimeGO, затем подтверди его здесь.</p>
                         <button className="secondary-button" type="button" onClick={() => void completeAnimeGoWebAuth()} disabled={connecting}>
                           {connecting ? "Проверяем сессию..." : "Я вошёл, проверить авторизацию"}
+                        </button>
+                        <button className="secondary-button" type="button" onClick={() => void beginAnimeGoWebAuth()} disabled={connecting}>
+                          Открыть окно входа снова
                         </button>
                         <small>Сессия проверяется и сохраняется в Windows Credential Manager. Cookies не передаются в интерфейс.</small>
                       </>
