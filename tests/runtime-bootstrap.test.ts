@@ -95,7 +95,7 @@ describe("native streaming runtime bootstrap", () => {
     const runtime = await initializeStreamingRuntimeFromHost({}, loader);
 
     expect(runtime?.platform).toBe("web-local");
-    expect(runtime?.http).toBeNull();
+    expect(runtime?.http).toBeDefined();
     expect(runtime?.accounts.getStatus("animego").state).toBe("unsupported");
     expect(runtime?.accounts.hasAdapter("animego")).toBe(false);
     expect(loader).not.toHaveBeenCalled();
