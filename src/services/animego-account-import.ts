@@ -89,14 +89,14 @@ export function normalizeAnimeGoAccountList(
     const entry: AnimeListEntry = {
       animeId: anime.id,
       status,
-      progress: 0,
+      progress: progressKnown ? raw.episodesWatched! : 0,
       score: scoreKnown ? Math.round(scoreValue! * 10) : null,
       favorite: false,
       updatedAt: now,
       source: "animego",
       sourceMetadata: {
         listType: payload.listType,
-        progressKnown: false,
+        progressKnown,\n        episodesTotal,
         scoreKnown,
         favoriteKnown: false,
       },
