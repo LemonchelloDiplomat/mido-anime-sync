@@ -37,6 +37,36 @@ describe("streaming account manager", () => {
     expect(JSON.stringify(status)).not.toContain("password");
   });
 
+  it("supports two-step native WebView authentication without exposing cookies", async () => {
+    const store = createStore();
+    const manager = new StreamingAccountManager(new StreamingAccountSessionVault(store));
+    let opened = false;
+    const adapter: StreamingAccountAdapter = {
+      provider: "animego",
+      async connect() { throw new Error("password login must not be used"); },
+      async beginConnect() { opened = true; },
+      async completeConnect() {
+        if (!opened) throw new Error("auth window not opened");
+        return { sessionPayload: "native-webview-session:v1", accountLabel: "demo-user" };
+      },
+      async validateSession() { return opened; },
+      async getSessionInfo() { return { accountLabel: "demo-user" }; },
+      async disconnect() { opened = false; },
+    };
+    manager.register(adapter);
+
+    await manager.beginConnect("animego");
+    expect(manager.getStatus("animego").state).toBe("connecting");
+    const status = await manager.completeConnect("animego");
+
+    expect(status).toMatchObject({ connected: true, state: "connected", accountLabel: "demo-user" });
+    expect(JSON.stringify(status)).not.toContain("native-webview-session");
+    expect([...store.values()]).toContain("native-webview-session:v1");
+
+    const restored = await manager.restore("animego");
+    expect(restored).toMatchObject({ connected: true, accountLabel: "demo-user" });
+  });
+
   it("clears expired sessions during restore", async () => {
     const store = createStore();
     const vault = new StreamingAccountSessionVault(store);
