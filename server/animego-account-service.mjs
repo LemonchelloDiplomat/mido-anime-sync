@@ -193,7 +193,7 @@ function statusFromAccount(account) {
 }
 
 async function validateAccount(fetcher, account) {
-  if (!account?.cookies || !/^\\d+$/.test(String(account.userId ?? ""))) return null;
+  if (!account?.cookies || !/^\d+$/.test(String(account.userId ?? ""))) return null;
   const jar = new Map(account.cookies);
   const home = await upstreamRequest(fetcher, jar, "/");
   if (!home.ok) return null;
