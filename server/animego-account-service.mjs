@@ -250,7 +250,7 @@ export async function connectAnimeGoAccount(input, { readTokens, writeTokens, fe
     [form.passwordField]: password,
     [form.csrfField]: form.csrfToken,
   });
-  if (rememberMe && form.rememberMeField) payload.set(form.rememberMeField, "1");
+  if (rememberMe && form.rememberMeField) payload.set(form.rememberMeField, form.rememberMeValue || "on");
 
   const loginResponse = await upstreamRequest(fetcher, jar, form.action, {
     method: "POST",
