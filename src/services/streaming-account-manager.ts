@@ -12,6 +12,14 @@ export interface StreamingAccountStatus extends StreamingAccountSessionInfo {
   errorMessage: string | null;
 }
 
+/** Shared UI-facing account lifecycle contract implemented by native and web runtimes. */
+export interface StreamingAccountManagerPort {
+  hasAdapter(provider: StreamingProviderId): boolean;
+  getStatus(provider: StreamingProviderId): StreamingAccountStatus;
+  restore(provider: StreamingProviderId): Promise<StreamingAccountStatus>;
+  disconnect(provider: StreamingProviderId): Promise<void>;
+}
+
 export interface StreamingAccountConnectResult {
   /** Opaque session payload. Never expose this value to UI or library storage. */
   sessionPayload: string;
