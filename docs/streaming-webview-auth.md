@@ -12,7 +12,7 @@ After the user returns to the main app and selects **I signed in, verify**, the 
 4. Stores the cookie pairs in Windows Credential Manager using the existing chunked secret vault.
 5. Closes the auth window and returns only the non-secret account label to the renderer.
 
-Cookies are never returned to React, the local Node API, IndexedDB, or the anime library. The generic account vault stores only a non-secret marker for the Windows-managed session. Native status checks validate the actual cookie session inside Rust.
+Cookies are never returned to React, the local Node API, IndexedDB, or the anime library. The generic account vault stores only a non-secret marker under the normal provider key. The actual cookie session is stored under a separate Windows Credential Manager key, so writing the marker cannot overwrite the cookies. Native status checks validate the actual cookie session inside Rust.
 
 ## Current scope and limitations
 
