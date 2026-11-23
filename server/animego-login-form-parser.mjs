@@ -11,9 +11,8 @@ function decodeHtmlAttribute(value) {
 }
 
 function readAttribute(tag, name) {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = String(tag).match(new RegExp(
-    "\\\\b" + escaped + "\\\\s*=\\\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\\\s>]+))",
+    "\\b" + name + "\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s>]+))",
     "i",
   ));
   return match ? decodeHtmlAttribute(match[1] ?? match[2] ?? match[3] ?? "") : "";
@@ -21,7 +20,7 @@ function readAttribute(tag, name) {
 
 function parseFormInputs(formHtml) {
   const inputs = [];
-  for (const match of String(formHtml).matchAll(/<input\\b[^>]*>/gi)) {
+  for (const match of String(formHtml).matchAll(/<input\b[^>]*>/gi)) {
     const tag = match[0];
     const name = readAttribute(tag, "name");
     if (!name) continue;
@@ -35,11 +34,11 @@ function parseFormInputs(formHtml) {
 }
 
 /**
- * Extracts only the first-party AnimeGO login form contract from a GET /login
+ * Extracts the first-party AnimeGO login form contract from a GET /login
  * HTML response. The returned csrfToken is secret material and must remain
  * server-side: never log it or return it to the browser.
  *
- * This function does not submit credentials or make network requests.
+ * This parser performs no network requests and never handles credentials.
  */
 export function parseAnimeGoLoginForm(html, options = {}) {
   const source = String(html ?? "");
@@ -57,8 +56,8 @@ export function parseAnimeGoLoginForm(html, options = {}) {
     throw new Error("AnimeGO login parser only accepts animego.me pages.");
   }
 
-  for (const match of source.matchAll(/<form\\b[^>]*>[\\s\\S]*?<\\/form\\s*>/gi)) {
-    const openingTag = match[0].match(/^<form\\b[^>]*>/i)?.[0] ?? "";
+  for (const match of source.matchAll(/<form\b[^>]*>[\s\S]*?<\/form\s*>/gi)) {
+    const openingTag = match[0].match(/^<form\b[^>]*>/i)?.[0] ?? "";
     const method = (readAttribute(openingTag, "method") || "GET").toUpperCase();
     if (method !== "POST") continue;
 
