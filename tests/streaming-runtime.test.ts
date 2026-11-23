@@ -31,11 +31,16 @@ describe("platform streaming runtime composition", () => {
       if (command === "streaming_http_request") {
         return { status: 200, headers: {}, data: { ok: true }, url: String((args?.request as { url: string }).url) };
       }
+      if (command === "animego_auth_open" || command === "animego_auth_disconnect") return undefined;
+      if (command === "animego_auth_complete" || command === "animego_auth_status") {
+        return { connected: true, accountLabel: "animego-user", state: "connected" };
+      }
       throw new Error(`Unexpected command: ${command}`);
     }) as NativeInvoke;
     const runtime = createWindowsStreamingRuntime(invoke, [accountAdapter("anixart")]);
 
     expect(runtime.platform).toBe("windows-native");
+    expect(runtime.accounts.hasAdapter("animego")).toBe(true);
     const status = await runtime.accounts.connect("anixart", {});
     expect(status).toMatchObject({ connected: true, state: "connected", accountLabel: "demo" });
     expect(JSON.stringify(status)).not.toContain("opaque-anixart");
@@ -48,6 +53,28 @@ describe("platform streaming runtime composition", () => {
       request: expect.objectContaining({ provider: "anixart", url: "https://anixart.site/api/profile" }),
     }));
     expect(runtime.requests).toBeDefined();
+  });
+
+  it("uses the native AnimeGO WebView2 window and never sends credentials from the renderer", async () => {
+    const invoke = vi.fn(async (command: string) => {
+      if (command === "animego_auth_open" || command === "animego_auth_disconnect") return undefined;
+      if (command === "animego_auth_complete" || command === "animego_auth_status") {
+        return { connected: true, accountLabel: "animego-user", state: "connected" };
+      }
+      if (command === "streaming_secret_set" || command === "streaming_secret_remove") return undefined;
+      if (command === "streaming_secret_get") return "windows-webview-session:v1";
+      throw new Error("Unexpected command: " + command);
+    }) as NativeInvoke;
+    const runtime = createWindowsStreamingRuntime(invoke);
+
+    expect(runtime.accounts.hasAdapter("animego")).toBe(true);
+    await runtime.accounts.beginConnect!("animego");
+    expect(invoke).toHaveBeenCalledWith("animego_auth_open", undefined);
+
+    const status = await runtime.accounts.completeConnect!("animego");
+    expect(status).toMatchObject({ connected: true, accountLabel: "animego-user" });
+    expect(invoke).toHaveBeenCalledWith("animego_auth_complete", undefined);
+    expect(JSON.stringify(status)).not.toContain("cookie");
   });
 
   it("composes Android Keystore and Capacitor native HTTP without web storage", async () => {
@@ -80,9 +107,9 @@ describe("platform streaming runtime composition", () => {
   it("allows verified account adapters to be registered after initialization", async () => {
     const invoke = vi.fn(async () => null) as NativeInvoke;
     const runtime = createWindowsStreamingRuntime(invoke);
-    runtime.registerAccountAdapter(accountAdapter("animego"));
+    runtime.registerAccountAdapter(accountAdapter("anixart"));
 
-    const status = await runtime.accounts.connect("animego", {});
+    const status = await runtime.accounts.connect("anixart", {});
     expect(status.state).toBe("connected");
   });
 
