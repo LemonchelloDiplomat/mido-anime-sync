@@ -5,7 +5,6 @@ import {
 } from "../src/services/streaming-account-manager.js";
 import {
   StreamingAccountSessionVault,
-  type StreamingSecureSecretStore,
 } from "../src/services/streaming-account-session.js";
 
 function createStore() {
