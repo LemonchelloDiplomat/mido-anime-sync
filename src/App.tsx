@@ -31,6 +31,7 @@ import { StreamingCatalogPanel } from "./components/StreamingCatalogPanel.js";
 import { StreamingTrackerPanel } from "./components/StreamingTrackerPanel.js";
 import { StreamingAccountManagerPanel } from "./components/StreamingAccountManagerPanel.js";
 import type { StreamingRuntime } from "./services/platform/streaming-runtime.js";
+import { initializeStreamingRuntimeFromHost } from "./services/platform/runtime-bootstrap.js";
 import { reconcileStreamingAccountSnapshot } from "./services/streaming-account-import.js";
 import { normalizeAnimeGoAccountList, type AnimeGoAccountListPayload } from "./services/animego-account-import.js";
 import { parseAnixartBookmarkExport } from "./services/anixart-export-import.js";
@@ -151,6 +152,28 @@ function AnimeCover({ url, score }: { url?: string | null; score?: number | null
 }
 
 function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }) {
+  const [activeStreamingRuntime, setActiveStreamingRuntime] = useState(streamingRuntime);
+  const [runtimeRefreshing, setRuntimeRefreshing] = useState(false);
+  const [runtimeRefreshError, setRuntimeRefreshError] = useState("");
+
+  async function retryStreamingRuntime() {
+    if (runtimeRefreshing || activeStreamingRuntime) return;
+    setRuntimeRefreshing(true);
+    setRuntimeRefreshError("");
+    try {
+      const nextRuntime = await initializeStreamingRuntimeFromHost();
+      setActiveStreamingRuntime(nextRuntime);
+      if (!nextRuntime) {
+        setRuntimeRefreshError("API отвечает, но приложение не смогло создать веб-сеанс. Повтори проверку или перезапусти приложение.");
+      }
+    } catch (runtimeError) {
+      setRuntimeRefreshError(runtimeError instanceof Error
+        ? runtimeError.message
+        : "Не удалось повторно подключить локальный API.");
+    } finally {
+      setRuntimeRefreshing(false);
+    }
+  }
   const [repository, setRepository] = useState<BrowserAnimeRepository | null>(
     null,
   );
@@ -2444,7 +2467,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                   </article>
                 );
               })}
-              <StreamingAccountManagerPanel runtime={streamingRuntime} />
+              <StreamingAccountManagerPanel runtime={activeStreamingRuntime} onRetryRuntime={retryStreamingRuntime} runtimeRefreshing={runtimeRefreshing} runtimeRefreshError={runtimeRefreshError} />
               <StreamingTrackerPanel
                 items={library}
                 onImportAnixart={prepareAnixartExportImport}
