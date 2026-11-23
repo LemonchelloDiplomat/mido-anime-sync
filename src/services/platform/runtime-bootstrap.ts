@@ -62,8 +62,9 @@ export function createStreamingRuntimeFromHost(
  *
  * Tauri is composed synchronously. Capacitor Android loads the actual
  * installed plugin modules only after confirming a native Android host.
- * This keeps ordinary browser builds free of platform package dependencies
- * and never substitutes localStorage, IndexedDB, or browser fetch.
+ * This keeps native packages out of ordinary browser builds. Browser mode
+ * uses only the same-origin local API; it never stores provider secrets or
+ * sends provider requests directly from renderer JavaScript.
  */
 export async function initializeStreamingRuntimeFromHost(
   host: StreamingRuntimeHost | null = getHostWindow(),
