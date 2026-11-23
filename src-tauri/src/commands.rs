@@ -316,7 +316,7 @@ pub async fn streaming_http_request(request: NativeHttpRequest) -> Result<Native
 }
 
 
-const ANIMEGO_SESSION_KEY: &str = "mido-anime-sync:streaming-session:v1:animego";
+const ANIMEGO_SESSION_KEY: &str = "mido-anime-sync:streaming-session:v1:animego:webview";
 const ANIMEGO_AUTH_WINDOW: &str = "animego-auth";
 const ANIMEGO_ORIGIN: &str = "https://animego.me";
 
