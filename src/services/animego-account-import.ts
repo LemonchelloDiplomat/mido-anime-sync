@@ -7,6 +7,8 @@ export interface AnimeGoAccountRawEntry {
   posterUrl?: string | null;
   score?: number | string | null;
   href?: string | null;
+  episodesWatched?: number | null;
+  episodesTotal?: number | null;
 }
 
 export interface AnimeGoAccountListPayload {
@@ -80,6 +82,11 @@ export function normalizeAnimeGoAccountList(
     const posterUrl = typeof raw.posterUrl === "string" && /^https:\/\//i.test(raw.posterUrl)
       ? raw.posterUrl.slice(0, 2048)
       : null;
+    const progressKnown = typeof raw.episodesWatched === "number" &&
+      Number.isSafeInteger(raw.episodesWatched) && raw.episodesWatched >= 0;
+    const episodesTotal = typeof raw.episodesTotal === "number" &&
+      Number.isSafeInteger(raw.episodesTotal) && raw.episodesTotal >= 0
+      ? raw.episodesTotal : null;
     const anime: AnimeIdentity = {
       id: "animego:" + animeId,
       titles: { romaji: title, synonyms: originalTitle && originalTitle !== title ? [originalTitle] : [] },
