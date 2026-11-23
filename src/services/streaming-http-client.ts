@@ -23,7 +23,7 @@ export interface StreamingHttpResponse<T = unknown> {
 }
 
 export interface StreamingHttpTransport {
-  readonly platform: "capacitor-android" | "windows-native";
+  readonly platform: "capacitor-android" | "windows-native" | "web-local";
   request<T = unknown>(request: StreamingHttpRequest): Promise<StreamingHttpResponse<T>>;
 }
 
