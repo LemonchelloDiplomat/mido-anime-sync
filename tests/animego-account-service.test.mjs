@@ -75,7 +75,7 @@ describe("AnimeGO account service", () => {
     expect(saved.streamingAccounts.animego.userId).toBe("1367030");
     expect(saved.streamingAccounts.animego.cookies).toContainEqual(["animego_session", "session-value"]);
     expect(JSON.stringify(saved)).not.toContain("secret-pass");
-    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
   it("does not save a session when the account page does not confirm login", async () => {
