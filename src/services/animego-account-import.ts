@@ -103,7 +103,8 @@ export function normalizeAnimeGoAccountList(
       source: "animego",
       sourceMetadata: {
         listType: payload.listType,
-        progressKnown,\n        episodesTotal,
+        progressKnown,
+        episodesTotal,
         scoreKnown,
         favoriteKnown: false,
       },
