@@ -72,31 +72,47 @@ export function createAndroidStreamingRuntime(
  * adapters will own sessions and provider HTTP on that trusted server;
  * browser storage and renderer-side provider requests are deliberately unused.
  */
+export interface WebStreamingRuntimeRetryOptions {
+  /** Number of health checks, including the first attempt. */
+  attempts?: number;
+  /** Delay between failed health checks. */
+  delayMs?: number;
+}
+
 export async function createWebStreamingRuntime(
   fetcher: typeof fetch = fetch,
+  retryOptions: WebStreamingRuntimeRetryOptions = {},
 ): Promise<StreamingRuntime | null> {
-  let health: Response;
-  try {
-    health = await fetcher("/api/health", {
-      method: "GET",
-      credentials: "same-origin",
-      cache: "no-store",
-    });
-  } catch {
-    return null;
-  }
-  if (!health.ok) return null;
+  const attempts = Math.max(1, Math.floor(retryOptions.attempts ?? 8));
+  const delayMs = Math.max(0, retryOptions.delayMs ?? 250);
+  let isHealthy = false;
 
-  let healthPayload: unknown;
-  try {
-    healthPayload = await health.json();
-  } catch {
-    return null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const health = await fetcher("/api/health", {
+        method: "GET",
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      if (health.ok) {
+        const healthPayload: unknown = await health.json();
+        isHealthy = Boolean(
+          healthPayload &&
+          typeof healthPayload === "object" &&
+          (healthPayload as { mode?: unknown }).mode === "local",
+        );
+      }
+    } catch {
+      // The local API may still be starting or briefly restarting.
+    }
+
+    if (isHealthy) break;
+    if (attempt + 1 < attempts && delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
   }
-  if (!healthPayload || typeof healthPayload !== "object" ||
-      (healthPayload as { mode?: unknown }).mode !== "local") {
-    return null;
-  }
+
+  if (!isHealthy) return null;
 
   const accounts = new WebApiStreamingAccountManager(fetcher);
   await accounts.initialize();
