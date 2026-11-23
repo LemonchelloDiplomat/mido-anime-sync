@@ -38,6 +38,7 @@ describe("AnimeGO account-list import", () => {
       ],
     }, "2026-11-23T12:00:00.000Z");
 
+    expect(result.rows[0]?.anime.episodes).toBe(12);
     expect(result.rows[0]?.entry).toMatchObject({
       progress: 7,
       sourceMetadata: { progressKnown: true, episodesTotal: 12 },
