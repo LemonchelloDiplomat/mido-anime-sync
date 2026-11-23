@@ -27,9 +27,17 @@ const PROVIDERS: ProviderCard[] = [
 
 interface Props {
   runtime: StreamingRuntime | null;
+  onRetryRuntime?: () => void | Promise<void>;
+  runtimeRefreshing?: boolean;
+  runtimeRefreshError?: string;
 }
 
-export function StreamingAccountManagerPanel({ runtime }: Props) {
+export function StreamingAccountManagerPanel({
+  runtime,
+  onRetryRuntime,
+  runtimeRefreshing = false,
+  runtimeRefreshError = "",
+}: Props) {
   const [statuses, setStatuses] = useState<Partial<Record<StreamingProviderId, StreamingAccountStatus>>>({});
   const [loading, setLoading] = useState(false);
   const [disconnecting, setDisconnecting] = useState<StreamingProviderId | null>(null);
@@ -80,12 +88,17 @@ export function StreamingAccountManagerPanel({ runtime }: Props) {
     <section className="native-account-manager">
       <div className="section-heading">
         <div>
-          <div className="eyebrow">NATIVE ACCOUNT MANAGER</div>
+          <div className="eyebrow">STREAMING ACCOUNT MANAGER</div>
           <h2>Аккаунты AnimeGO и Anixart</h2>
           <p>Сессии хранятся отдельно от локальной библиотеки и не попадают в экспорт данных.</p>
         </div>
-        <button className="secondary-button" type="button" onClick={() => void refresh()} disabled={!runtime || loading}>
-          {loading ? "Проверяем..." : "Обновить"}
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={() => runtime ? void refresh() : void onRetryRuntime?.()}
+          disabled={loading || runtimeRefreshing}
+        >
+          {loading || runtimeRefreshing ? "Проверяем..." : "Обновить"}
         </button>
       </div>
 
@@ -93,9 +106,11 @@ export function StreamingAccountManagerPanel({ runtime }: Props) {
         <span className={"native-account-runtime-dot" + (runtime ? " is-ready" : "")} />
         {runtime
           ? runtime.platform === "windows-native"
-            ? "Нативное хранилище Windows Credential Manager подключено."
-            : "Нативное хранилище Android Keystore подключено."
-          : "Браузерный режим: аккаунты не подключаются, секреты в браузере не сохраняются."}
+            ? "Windows Credential Manager подключён. Секреты хранятся в системном хранилище."
+            : runtime.platform === "capacitor-android"
+              ? "Android Keystore подключён. Секреты хранятся в системном хранилище."
+              : "Веб-режим: локальный API доступен. Будущие веб-аккаунты будут обслуживаться сервером, секреты в браузере не сохраняются."
+          : runtimeRefreshError || "Локальный API недоступен. В браузере аккаунты не подключаются, секреты не сохраняются."}
       </div>
 
       {error && <div className="error-message" role="alert">{error}</div>}

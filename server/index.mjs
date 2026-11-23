@@ -7,6 +7,7 @@ import { handleMalDelete } from "./mal-delete-route.mjs";
 import { handleYummyAnimeRequest } from "./yummyanime-routes.mjs";
 import { handleAnimeGoRequest } from "./animego-routes.mjs";
 import { handleAnixArtRequest } from "./anixart-routes.mjs";
+import { handleStreamingAccountRequest } from "./streaming-account-routes.mjs";
 import { fetchAniListAnimeList } from "./anilist-list.mjs";
 import { fetchShikimoriAnimeRates, getShikimoriIdentityCoverage } from "./shikimori-enrichment.mjs";
 
@@ -320,6 +321,11 @@ async function anilistRequest(query, variables, token) {
 async function handleRequest(request, response) {
   const url = new URL(request.url || "/", "http://" + (request.headers.host || "127.0.0.1"));
   const method = request.method || "GET";
+
+  if (url.pathname.startsWith("/api/streaming/accounts/")) {
+    const handled = await handleStreamingAccountRequest(request, response, url, { sendJson });
+    if (handled) return;
+  }
 
   if (url.pathname.startsWith("/api/yummyanime/")) {
     return handleYummyAnimeRequest(request, response, url, { sendJson, readJson, readTokens, writeTokens });

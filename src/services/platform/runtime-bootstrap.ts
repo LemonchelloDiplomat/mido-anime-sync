@@ -1,6 +1,7 @@
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
 import {
   createAndroidStreamingRuntime,
+  createWebStreamingRuntime,
   createWindowsStreamingRuntime,
   type AndroidStreamingRuntimeDependencies,
   type StreamingRuntime,
@@ -61,8 +62,9 @@ export function createStreamingRuntimeFromHost(
  *
  * Tauri is composed synchronously. Capacitor Android loads the actual
  * installed plugin modules only after confirming a native Android host.
- * This keeps ordinary browser builds free of platform package dependencies
- * and never substitutes localStorage, IndexedDB, or browser fetch.
+ * This keeps native packages out of ordinary browser builds. Browser mode
+ * uses only the same-origin local API; it never stores provider secrets or
+ * sends provider requests directly from renderer JavaScript.
  */
 export async function initializeStreamingRuntimeFromHost(
   host: StreamingRuntimeHost | null = getHostWindow(),
@@ -78,12 +80,14 @@ export async function initializeStreamingRuntimeFromHost(
   }
 
   const capacitor = host.Capacitor ?? Capacitor;
-  if (!capacitor?.isNativePlatform() || capacitor.getPlatform() !== "android") {
-    return null;
+  if (capacitor?.isNativePlatform() && capacitor.getPlatform() === "android") {
+    const modules = await loadAndroidModules();
+    return createAndroidStreamingRuntime(modules);
   }
 
-  const modules = await loadAndroidModules();
-  return createAndroidStreamingRuntime(modules);
+  // Ordinary browser builds remain local-only. If the trusted local API is
+  // not available, keep the previous browser-only behavior and no secret store.
+  return createWebStreamingRuntime();
 }
 
 async function loadCapacitorAndroidModules(): Promise<CapacitorAndroidModules> {
