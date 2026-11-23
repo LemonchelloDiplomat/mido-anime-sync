@@ -2387,3 +2387,108 @@ button:disabled {
     width: 100%;
   }
 }
+
+.native-account-connect-form {
+  display: grid;
+  gap: 10px;
+  max-width: 460px;
+  margin-top: 14px;
+}
+.native-account-connect-form > label:not(.native-account-remember) {
+  display: grid;
+  gap: 5px;
+  color: #c7c3d2;
+  font-size: 12px;
+}
+.native-account-connect-form input:not([type="checkbox"]) {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid #403b50;
+  border-radius: 8px;
+  background: #12111a;
+  color: #f4f1fb;
+  font: inherit;
+}
+.native-account-connect-form input:focus {
+  outline: 2px solid #8c73d8;
+  outline-offset: 1px;
+}
+.native-account-connect-form .native-account-remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #aaa8ba;
+  font-size: 12px;
+}
+.native-account-connect-form .native-account-remember input {
+  accent-color: #8c73d8;
+}
+.native-account-connect-form > small {
+  color: #8f8c9e;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.native-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.native-account-list-preview {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid #373245;
+  border-radius: 12px;
+  background: #191722;
+}
+.native-account-list-preview h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+.native-account-list-preview p {
+  margin: 0 0 10px;
+  color: #c7c3d2;
+  font-size: 12px;
+}
+.native-account-list-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 10px;
+}
+.native-account-list-counts span {
+  padding: 4px 8px;
+  border-radius: 7px;
+  background: #262332;
+  color: #c7c3d2;
+  font-size: 11px;
+}
+.native-account-list-preview ul {
+  display: grid;
+  gap: 7px;
+  margin: 0 0 12px;
+  padding-left: 18px;
+}
+.native-account-list-preview li {
+  color: #e5e1ef;
+  font-size: 12px;
+}
+.native-account-list-preview li small {
+  display: block;
+  color: #8f8c9e;
+  font-size: 10px;
+}
+.native-account-list-preview > small {
+  display: block;
+  margin-bottom: 10px;
+  color: #8f8c9e;
+  font-size: 11px;
+}
+@media (max-width: 700px) {
+  .native-account-actions {
+    width: 100%;
+  }
+  .native-account-actions button {
+    flex: 1;
+  }
+}
