@@ -8,7 +8,7 @@ import {
   type StreamingSecureSecretStore,
 } from "../src/services/streaming-account-session.js";
 
-function createStore(): StreamingSecureSecretStore {
+function createStore() {
   const values = new Map<string, string>();
   return {
     values,
