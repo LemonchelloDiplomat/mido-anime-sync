@@ -12,10 +12,33 @@ interface WebAccountStatusResponse {
   status: StreamingAccountStatus;
 }
 
+export interface AnimeGoAccountListResponse {
+  provider: "animego";
+  account: { userId: string; accountLabel: string | null };
+  fetchedAt: string;
+  lists: Array<{ listType: number; pageCount: number; itemCount: number }>;
+  total: number;
+  items: Array<{
+    provider: "animego";
+    listEntryId: string;
+    animeId: string | null;
+    animeSlug: string;
+    url: string;
+    title: string;
+    alternativeTitle: string | null;
+    posterUrl: string | null;
+    listType: number;
+    releaseStatus: string | null;
+    episodesWatched: number | null;
+    episodesTotal: number | null;
+    progressText: string | null;
+  }>;
+}
+
 /**
- * Browser facade for the local Node API. Provider secrets never cross this
- * boundary: the browser receives status metadata only. Authentication and
- * provider requests must be implemented by server-side adapters.
+ * Browser facade for the local Node API. Credentials are sent only to the
+ * loopback API over same-origin JSON; upstream requests and cookies stay on
+ * the server and are never exposed to renderer JavaScript.
  */
 export class WebApiStreamingAccountManager implements StreamingAccountManagerPort {
   private readonly adapterAvailability = new Map<StreamingProviderId, boolean>();
@@ -39,9 +62,20 @@ export class WebApiStreamingAccountManager implements StreamingAccountManagerPor
     return { ...status };
   }
 
-  async connect(_provider: StreamingProviderId, _input: unknown): Promise<StreamingAccountStatus> {
-    // Credentials are intentionally not accepted by this browser facade.
-    throw new Error("Web provider login is not enabled until a verified server-side flow is implemented.");
+  async connect(provider: StreamingProviderId, input: unknown): Promise<StreamingAccountStatus> {
+    if (provider !== "animego") {
+      throw new Error("Авторизация этого провайдера не реализована.");
+    }
+    const response = await this.fetcher(this.endpoint(provider, "connect"), {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input ?? {}),
+    });
+    const payload = await readResponse(response);
+    this.applyResponse(provider, payload);
+    return this.getStatus(provider);
   }
 
   async restore(provider: StreamingProviderId): Promise<StreamingAccountStatus> {
@@ -69,7 +103,27 @@ export class WebApiStreamingAccountManager implements StreamingAccountManagerPor
     this.applyResponse(provider, payload);
   }
 
-  private endpoint(provider: StreamingProviderId, action: "status" | "disconnect"): string {
+  async fetchList(provider: StreamingProviderId): Promise<AnimeGoAccountListResponse> {
+    if (provider !== "animego") throw new Error("Импорт списка этого провайдера не реализован.");
+    const response = await this.fetcher(this.endpoint(provider, "list"), {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    const payload = await readResponse(response);
+    if (!payload || typeof payload !== "object" ||
+        (payload as { provider?: unknown }).provider !== "animego" ||
+        !Array.isArray((payload as { items?: unknown }).items) ||
+        typeof (payload as { total?: unknown }).total !== "number") {
+      throw new Error("Локальный API вернул некорректный список AnimeGO.");
+    }
+    return payload as AnimeGoAccountListResponse;
+  }
+
+  private endpoint(
+    provider: StreamingProviderId,
+    action: "status" | "connect" | "disconnect" | "list",
+  ): string {
     if (!PROVIDERS.includes(provider)) throw new Error("Unsupported streaming account provider.");
     return `${this.basePath}/${provider}/${action}`;
   }
@@ -88,7 +142,7 @@ export class WebApiStreamingAccountManager implements StreamingAccountManagerPor
   }
 }
 
-async function readResponse(response: Response): Promise<unknown> {
+async function readResponse(response: Response): Promise<any> {
   let payload: unknown;
   try {
     payload = await response.json();
