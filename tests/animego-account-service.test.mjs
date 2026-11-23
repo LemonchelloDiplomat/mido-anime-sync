@@ -78,6 +78,23 @@ describe("AnimeGO account service", () => {
     expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
+  it("reports a safe, actionable message when the AnimeGO network request fails", async () => {
+    const store = createStore();
+    const fetcher = vi.fn(async () => {
+      const error = new TypeError("fetch failed");
+      error.cause = { code: "ECONNRESET" };
+      throw error;
+    });
+
+    await expect(connectAnimeGoAccount({
+      username: "private-user",
+      password: "private-password",
+    }, { ...store, fetcher })).rejects.toThrow(
+      "Не удалось связаться с AnimeGO (GET animego.me). Соединение было сброшено или отклонено. Код: ECONNRESET.",
+    );
+    expect(store.writeTokens).not.toHaveBeenCalled();
+  });
+
   it("does not save a session when the account page does not confirm login", async () => {
     const store = createStore();
     const fetcher = vi.fn(async (url, options) => {
