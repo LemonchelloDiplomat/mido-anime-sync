@@ -27,6 +27,27 @@ describe("AnimeGO account-list import", () => {
     });
   });
 
+
+  it("imports episode progress only when AnimeGO explicitly provides it", () => {
+    const result = normalizeAnimeGoAccountList({
+      listType: 1,
+      sourceUrl: "https://animego.me/profile/test?type=1",
+      entries: [
+        { animeId: "321", title: "Known progress", episodesWatched: 7, episodesTotal: 12 },
+        { animeId: "654", title: "Unknown progress", episodesWatched: null, episodesTotal: 24 },
+      ],
+    }, "2026-11-23T12:00:00.000Z");
+
+    expect(result.rows[0]?.entry).toMatchObject({
+      progress: 7,
+      sourceMetadata: { progressKnown: true, episodesTotal: 12 },
+    });
+    expect(result.rows[1]?.entry).toMatchObject({
+      progress: 0,
+      sourceMetadata: { progressKnown: false, episodesTotal: 24 },
+    });
+  });
+
   it("skips malformed and duplicate rows rather than inventing identities", () => {
     const result = normalizeAnimeGoAccountList({
       listType: 5,
