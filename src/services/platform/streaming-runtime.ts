@@ -1,6 +1,7 @@
 import {
   StreamingAccountManager,
   type StreamingAccountAdapter,
+  type StreamingAccountManagerPort,
 } from "../streaming-account-manager.js";
 import { StreamingAccountSessionVault } from "../streaming-account-session.js";
 import {
@@ -8,6 +9,7 @@ import {
   type StreamingHttpTransport,
 } from "../streaming-http-client.js";
 import { StreamingRequestQueue } from "../streaming-request-queue.js";
+import { WebApiStreamingAccountManager } from "./web-streaming-account-manager.js";
 import {
   CapacitorAndroidSecureSecretStore,
   CapacitorAndroidStreamingHttpTransport,
@@ -19,11 +21,12 @@ import {
 } from "./native-platform-adapters.js";
 
 export interface StreamingRuntime {
-  readonly platform: "windows-native" | "capacitor-android";
-  readonly accounts: StreamingAccountManager;
-  readonly http: StreamingHttpClient;
+  readonly platform: "windows-native" | "capacitor-android" | "web-local";
+  readonly accounts: StreamingAccountManagerPort;
+  /** Web provider requests are executed by server-side adapters, never renderer fetch. */
+  readonly http: StreamingHttpClient | null;
   readonly requests: StreamingRequestQueue;
-  /** Register a verified provider adapter after runtime construction. */
+  /** Native runtimes register trusted in-process adapters; web adapters live on the server. */
   registerAccountAdapter(adapter: StreamingAccountAdapter): void;
 }
 
@@ -35,7 +38,7 @@ export function createWindowsStreamingRuntime(
   invoke: NativeInvoke,
   accountAdapters: readonly StreamingAccountAdapter[] = [],
 ): StreamingRuntime {
-  return createStreamingRuntime(
+  return createNativeStreamingRuntime(
     "windows-native",
     new TauriWindowsSecureSecretStore(invoke),
     new TauriWindowsStreamingHttpTransport(invoke),
@@ -56,7 +59,7 @@ export function createAndroidStreamingRuntime(
   dependencies: AndroidStreamingRuntimeDependencies,
   accountAdapters: readonly StreamingAccountAdapter[] = [],
 ): StreamingRuntime {
-  return createStreamingRuntime(
+  return createNativeStreamingRuntime(
     "capacitor-android",
     new CapacitorAndroidSecureSecretStore(dependencies.secureStorage),
     new CapacitorAndroidStreamingHttpTransport(dependencies.http),
@@ -64,8 +67,53 @@ export function createAndroidStreamingRuntime(
   );
 }
 
-function createStreamingRuntime(
-  platform: StreamingRuntime["platform"],
+/**
+ * Compose the browser runtime over the local Node API. The API owns provider
+ * sessions and provider HTTP; browser storage and renderer-side provider
+ * requests are deliberately not used.
+ */
+export async function createWebStreamingRuntime(
+  fetcher: typeof fetch = fetch,
+): Promise<StreamingRuntime | null> {
+  let health: Response;
+  try {
+    health = await fetcher("/api/health", {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+  } catch {
+    return null;
+  }
+  if (!health.ok) return null;
+
+  let healthPayload: unknown;
+  try {
+    healthPayload = await health.json();
+  } catch {
+    return null;
+  }
+  if (!healthPayload || typeof healthPayload !== "object" ||
+      (healthPayload as { mode?: unknown }).mode !== "local") {
+    return null;
+  }
+
+  const accounts = new WebApiStreamingAccountManager(fetcher);
+  await accounts.initialize();
+
+  return {
+    platform: "web-local",
+    accounts,
+    http: null,
+    requests: new StreamingRequestQueue(),
+    registerAccountAdapter() {
+      throw new Error("Web provider adapters must be registered in the trusted local API server.");
+    },
+  };
+}
+
+function createNativeStreamingRuntime(
+  platform: "windows-native" | "capacitor-android",
   secureStore: ConstructorParameters<typeof StreamingAccountSessionVault>[0],
   transport: StreamingHttpTransport,
   accountAdapters: readonly StreamingAccountAdapter[],
