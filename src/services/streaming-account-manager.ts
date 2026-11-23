@@ -19,6 +19,8 @@ export interface StreamingAccountManagerPort {
   connect(provider: StreamingProviderId, input: unknown): Promise<StreamingAccountStatus>;
   restore(provider: StreamingProviderId): Promise<StreamingAccountStatus>;
   disconnect(provider: StreamingProviderId): Promise<void>;
+  /** Optional read-only provider list fetch exposed by server-backed web adapters. */
+  fetchList?(provider: StreamingProviderId): Promise<unknown>;
 }
 
 export interface StreamingAccountConnectResult {
