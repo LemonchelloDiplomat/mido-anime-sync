@@ -91,6 +91,7 @@ export function normalizeAnimeGoAccountList(
       id: "animego:" + animeId,
       titles: { romaji: title, synonyms: originalTitle && originalTitle !== title ? [originalTitle] : [] },
       externalIds: { animego: animeId },
+      ...(episodesTotal !== null ? { episodes: episodesTotal } : {}),
       posterUrl,
     };
     const entry: AnimeListEntry = {
