@@ -37,3 +37,17 @@ jobs:
         run: npm run check:server
       - name: Build
         run: npm run build
+
+  verify-tauri-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Check Windows Tauri native shell
+        run: cargo check --manifest-path src-tauri/Cargo.toml
