@@ -37,7 +37,7 @@ export const STREAMING_PROVIDER_CAPABILITIES: Record<StreamingProviderId, Stream
     accountConnection: false, listImport: false, listWrite: false,
     watchProgressRead: true, watchProgressWrite: false,
     limitations: [
-      "Публичный стабильный API для аккаунта и списков не подтверждён. Расширение может передавать события просмотра, но это не синхронизация аккаунта.",
+      "Подключение использует форму сайта и локальную сессию; это не официальный публичный API. Чтение списка реализуется отдельно от записи статусов и прогресса.",
       "Импорт списков и обратная запись статусов, прогресса и оценок недоступны без поддерживаемого API.",
     ],
   },

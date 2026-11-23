@@ -4,14 +4,14 @@ import { WebApiStreamingAccountManager } from "../src/services/platform/web-stre
 function status(provider: "animego" | "anixart") {
   return {
     provider,
-    adapterAvailable: false,
+    adapterAvailable: provider === "animego",
     status: {
       provider,
       connected: false,
       connectedAt: null,
       expiresAt: null,
       accountLabel: null,
-      state: "unsupported",
+      state: provider === "animego" ? "disconnected" : "unsupported",
       errorMessage: null,
     },
   };
@@ -30,8 +30,8 @@ describe("web API streaming account manager", () => {
 
     await manager.initialize();
 
-    expect(manager.hasAdapter("animego")).toBe(false);
-    expect(manager.getStatus("animego").state).toBe("unsupported");
+    expect(manager.hasAdapter("animego")).toBe(true);
+    expect(manager.getStatus("animego").state).toBe("disconnected");
     expect(manager.getStatus("anixart").connected).toBe(false);
     expect(fetcher).toHaveBeenCalledTimes(2);
     for (const call of fetcher.mock.calls) {

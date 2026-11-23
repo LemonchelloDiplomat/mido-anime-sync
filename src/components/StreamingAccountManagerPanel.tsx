@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { StreamingProviderId } from "../services/streaming-provider.js";
 import type { StreamingAccountStatus } from "../services/streaming-account-manager.js";
 import type { StreamingRuntime } from "../services/platform/streaming-runtime.js";
+import type { AnimeGoAccountListResponse } from "../services/platform/web-streaming-account-manager.js";
 
 interface ProviderCard {
   id: StreamingProviderId;
@@ -14,8 +15,8 @@ const PROVIDERS: ProviderCard[] = [
   {
     id: "animego",
     name: "AnimeGO",
-    description: "Аккаунт и список просмотра",
-    limitation: "Публичный стабильный API аккаунта пока не подтверждён. Авторизация и обратная запись статусов не включены.",
+    description: "Аккаунт и личный список просмотра",
+    limitation: "Подключение через форму сайта. Чтение списка доступно; запись статусов на сайт пока отключена.",
   },
   {
     id: "anixart",
@@ -30,6 +31,7 @@ interface Props {
   onRetryRuntime?: () => void | Promise<void>;
   runtimeRefreshing?: boolean;
   runtimeRefreshError?: string;
+  onImportAnimeGoList?: (result: AnimeGoAccountListResponse) => Promise<void>;
 }
 
 export function StreamingAccountManagerPanel({
@@ -37,10 +39,19 @@ export function StreamingAccountManagerPanel({
   onRetryRuntime,
   runtimeRefreshing = false,
   runtimeRefreshError = "",
+  onImportAnimeGoList,
 }: Props) {
   const [statuses, setStatuses] = useState<Partial<Record<StreamingProviderId, StreamingAccountStatus>>>({});
   const [loading, setLoading] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState<StreamingProviderId | null>(null);
+  const [listLoading, setListLoading] = useState(false);
+  const [listImporting, setListImporting] = useState(false);
+  const [listImportMessage, setListImportMessage] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(true);
+  const [listPreview, setListPreview] = useState<AnimeGoAccountListResponse | null>(null);
   const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
@@ -60,7 +71,7 @@ export function StreamingAccountManagerPanel({
       }));
       setStatuses(Object.fromEntries(next));
     } catch {
-      setError("Не удалось проверить состояние нативных аккаунтов.");
+      setError("Не удалось проверить состояние аккаунтов. Проверь локальный API.");
     } finally {
       setLoading(false);
     }
@@ -70,17 +81,69 @@ export function StreamingAccountManagerPanel({
     void refresh();
   }, [refresh]);
 
+  async function connectAnimeGo(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!runtime || !username.trim() || !password) return;
+    setConnecting(true);
+    setError("");
+    try {
+      await runtime.accounts.connect("animego", {
+        username: username.trim(),
+        password,
+        rememberMe,
+      });
+      setPassword("");
+      setListPreview(null);
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось подключить AnimeGO.");
+    } finally {
+      setConnecting(false);
+    }
+  }
+
   async function disconnect(provider: StreamingProviderId) {
     if (!runtime) return;
     setDisconnecting(provider);
     setError("");
     try {
       await runtime.accounts.disconnect(provider);
+      if (provider === "animego") setListPreview(null);
       await refresh();
     } catch {
-      setError("Не удалось безопасно отключить аккаунт. Проверь состояние подключения и повтори попытку.");
+      setError("Не удалось отключить аккаунт. Проверь состояние подключения и повтори попытку.");
     } finally {
       setDisconnecting(null);
+    }
+  }
+
+  async function loadAnimeGoList() {
+    if (!runtime?.accounts.fetchList) return;
+    setListLoading(true);
+    setError("");
+    try {
+      const result = await runtime.accounts.fetchList("animego") as AnimeGoAccountListResponse;
+      setListPreview(result);
+      setListImportMessage("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось загрузить личный список AnimeGO.");
+    } finally {
+      setListLoading(false);
+    }
+  }
+
+  async function importAnimeGoList() {
+    if (!listPreview || !onImportAnimeGoList) return;
+    setListImporting(true);
+    setError("");
+    setListImportMessage("");
+    try {
+      await onImportAnimeGoList(listPreview);
+      setListImportMessage("Список AnimeGO добавлен в локальную библиотеку. Удаления и запись на сайт не выполнялись.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось импортировать список AnimeGO.");
+    } finally {
+      setListImporting(false);
     }
   }
 
@@ -109,8 +172,8 @@ export function StreamingAccountManagerPanel({
             ? "Windows Credential Manager подключён. Секреты хранятся в системном хранилище."
             : runtime.platform === "capacitor-android"
               ? "Android Keystore подключён. Секреты хранятся в системном хранилище."
-              : "Веб-режим: локальный API доступен. Будущие веб-аккаунты будут обслуживаться сервером, секреты в браузере не сохраняются."
-          : runtimeRefreshError || "Локальный API недоступен. В браузере аккаунты не подключаются, секреты не сохраняются."}
+              : "Веб-режим: локальный API доступен. Сессия хранится на стороне локального сервера, отдельно от браузера и библиотеки."
+          : runtimeRefreshError || "Локальный API недоступен. В браузере аккаунты не подключаются."}
       </div>
 
       {error && <div className="error-message" role="alert">{error}</div>}
@@ -144,30 +207,105 @@ export function StreamingAccountManagerPanel({
                 </div>
                 <p>{provider.description}</p>
                 <small>{connected && status?.accountLabel ? "Аккаунт: " + status.accountLabel : provider.limitation}</small>
+
+                {provider.id === "animego" && runtime?.platform === "web-local" && supported && !connected && (
+                  <form className="native-account-connect-form" onSubmit={(event) => void connectAnimeGo(event)}>
+                    <label>
+                      Логин или email AnimeGO
+                      <input
+                        type="text"
+                        autoComplete="username"
+                        value={username}
+                        onChange={(event) => setUsername(event.target.value)}
+                        maxLength={256}
+                        required
+                      />
+                    </label>
+                    <label>
+                      Пароль
+                      <input
+                        type="password"
+                        autoComplete="current-password"
+                        value={password}
+                        onChange={(event) => setPassword(event.target.value)}
+                        maxLength={1024}
+                        required
+                      />
+                    </label>
+                    <label className="native-account-remember">
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={(event) => setRememberMe(event.target.checked)}
+                      />
+                      Запомнить сессию
+                    </label>
+                    <button className="secondary-button" type="submit" disabled={connecting || !username.trim() || !password}>
+                      {connecting ? "Подключаем..." : "Подключить AnimeGO"}
+                    </button>
+                    <small>Пароль передаётся только локальному API и не сохраняется. Сохраняется только сессия сайта.</small>
+                  </form>
+                )}
               </div>
+
               {connected && runtime ? (
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() => void disconnect(provider.id)}
-                  disabled={disconnecting !== null}
-                >
-                  {disconnecting === provider.id ? "Отключаем..." : "Отключить"}
-                </button>
-              ) : (
+                <div className="native-account-actions">
+                  {provider.id === "animego" && runtime.accounts.fetchList && (
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => void loadAnimeGoList()}
+                      disabled={listLoading || disconnecting !== null}
+                    >
+                      {listLoading ? "Загружаем..." : "Получить список"}
+                    </button>
+                  )}
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => void disconnect(provider.id)}
+                    disabled={disconnecting !== null || listLoading}
+                  >
+                    {disconnecting === provider.id ? "Отключаем..." : "Отключить"}
+                  </button>
+                </div>
+              ) : provider.id !== "animego" ? (
                 <button
                   className="secondary-button"
                   type="button"
                   disabled
-                  title={supported ? "Для этого провайдера ещё не добавлен интерфейс авторизации" : provider.limitation}
+                  title={provider.limitation}
                 >
                   Подключить
                 </button>
-              )}
+              ) : null}
             </article>
           );
         })}
       </div>
+
+      {listPreview && (
+        <div className="native-account-list-preview">
+          <h3>Личный список AnimeGO получен</h3>
+          <p>Найдено записей: <strong>{listPreview.total}</strong>. Проверь результат перед импортом. Удаления из локальной библиотеки не выполняются.</p>
+          <div className="native-account-list-counts">
+            {listPreview.lists.map((list) => (
+              <span key={list.listType}>Тип {list.listType}: {list.itemCount}</span>
+            ))}
+          </div>
+          <ul>
+            {listPreview.items.slice(0, 12).map((item) => (
+              <li key={item.listEntryId}>
+                {item.title}
+                <small>Тип {item.listType}{item.episodesWatched !== null ? " · просмотрено " + item.episodesWatched : ""}</small>
+              </li>
+            ))}
+          </ul>
+          {listPreview.total > 12 && <small>И ещё {listPreview.total - 12} записей.</small>}
+          {onImportAnimeGoList && <button className="secondary-button" type="button" onClick={() => void importAnimeGoList()} disabled={listImporting || listLoading}>{listImporting ? "Импортируем..." : "Импортировать в библиотеку"}</button>}
+          {listImportMessage && <p role="status">{listImportMessage}</p>}
+        </div>
+      )}
     </section>
   );
 }

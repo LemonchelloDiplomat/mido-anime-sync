@@ -323,7 +323,7 @@ async function handleRequest(request, response) {
   const method = request.method || "GET";
 
   if (url.pathname.startsWith("/api/streaming/accounts/")) {
-    const handled = await handleStreamingAccountRequest(request, response, url, { sendJson });
+    const handled = await handleStreamingAccountRequest(request, response, url, { sendJson, readJson, readTokens, writeTokens });
     if (handled) return;
   }
 

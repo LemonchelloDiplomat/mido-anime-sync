@@ -31,6 +31,7 @@ import { StreamingCatalogPanel } from "./components/StreamingCatalogPanel.js";
 import { StreamingTrackerPanel } from "./components/StreamingTrackerPanel.js";
 import { StreamingAccountManagerPanel } from "./components/StreamingAccountManagerPanel.js";
 import type { StreamingRuntime } from "./services/platform/streaming-runtime.js";
+import type { AnimeGoAccountListResponse } from "./services/platform/web-streaming-account-manager.js";
 import { initializeStreamingRuntimeFromHost } from "./services/platform/runtime-bootstrap.js";
 import { reconcileStreamingAccountSnapshot } from "./services/streaming-account-import.js";
 import { normalizeAnimeGoAccountList, type AnimeGoAccountListPayload } from "./services/animego-account-import.js";
@@ -706,6 +707,59 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       "Импорт AnimeGO завершён. Добавлено или обновлено записей: " +
       normalized.rows.length + ". Пропущено некорректных строк: " + normalized.skipped +
       ". Прогресс и избранное не изменялись.",
+    );
+  }
+
+
+  async function importAnimeGoAccountLists(payload: AnimeGoAccountListResponse) {
+    const rows: Array<{ anime: AnimeIdentity; entry: AnimeListEntry }> = [];
+    let skipped = 0;
+    for (const list of payload.lists) {
+      const normalized = normalizeAnimeGoAccountList({
+        listType: list.listType,
+        sourceUrl: "https://animego.me/profile/" + payload.account.userId + "?type=" + list.listType,
+        entries: payload.items
+          .filter((item) => item.listType === list.listType)
+          .map((item) => ({
+            animeId: item.animeId ?? "",
+            title: item.title,
+            originalTitle: item.alternativeTitle,
+            posterUrl: item.posterUrl,
+            href: item.url,
+            episodesWatched: item.episodesWatched,
+            episodesTotal: item.episodesTotal,
+          })),
+      });
+      rows.push(...normalized.rows);
+      skipped += normalized.skipped;
+    }
+
+    const seenAnimeIds = new Set<string>();
+    const uniqueRows = rows.filter((row) => {
+      const externalId = row.anime.externalIds.animego;
+      if (!externalId || seenAnimeIds.has(externalId)) {
+        skipped += 1;
+        return false;
+      }
+      seenAnimeIds.add(externalId);
+      return true;
+    });
+
+    const snapshot: AnimeSnapshotV4 = {
+      schemaVersion: 4,
+      exportedAt: payload.fetchedAt || new Date().toISOString(),
+      anime: uniqueRows.map((row) => row.anime),
+      entries: [],
+      sourceEntries: uniqueRows.map((row) => row.entry),
+      conflictResolutions: [],
+      animeRelations: [],
+    };
+    await importStreamingAccountSnapshot(snapshot, "animego");
+    const progressCount = uniqueRows.filter((row) => row.entry.sourceMetadata?.progressKnown === true).length;
+    window.alert(
+      "Импорт AnimeGO завершён. Добавлено или обновлено записей: " +
+      uniqueRows.length + ". Пропущено некорректных или повторных строк: " + skipped +
+      ". Прогресс эпизодов получен для " + progressCount + " записей. Данные на AnimeGO не изменялись.",
     );
   }
 
@@ -2467,7 +2521,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                   </article>
                 );
               })}
-              <StreamingAccountManagerPanel runtime={activeStreamingRuntime} onRetryRuntime={retryStreamingRuntime} runtimeRefreshing={runtimeRefreshing} runtimeRefreshError={runtimeRefreshError} />
+              <StreamingAccountManagerPanel runtime={activeStreamingRuntime} onRetryRuntime={retryStreamingRuntime} runtimeRefreshing={runtimeRefreshing} runtimeRefreshError={runtimeRefreshError} onImportAnimeGoList={importAnimeGoAccountLists} />
               <StreamingTrackerPanel
                 items={library}
                 onImportAnixart={prepareAnixartExportImport}
