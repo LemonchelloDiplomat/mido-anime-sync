@@ -80,7 +80,7 @@ export interface WebStreamingRuntimeRetryOptions {
 }
 
 export async function createWebStreamingRuntime(
-  fetcher: typeof fetch = fetch,
+  fetcher: typeof fetch = globalThis.fetch.bind(globalThis),
   retryOptions: WebStreamingRuntimeRetryOptions = {},
 ): Promise<StreamingRuntime | null> {
   const attempts = Math.max(1, Math.floor(retryOptions.attempts ?? 8));
