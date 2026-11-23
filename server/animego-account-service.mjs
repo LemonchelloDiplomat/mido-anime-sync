@@ -324,7 +324,7 @@ export async function fetchAnimeGoAccountLists({ readTokens, writeTokens, fetche
           Referer: SITE_ORIGIN + "/profile/" + account.userId + "?type=" + listType,
           "Turbo-Frame": frameId,
         },
-      }));
+      }), intervalMs);
       if (!result.ok) throw new Error("AnimeGO не смог загрузить список (HTTP " + result.status + ").");
 
       const parsed = parseAnimeGoMyListResponse(result.text, {
