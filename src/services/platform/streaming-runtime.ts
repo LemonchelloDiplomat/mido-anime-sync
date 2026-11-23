@@ -24,7 +24,7 @@ export interface StreamingRuntime {
   readonly platform: "windows-native" | "capacitor-android" | "web-local";
   readonly accounts: StreamingAccountManagerPort;
   /** Web provider requests are executed by server-side adapters, never renderer fetch. */
-  readonly http: StreamingHttpClient | null;
+  readonly http: StreamingHttpClient;
   readonly requests: StreamingRequestQueue;
   /** Native runtimes register trusted in-process adapters; web adapters live on the server. */
   registerAccountAdapter(adapter: StreamingAccountAdapter): void;
@@ -104,7 +104,12 @@ export async function createWebStreamingRuntime(
   return {
     platform: "web-local",
     accounts,
-    http: null,
+    http: new StreamingHttpClient({
+      platform: "web-local",
+      async request<T>() {
+        throw new Error("Web provider requests must be executed by a trusted server-side adapter.");
+      },
+    }),
     requests: new StreamingRequestQueue(),
     registerAccountAdapter() {
       throw new Error("Web provider adapters must be registered in the trusted local API server.");
