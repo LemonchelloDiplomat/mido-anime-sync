@@ -68,9 +68,9 @@ export function createAndroidStreamingRuntime(
 }
 
 /**
- * Compose the browser runtime over the local Node API. The API owns provider
- * sessions and provider HTTP; browser storage and renderer-side provider
- * requests are deliberately not used.
+ * Compose the browser runtime over the local Node API. Future provider
+ * adapters will own sessions and provider HTTP on that trusted server;
+ * browser storage and renderer-side provider requests are deliberately unused.
  */
 export async function createWebStreamingRuntime(
   fetcher: typeof fetch = fetch,
