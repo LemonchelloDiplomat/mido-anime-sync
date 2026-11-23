@@ -19,6 +19,9 @@ export interface StreamingAccountManagerPort {
   connect(provider: StreamingProviderId, input: unknown): Promise<StreamingAccountStatus>;
   restore(provider: StreamingProviderId): Promise<StreamingAccountStatus>;
   disconnect(provider: StreamingProviderId): Promise<void>;
+  /** Optional two-step sign-in flow for providers that authenticate in a native WebView. */
+  beginConnect?(provider: StreamingProviderId): Promise<void>;
+  completeConnect?(provider: StreamingProviderId): Promise<StreamingAccountStatus>;
   /** Optional read-only provider list fetch exposed by server-backed web adapters. */
   fetchList?(provider: StreamingProviderId): Promise<unknown>;
 }
@@ -35,6 +38,9 @@ export interface StreamingAccountAdapter {
   connect(input: unknown): Promise<StreamingAccountConnectResult>;
   validateSession(sessionPayload: string): Promise<boolean>;
   disconnect?(sessionPayload: string | null): Promise<void>;
+  beginConnect?(): Promise<void>;
+  completeConnect?(): Promise<StreamingAccountConnectResult>;
+  getSessionInfo?(): Promise<{ accountLabel?: string | null; expiresAt?: string | null }>;
 }
 
 /**
@@ -58,6 +64,41 @@ export class StreamingAccountManager {
 
   getStatus(provider: StreamingProviderId): StreamingAccountStatus {
     return { ...(this.states.get(provider) ?? disconnectedStatus(provider)) };
+  }
+
+  async beginConnect(provider: StreamingProviderId): Promise<void> {
+    const adapter = this.requireAdapter(provider);
+    if (!adapter.beginConnect) throw new Error(`Interactive WebView sign-in is unavailable for ${provider}.`);
+    this.states.set(provider, { ...disconnectedStatus(provider), state: "connecting" });
+    try {
+      await adapter.beginConnect();
+    } catch (error) {
+      const status = { ...disconnectedStatus(provider), state: "error" as const, errorMessage: safeError(error) };
+      this.states.set(provider, status);
+      throw error;
+    }
+  }
+
+  async completeConnect(provider: StreamingProviderId): Promise<StreamingAccountStatus> {
+    const adapter = this.requireAdapter(provider);
+    if (!adapter.completeConnect) throw new Error(`Interactive WebView sign-in is unavailable for ${provider}.`);
+    this.states.set(provider, { ...disconnectedStatus(provider), state: "connecting" });
+    try {
+      const result = await adapter.completeConnect();
+      if (!result.sessionPayload.trim()) throw new Error("Provider returned an empty session marker.");
+      await this.vault.save(provider, result.sessionPayload);
+      const status: StreamingAccountStatus = {
+        provider, connected: true, connectedAt: new Date().toISOString(),
+        expiresAt: result.expiresAt ?? null, accountLabel: result.accountLabel ?? null,
+        state: "connected", errorMessage: null,
+      };
+      this.states.set(provider, status);
+      return { ...status };
+    } catch (error) {
+      const status = { ...disconnectedStatus(provider), state: "error" as const, errorMessage: safeError(error) };
+      this.states.set(provider, status);
+      throw error;
+    }
   }
 
   async connect(provider: StreamingProviderId, input: unknown): Promise<StreamingAccountStatus> {
@@ -97,9 +138,10 @@ export class StreamingAccountManager {
         this.states.set(provider, status);
         return { ...status };
       }
+      const info = await adapter.getSessionInfo?.();
       const status: StreamingAccountStatus = {
-        provider, connected: true, connectedAt: null, expiresAt: null,
-        accountLabel: null, state: "connected", errorMessage: null,
+        provider, connected: true, connectedAt: null, expiresAt: info?.expiresAt ?? null,
+        accountLabel: info?.accountLabel ?? null, state: "connected", errorMessage: null,
       };
       this.states.set(provider, status);
       return { ...status };
