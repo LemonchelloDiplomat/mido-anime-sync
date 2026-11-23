@@ -337,20 +337,6 @@ pub struct AnimeGoAuthStatus {
     state: &'static str,
 }
 
-fn animego_cookie_header(cookies: &[tauri::webview::Cookie<'static>]) -> Result<String, String> {
-    let pairs: Vec<String> = cookies.iter()
-        .filter(|cookie| !cookie.name().is_empty())
-        .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
-        .collect();
-    if pairs.is_empty() {
-        return Err("AnimeGO пока не создал cookies. Войди в аккаунт в открытом окне.".to_string());
-    }
-    let header = pairs.join("; ");
-    if header.len() > 16 * 1024 {
-        return Err("Размер сессии AnimeGO превышает допустимый лимит.".to_string());
-    }
-    Ok(header)
-}
 
 fn animego_user_from_json(raw: &str) -> Option<(String, Option<String>)> {
     let value: Value = serde_json::from_str(raw).ok()?;
@@ -460,15 +446,22 @@ pub async fn animego_auth_complete(app: tauri::AppHandle) -> Result<AnimeGoAuthS
         .map_err(|_| "Некорректный адрес AnimeGO.".to_string())?;
     let cookies = window.cookies_for_url(site_url)
         .map_err(|_| "Не удалось получить защищённую сессию из WebView2.".to_string())?;
-    let _cookie_header = animego_cookie_header(&cookies)?;
-    // Verify the authenticated first-party page in WebView2 itself. This avoids
-    // a second network client request and keeps the sign-in path inside the site session.
-    let (user_id, account_label) = animego_user_from_webview(&window).await?;
-
     let cookie_pairs = cookies.iter()
         .filter(|cookie| !cookie.name().is_empty())
         .map(|cookie| (cookie.name().to_string(), cookie.value().to_string()))
         .collect::<Vec<_>>();
+    if cookie_pairs.is_empty() {
+        return Err("AnimeGO пока не создал cookies. Войди в аккаунт в открытом окне.".to_string());
+    }
+    let cookie_header = cookie_pairs.iter()
+        .map(|(name, value)| format!("{name}={value}"))
+        .collect::<Vec<_>>().join("; ");
+    if cookie_header.len() > 16 * 1024 {
+        return Err("Размер сессии AnimeGO превышает допустимый лимит.".to_string());
+    }
+    // Verify the authenticated first-party page in WebView2 itself. This avoids
+    // a second network client request and keeps the sign-in path inside the site session.
+    let (user_id, account_label) = animego_user_from_webview(&window).await?;
     let session = AnimeGoStoredSession {
         cookies: cookie_pairs,
         user_id,
