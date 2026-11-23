@@ -314,3 +314,192 @@ pub async fn streaming_http_request(request: NativeHttpRequest) -> Result<Native
 
     Ok(NativeHttpResponse { status, headers: safe_headers, data, url: final_url })
 }
+
+
+const ANIMEGO_SESSION_KEY: &str = "mido-anime-sync:streaming-session:v1:animego";
+const ANIMEGO_AUTH_WINDOW: &str = "animego-auth";
+const ANIMEGO_ORIGIN: &str = "https://animego.me";
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AnimeGoStoredSession {
+    cookies: Vec<(String, String)>,
+    user_id: String,
+    account_label: Option<String>,
+    connected_at: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeGoAuthStatus {
+    connected: bool,
+    account_label: Option<String>,
+    state: &'static str,
+}
+
+fn animego_cookie_header(cookies: &[tauri::webview::Cookie<'static>]) -> Result<String, String> {
+    let pairs: Vec<String> = cookies.iter()
+        .filter(|cookie| !cookie.name().is_empty())
+        .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
+        .collect();
+    if pairs.is_empty() {
+        return Err("AnimeGO пока не создал cookies. Войди в аккаунт в открытом окне.".to_string());
+    }
+    let header = pairs.join("; ");
+    if header.len() > 16 * 1024 {
+        return Err("Размер сессии AnimeGO превышает допустимый лимит.".to_string());
+    }
+    Ok(header)
+}
+
+fn animego_user_from_html(html: &str) -> Option<(String, Option<String>)> {
+    let tag_start = html.find("<html")?;
+    let tag_end = html[tag_start..].find('>')? + tag_start;
+    let tag = &html[tag_start..tag_end];
+    let attr_start = tag.find("data-user")?;
+    let after_name = &tag[attr_start + "data-user".len()..];
+    let equals = after_name.find('=')?;
+    let after_equals = after_name[equals + 1..].trim_start();
+    let quote = after_equals.chars().next()?;
+    if quote != '"' && quote != '\\'' { return None; }
+    let raw = &after_equals[1..];
+    let end = raw.find(quote)?;
+    let decoded = raw[..end]
+        .replace("&quot;", "\"")
+        .replace("&#34;", "\"")
+        .replace("&#x22;", "\"")
+        .replace("&amp;", "&")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'");
+    let value: Value = serde_json::from_str(&decoded).ok()?;
+    let id = value.get("id").or_else(|| value.get("userId"))?.as_u64()?.to_string();
+    let label = ["username", "login", "name", "nickname"].iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_str))
+        .map(|value| value.chars().take(100).collect::<String>());
+    Some((id, label))
+}
+
+async fn animego_verify_cookie_header(cookie_header: &str) -> Result<Option<(String, Option<String>)>, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36")
+        .build()
+        .map_err(|_| "Не удалось запустить сетевой клиент AnimeGO.".to_string())?;
+    let response = client.get(format!("{ANIMEGO_ORIGIN}/"))
+        .header(reqwest::header::COOKIE, cookie_header)
+        .header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml")
+        .send().await
+        .map_err(|_| "Не удалось проверить сессию AnimeGO. Проверь интернет и доступность сайта.".to_string())?;
+    if !response.status().is_success() {
+        return Ok(None);
+    }
+    let html = response.text().await
+        .map_err(|_| "Не удалось прочитать ответ AnimeGO.".to_string())?;
+    if html.len() > 2 * 1024 * 1024 {
+        return Err("Ответ AnimeGO превышает допустимый размер.".to_string());
+    }
+    Ok(animego_user_from_html(&html))
+}
+
+#[tauri::command]
+pub async fn animego_auth_open(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::{Manager, WebviewUrl};
+    use tauri::webview::WebviewWindowBuilder;
+
+    if let Some(window) = app.get_webview_window(ANIMEGO_AUTH_WINDOW) {
+        window.show().map_err(|_| "Не удалось показать окно AnimeGO.".to_string())?;
+        window.set_focus().map_err(|_| "Не удалось активировать окно AnimeGO.".to_string())?;
+        return Ok(());
+    }
+
+    let url = format!("{ANIMEGO_ORIGIN}/login").parse()
+        .map_err(|_| "Некорректный адрес входа AnimeGO.".to_string())?;
+    WebviewWindowBuilder::new(&app, ANIMEGO_AUTH_WINDOW, WebviewUrl::External(url))
+        .title("Вход в AnimeGO")
+        .inner_size(1040.0, 780.0)
+        .min_inner_size(760.0, 560.0)
+        .resizable(true)
+        .build()
+        .map_err(|_| "Не удалось открыть встроенное окно AnimeGO.".to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn animego_auth_complete(app: tauri::AppHandle) -> Result<AnimeGoAuthStatus, String> {
+    use tauri::Manager;
+
+    let window = app.get_webview_window(ANIMEGO_AUTH_WINDOW)
+        .ok_or_else(|| "Сначала открой окно входа AnimeGO.".to_string())?;
+    let current_url = window.url().map_err(|_| "Не удалось проверить адрес окна AnimeGO.".to_string())?;
+    if current_url.scheme() != "https" || current_url.host_str() != Some("animego.me") {
+        return Err("Окно авторизации находится не на домене AnimeGO. Вернись на animego.me.".to_string());
+    }
+
+    let site_url = ANIMEGO_ORIGIN.parse()
+        .map_err(|_| "Некорректный адрес AnimeGO.".to_string())?;
+    let cookies = window.cookies_for_url(site_url)
+        .map_err(|_| "Не удалось получить защищённую сессию из WebView2.".to_string())?;
+    let cookie_header = animego_cookie_header(&cookies)?;
+    let Some((user_id, account_label)) = animego_verify_cookie_header(&cookie_header).await? else {
+        return Err("AnimeGO ещё не подтвердил вход. Заверши авторизацию на сайте и повтори проверку.".to_string());
+    };
+
+    let cookie_pairs = cookies.iter()
+        .filter(|cookie| !cookie.name().is_empty())
+        .map(|cookie| (cookie.name().to_string(), cookie.value().to_string()))
+        .collect::<Vec<_>>();
+    let session = AnimeGoStoredSession {
+        cookies: cookie_pairs,
+        user_id,
+        account_label: account_label.clone(),
+        connected_at: chrono_like_now(),
+    };
+    let serialized = serde_json::to_string(&session)
+        .map_err(|_| "Не удалось подготовить защищённую сессию AnimeGO.".to_string())?;
+    streaming_secret_set(ANIMEGO_SESSION_KEY.to_string(), serialized)?;
+
+    let _ = window.close();
+    Ok(AnimeGoAuthStatus {
+        connected: true,
+        account_label,
+        state: "connected",
+    })
+}
+
+fn chrono_like_now() -> String {
+    // Timestamp is informational only; avoid adding a date/time dependency to the native shell.
+    format!("unix:{}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default().as_secs())
+}
+
+#[tauri::command]
+pub async fn animego_auth_status() -> Result<AnimeGoAuthStatus, String> {
+    let Some(raw) = streaming_secret_get(ANIMEGO_SESSION_KEY.to_string())? else {
+        return Ok(AnimeGoAuthStatus { connected: false, account_label: None, state: "disconnected" });
+    };
+    let session: AnimeGoStoredSession = serde_json::from_str(&raw)
+        .map_err(|_| "Сохранённая сессия AnimeGO повреждена. Подключи аккаунт заново.".to_string())?;
+    let cookie_header = session.cookies.iter()
+        .map(|(name, value)| format!("{name}={value}"))
+        .collect::<Vec<_>>().join("; ");
+    match animego_verify_cookie_header(&cookie_header).await? {
+        Some((user_id, account_label)) if user_id == session.user_id => {
+            Ok(AnimeGoAuthStatus {
+                connected: true,
+                account_label: account_label.or(session.account_label),
+                state: "connected",
+            })
+        }
+        _ => {
+            let _ = streaming_secret_remove(ANIMEGO_SESSION_KEY.to_string());
+            Ok(AnimeGoAuthStatus { connected: false, account_label: None, state: "expired" })
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn animego_auth_disconnect() -> Result<(), String> {
+    streaming_secret_remove(ANIMEGO_SESSION_KEY.to_string())
+}
