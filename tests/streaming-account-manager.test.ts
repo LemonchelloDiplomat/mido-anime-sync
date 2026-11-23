@@ -11,6 +11,7 @@ import {
 function createStore(): StreamingSecureSecretStore {
   const values = new Map<string, string>();
   return {
+    values,
     async get(key) { return values.get(key) ?? null; },
     async set(key, value) { values.set(key, value); },
     async remove(key) { values.delete(key); },
@@ -61,7 +62,7 @@ describe("streaming account manager", () => {
 
     expect(status).toMatchObject({ connected: true, state: "connected", accountLabel: "demo-user" });
     expect(JSON.stringify(status)).not.toContain("native-webview-session");
-    expect([...store.values()]).toContain("native-webview-session:v1");
+    expect([...store.values.values()]).toContain("native-webview-session:v1");
 
     const restored = await manager.restore("animego");
     expect(restored).toMatchObject({ connected: true, accountLabel: "demo-user" });
