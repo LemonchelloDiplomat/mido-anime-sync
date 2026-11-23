@@ -1,6 +1,7 @@
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
 import {
   createAndroidStreamingRuntime,
+  createWebStreamingRuntime,
   createWindowsStreamingRuntime,
   type AndroidStreamingRuntimeDependencies,
   type StreamingRuntime,
@@ -78,12 +79,14 @@ export async function initializeStreamingRuntimeFromHost(
   }
 
   const capacitor = host.Capacitor ?? Capacitor;
-  if (!capacitor?.isNativePlatform() || capacitor.getPlatform() !== "android") {
-    return null;
+  if (capacitor?.isNativePlatform() && capacitor.getPlatform() === "android") {
+    const modules = await loadAndroidModules();
+    return createAndroidStreamingRuntime(modules);
   }
 
-  const modules = await loadAndroidModules();
-  return createAndroidStreamingRuntime(modules);
+  // Ordinary browser builds remain local-only. If the trusted local API is
+  // not available, keep the previous browser-only behavior and no secret store.
+  return createWebStreamingRuntime();
 }
 
 async function loadCapacitorAndroidModules(): Promise<CapacitorAndroidModules> {
