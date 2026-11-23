@@ -96,13 +96,33 @@ async function upstreamRequest(fetcher, jar, path, options = {}) {
   for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
     const cookies = cookieHeader(jar);
     if (cookies) headers.Cookie = cookies;
-    const response = await fetcher(url.toString(), {
-      method,
-      headers,
-      body,
-      redirect: "manual",
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+    let response;
+    try {
+      response = await fetcher(url.toString(), {
+        method,
+        headers,
+        body,
+        redirect: "manual",
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (error) {
+      const code = error?.cause?.code || error?.code || null;
+      const timedOut = error?.name === "TimeoutError" ||
+        code === "UND_ERR_CONNECT_TIMEOUT" || code === "ETIMEDOUT";
+      const reason = timedOut
+        ? "Истекло время ожидания ответа."
+        : code === "ENOTFOUND" || code === "EAI_AGAIN"
+          ? "Не удалось найти адрес сервера (DNS)."
+          : code === "ECONNRESET" || code === "ECONNREFUSED"
+            ? "Соединение было сброшено или отклонено."
+            : code && String(code).startsWith("CERT_")
+              ? "Не удалось проверить TLS-сертификат."
+              : "Проверь интернет, DNS, VPN и настройки брандмауэра.";
+      throw new Error(
+        "Не удалось связаться с AnimeGO (" + method + " " + url.hostname + "). " +
+        reason + (code ? " Код: " + String(code).slice(0, 64) + "." : ""),
+      );
+    }
     updateCookieJar(jar, response.headers);
 
     if ([301, 302, 303, 307, 308].includes(response.status)) {
