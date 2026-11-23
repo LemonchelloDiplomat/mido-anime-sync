@@ -35,37 +35,31 @@ function stripTags(value) {
 /** Extract balanced DIV blocks, including cards with nested DIV wrappers. */
 function extractDivBlocks(html) {
   const source = String(html ?? "");
-  const tokenPattern = /<\/?div\b[^>]*>/gi;
+  const tokenPattern = /<\\/?div\\b[^>]*>/gi;
+  const stack = [];
   const blocks = [];
-  let depth = 0;
-  let start = -1;
-  let openingTag = "";
   let token;
 
   while ((token = tokenPattern.exec(source))) {
-    if (!/^<\//.test(token[0])) {
-      if (depth === 0) {
-        start = token.index;
-        openingTag = token[0];
-      }
-      depth += 1;
+    if (!/^<\\//.test(token[0])) {
+      stack.push({
+        start: token.index,
+        openingTag: token[0],
+        innerStart: tokenPattern.lastIndex,
+      });
       continue;
     }
 
-    if (depth === 0) continue;
-    depth -= 1;
-    if (depth === 0 && start >= 0) {
-      blocks.push({
-        html: source.slice(start, tokenPattern.lastIndex),
-        innerHtml: source.slice(start + openingTag.length, token.index),
-        openingTag,
-        classNames: classTokens(openingTag),
-      });
-      start = -1;
-      openingTag = "";
-    }
+    const opening = stack.pop();
+    if (!opening) continue;
+    blocks.push({
+      html: source.slice(opening.start, tokenPattern.lastIndex),
+      innerHtml: source.slice(opening.innerStart, token.index),
+      openingTag: opening.openingTag,
+      classNames: classTokens(opening.openingTag),
+    });
   }
-  return blocks;
+  return blocks.sort((a, b) => a.html.length - b.html.length);
 }
 
 function safeAnimeUrl(value, baseUrl) {
