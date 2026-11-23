@@ -145,6 +145,48 @@ describe("AnimeGO account service", () => {
     expect(store.snapshot()).toEqual({ mal: { accessToken: "mal-token" } });
   });
 
+  it("reads all six personal list types sequentially without changing the stored session", async () => {
+    const store = createStore({
+      streamingAccounts: {
+        animego: {
+          cookies: [["session", "valid-session"]],
+          userId: "1367030",
+          accountLabel: "test-user",
+          connectedAt: "2026-11-23T00:00:00.000Z",
+        },
+      },
+    });
+    const fetcher = vi.fn(async (url, options) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === "/") return response(AUTH_HOME);
+      if (parsed.pathname !== "/profile/1367030" || parsed.searchParams.get("type") === null) {
+        throw new Error("Unexpected list route: " + parsed.pathname);
+      }
+      const type = parsed.searchParams.get("type");
+      return response(`
+        <div class="user-mylist__item" data-mylist-id="${type}">
+          <div class="user-mylist__title"><a href="/anime/test-title-${type}">Test title ${type}</a></div>
+          <img src="https://animego.me/poster-${type}.jpg" alt="Test title ${type}">
+        </div>
+      `);
+    });
+
+    const result = await fetchAnimeGoAccountLists({
+      ...store,
+      fetcher,
+      intervalMs: 0,
+    });
+
+    expect(result.total).toBe(6);
+    expect(result.lists).toHaveLength(6);
+    expect(result.items.map((item) => item.listType)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(result.items.map((item) => item.title)).toEqual([
+      "Test title 1", "Test title 2", "Test title 3",
+      "Test title 4", "Test title 5", "Test title 6",
+    ]);
+    expect(store.snapshot().streamingAccounts.animego.userId).toBe("1367030");
+  });
+
   it("requires a connected account before fetching personal lists", async () => {
     const store = createStore();
     await expect(fetchAnimeGoAccountLists({ ...store, fetcher: vi.fn() }))
