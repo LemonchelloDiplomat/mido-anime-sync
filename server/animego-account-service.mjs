@@ -135,13 +135,13 @@ async function upstreamRequest(fetcher, jar, path, options = {}) {
   throw new Error("Не удалось завершить запрос к AnimeGO.");
 }
 
-async function withAnimeGoRateLimit(operation) {
+async function withAnimeGoRateLimit(operation, intervalMs = REQUEST_INTERVAL_MS) {
   const previous = requestQueue;
   let release;
   requestQueue = new Promise((resolve) => { release = resolve; });
   await previous;
   try {
-    const wait = Math.max(0, lastRequestAt + REQUEST_INTERVAL_MS - Date.now());
+    const wait = Math.max(0, lastRequestAt + Math.max(0, intervalMs) - Date.now());
     if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
     lastRequestAt = Date.now();
     return await operation();
@@ -292,7 +292,7 @@ export async function disconnectAnimeGoAccount({ readTokens, writeTokens }) {
   return statusFromAccount(null);
 }
 
-export async function fetchAnimeGoAccountLists({ readTokens, writeTokens, fetcher = fetch }) {
+export async function fetchAnimeGoAccountLists({ readTokens, writeTokens, fetcher = fetch, intervalMs = REQUEST_INTERVAL_MS }) {
   const tokens = await readTokens();
   const stored = getStoredAccount(tokens);
   if (!stored) throw new Error("Сначала подключи аккаунт AnimeGO.");
