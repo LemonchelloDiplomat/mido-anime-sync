@@ -10,6 +10,7 @@ import {
 } from "../streaming-http-client.js";
 import { StreamingRequestQueue } from "../streaming-request-queue.js";
 import { WebApiStreamingAccountManager } from "./web-streaming-account-manager.js";
+import { AnimeGoWindowsWebViewAdapter } from "./animego-windows-webview-adapter.js";
 import {
   CapacitorAndroidSecureSecretStore,
   CapacitorAndroidStreamingHttpTransport,
@@ -38,11 +39,14 @@ export function createWindowsStreamingRuntime(
   invoke: NativeInvoke,
   accountAdapters: readonly StreamingAccountAdapter[] = [],
 ): StreamingRuntime {
+  const adapters = accountAdapters.some((adapter) => adapter.provider === "animego")
+    ? accountAdapters
+    : [...accountAdapters, new AnimeGoWindowsWebViewAdapter(invoke)];
   return createNativeStreamingRuntime(
     "windows-native",
     new TauriWindowsSecureSecretStore(invoke),
     new TauriWindowsStreamingHttpTransport(invoke),
-    accountAdapters,
+    adapters,
   );
 }
 
