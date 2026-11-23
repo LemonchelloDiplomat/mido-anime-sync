@@ -69,11 +69,11 @@ describe("platform streaming runtime composition", () => {
 
     expect(runtime.accounts.hasAdapter("animego")).toBe(true);
     await runtime.accounts.beginConnect!("animego");
-    expect(invoke).toHaveBeenCalledWith("animego_auth_open", undefined);
+    expect(invoke).toHaveBeenCalledWith("animego_auth_open");
 
     const status = await runtime.accounts.completeConnect!("animego");
     expect(status).toMatchObject({ connected: true, accountLabel: "animego-user" });
-    expect(invoke).toHaveBeenCalledWith("animego_auth_complete", undefined);
+    expect(invoke).toHaveBeenCalledWith("animego_auth_complete");
     expect(JSON.stringify(status)).not.toContain("cookie");
   });
 
