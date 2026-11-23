@@ -310,25 +310,29 @@ export async function fetchAnimeGoAccountLists({ readTokens, writeTokens, fetche
   const seen = new Set();
 
   for (let listType = 1; listType <= 6; listType += 1) {
-    let pagePath = "/user/mylist/" + account.userId + "/1?type=" + listType;
-    let frameId = "profile-my-list-page-1";
+    // Page 1 is embedded in the profile response; later pages are lazy Turbo Frames.
+    let pageResult = await upstreamRequest(fetcher, jar,
+      "/profile/" + account.userId + "?type=" + listType, {
+        headers: { Referer: SITE_ORIGIN + "/" },
+      });
+    if (pageResult.status === 404) {
+      pageResult = await upstreamRequest(fetcher, jar,
+        "/user/" + account.userId + "?type=" + listType, {
+          headers: { Referer: SITE_ORIGIN + "/" },
+        });
+    }
+    if (!pageResult.ok) throw new Error("AnimeGO не смог открыть профиль со списком (HTTP " + pageResult.status + ").");
+
     let pageCount = 0;
     let itemCount = 0;
 
-    while (pagePath) {
+    while (pageResult) {
       if (pageCount >= MAX_PAGES_PER_LIST) {
         throw new Error("AnimeGO: достигнут лимит страниц личного списка.");
       }
-      const result = await withAnimeGoRateLimit(() => upstreamRequest(fetcher, jar, pagePath, {
-        headers: {
-          Referer: SITE_ORIGIN + "/profile/" + account.userId + "?type=" + listType,
-          "Turbo-Frame": frameId,
-        },
-      }), intervalMs);
-      if (!result.ok) throw new Error("AnimeGO не смог загрузить список (HTTP " + result.status + ").");
 
-      const parsed = parseAnimeGoMyListResponse(result.text, {
-        baseUrl: result.url,
+      const parsed = parseAnimeGoMyListResponse(pageResult.text, {
+        baseUrl: pageResult.url,
         listType,
       });
       pageCount += 1;
@@ -340,9 +344,22 @@ export async function fetchAnimeGoAccountLists({ readTokens, writeTokens, fetche
         if (allItems.length > MAX_ITEMS) throw new Error("AnimeGO вернул слишком много записей для одного импорта.");
       }
 
-      pagePath = parsed.nextPageUrl;
-      frameId = parsed.nextPageFrameId || "";
-      if (!pagePath) break;
+      if (!parsed.nextPageUrl) {
+        pageResult = null;
+        continue;
+      }
+
+      const nextPageUrl = parsed.nextPageUrl;
+      const nextFrameId = parsed.nextPageFrameId;
+      pageResult = await withAnimeGoRateLimit(() => upstreamRequest(fetcher, jar, nextPageUrl, {
+        headers: {
+          Referer: SITE_ORIGIN + "/profile/" + account.userId + "?type=" + listType,
+          ...(nextFrameId ? { "Turbo-Frame": nextFrameId } : {}),
+        },
+      }), intervalMs);
+      if (!pageResult.ok) {
+        throw new Error("AnimeGO не смог загрузить страницу личного списка (HTTP " + pageResult.status + ").");
+      }
     }
 
     lists.push({ listType, pageCount, itemCount });
