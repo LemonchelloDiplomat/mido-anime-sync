@@ -84,7 +84,7 @@ describe("AnimeGO personal-list Turbo Stream parser", () => {
     ].join("");
     const result = parseAnimeGoMyListResponse(html);
     expect(result.items).toHaveLength(1);
-    expect(result.items[0].title).toBe("Valid title");
+    expect(result.items[0]?.title).toBe("Valid title");
   });
 
   it("rejects non-AnimeGO response origins, invalid list types and oversized responses", () => {
