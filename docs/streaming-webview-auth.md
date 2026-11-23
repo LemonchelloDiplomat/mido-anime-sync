@@ -8,11 +8,11 @@ After the user returns to the main app and selects **I signed in, verify**, the 
 
 1. Confirms that the auth window is still on `https://animego.me`.
 2. Reads cookies for the AnimeGO origin from the WebView2 cookie store, including HttpOnly cookies.
-3. Sends the cookies from Rust to AnimeGO's homepage and checks the first-party `data-user` identity payload.
+3. Reads the first-party page's `document.documentElement.dataset.user` inside WebView2 and checks the authenticated account identity. No second HTTP client request is made during sign-in.
 4. Stores the cookie pairs in Windows Credential Manager using the existing chunked secret vault.
 5. Closes the auth window and returns only the non-secret account label to the renderer.
 
-Cookies are never returned to React, the local Node API, IndexedDB, or the anime library. The generic account vault stores only a non-secret marker under the normal provider key. The actual cookie session is stored under a separate Windows Credential Manager key, so writing the marker cannot overwrite the cookies. Native status checks validate the actual cookie session inside Rust.
+Cookies are never returned to React, the local Node API, IndexedDB, or the anime library. The generic account vault stores only a non-secret marker under the normal provider key. The actual cookie session is stored under a separate Windows Credential Manager key, so writing the marker cannot overwrite the cookies. Native status checks confirm that the protected session payload is present and structurally valid. A live network validation is deferred to the native list request, avoiding false expiration when AnimeGO challenges non-browser HTTP clients.
 
 ## Current scope and limitations
 
@@ -28,7 +28,7 @@ Cookies are never returned to React, the local Node API, IndexedDB, or the anime
 - The native command validates the current auth window URL before reading cookies.
 - Session cookies remain in Rust and Windows Credential Manager.
 - No CAPTCHA, Cloudflare, or other anti-bot challenge is bypassed.
-- The HTML `data-user` identity is treated as a verification signal, not as an authentication credential.
+- The first-party page `data-user` identity is treated as a verification signal, not as an authentication credential. Cookies are collected separately from the WebView2 cookie manager.
 - This is a first-party website sign-in flow, not official OAuth or a documented public AnimeGO API.
 
 ## Relevant platform API
