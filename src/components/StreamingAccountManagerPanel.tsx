@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { StreamingProviderId } from "../services/streaming-provider.js";
 import type { StreamingAccountStatus } from "../services/streaming-account-manager.js";
 import type { StreamingRuntime } from "../services/platform/streaming-runtime.js";
+import type { AnimeGoAccountListResponse } from "../services/platform/web-streaming-account-manager.js";
 
 interface ProviderCard {
   id: StreamingProviderId;
@@ -30,12 +31,7 @@ interface Props {
   onRetryRuntime?: () => void | Promise<void>;
   runtimeRefreshing?: boolean;
   runtimeRefreshError?: string;
-}
-
-interface AnimeGoListPreview {
-  total: number;
-  lists: Array<{ listType: number; itemCount: number; pageCount: number }>;
-  items: Array<{ listEntryId: string; title: string; listType: number; episodesWatched: number | null }>;
+  onImportAnimeGoList?: (result: AnimeGoAccountListResponse) => Promise<void>;
 }
 
 export function StreamingAccountManagerPanel({
@@ -43,16 +39,19 @@ export function StreamingAccountManagerPanel({
   onRetryRuntime,
   runtimeRefreshing = false,
   runtimeRefreshError = "",
+  onImportAnimeGoList,
 }: Props) {
   const [statuses, setStatuses] = useState<Partial<Record<StreamingProviderId, StreamingAccountStatus>>>({});
   const [loading, setLoading] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState<StreamingProviderId | null>(null);
   const [listLoading, setListLoading] = useState(false);
+  const [listImporting, setListImporting] = useState(false);
+  const [listImportMessage, setListImportMessage] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
-  const [listPreview, setListPreview] = useState<AnimeGoListPreview | null>(null);
+  const [listPreview, setListPreview] = useState<AnimeGoAccountListResponse | null>(null);
   const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
@@ -123,12 +122,28 @@ export function StreamingAccountManagerPanel({
     setListLoading(true);
     setError("");
     try {
-      const result = await runtime.accounts.fetchList("animego") as AnimeGoListPreview;
+      const result = await runtime.accounts.fetchList("animego") as AnimeGoAccountListResponse;
       setListPreview(result);
+      setListImportMessage("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Не удалось загрузить личный список AnimeGO.");
     } finally {
       setListLoading(false);
+    }
+  }
+
+  async function importAnimeGoList() {
+    if (!listPreview || !onImportAnimeGoList) return;
+    setListImporting(true);
+    setError("");
+    setListImportMessage("");
+    try {
+      await onImportAnimeGoList(listPreview);
+      setListImportMessage("Список AnimeGO добавлен в локальную библиотеку. Удаления и запись на сайт не выполнялись.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось импортировать список AnimeGO.");
+    } finally {
+      setListImporting(false);
     }
   }
 
@@ -272,7 +287,7 @@ export function StreamingAccountManagerPanel({
       {listPreview && (
         <div className="native-account-list-preview">
           <h3>Личный список AnimeGO получен</h3>
-          <p>Найдено записей: <strong>{listPreview.total}</strong>. Это предварительное чтение, локальная библиотека пока не изменялась.</p>
+          <p>Найдено записей: <strong>{listPreview.total}</strong>. Проверь результат перед импортом. Удаления из локальной библиотеки не выполняются.</p>
           <div className="native-account-list-counts">
             {listPreview.lists.map((list) => (
               <span key={list.listType}>Тип {list.listType}: {list.itemCount}</span>
@@ -287,6 +302,8 @@ export function StreamingAccountManagerPanel({
             ))}
           </ul>
           {listPreview.total > 12 && <small>И ещё {listPreview.total - 12} записей.</small>}
+          {onImportAnimeGoList && <button className="secondary-button" type="button" onClick={() => void importAnimeGoList()} disabled={listImporting || listLoading}>{listImporting ? "Импортируем..." : "Импортировать в библиотеку"}</button>}
+          {listImportMessage && <p role="status">{listImportMessage}</p>}
         </div>
       )}
     </section>
