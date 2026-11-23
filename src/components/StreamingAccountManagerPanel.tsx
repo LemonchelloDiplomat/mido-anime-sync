@@ -80,7 +80,7 @@ export function StreamingAccountManagerPanel({ runtime }: Props) {
     <section className="native-account-manager">
       <div className="section-heading">
         <div>
-          <div className="eyebrow">NATIVE ACCOUNT MANAGER</div>
+          <div className="eyebrow">STREAMING ACCOUNT MANAGER</div>
           <h2>Аккаунты AnimeGO и Anixart</h2>
           <p>Сессии хранятся отдельно от локальной библиотеки и не попадают в экспорт данных.</p>
         </div>
@@ -93,9 +93,11 @@ export function StreamingAccountManagerPanel({ runtime }: Props) {
         <span className={"native-account-runtime-dot" + (runtime ? " is-ready" : "")} />
         {runtime
           ? runtime.platform === "windows-native"
-            ? "Нативное хранилище Windows Credential Manager подключено."
-            : "Нативное хранилище Android Keystore подключено."
-          : "Браузерный режим: аккаунты не подключаются, секреты в браузере не сохраняются."}
+            ? "Windows Credential Manager подключён. Секреты хранятся в системном хранилище."
+            : runtime.platform === "capacitor-android"
+              ? "Android Keystore подключён. Секреты хранятся в системном хранилище."
+              : "Веб-режим: локальный API доступен. Секреты остаются на серверной стороне и не сохраняются в браузере."
+          : "Локальный API недоступен. В браузере аккаунты не подключаются, секреты не сохраняются."}
       </div>
 
       {error && <div className="error-message" role="alert">{error}</div>}
