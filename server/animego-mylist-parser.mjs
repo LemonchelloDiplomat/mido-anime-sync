@@ -35,13 +35,13 @@ function stripTags(value) {
 /** Extract balanced DIV blocks, including cards with nested DIV wrappers. */
 function extractDivBlocks(html) {
   const source = String(html ?? "");
-  const tokenPattern = /<\\/?div\\b[^>]*>/gi;
+  const tokenPattern = /<\/?div\b[^>]*>/gi;
   const stack = [];
   const blocks = [];
   let token;
 
   while ((token = tokenPattern.exec(source))) {
-    if (!/^<\\//.test(token[0])) {
+    if (!/^<\//.test(token[0])) {
       stack.push({
         start: token.index,
         openingTag: token[0],
