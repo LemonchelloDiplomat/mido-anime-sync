@@ -16,6 +16,7 @@ export interface StreamingAccountStatus extends StreamingAccountSessionInfo {
 export interface StreamingAccountManagerPort {
   hasAdapter(provider: StreamingProviderId): boolean;
   getStatus(provider: StreamingProviderId): StreamingAccountStatus;
+  connect(provider: StreamingProviderId, input: unknown): Promise<StreamingAccountStatus>;
   restore(provider: StreamingProviderId): Promise<StreamingAccountStatus>;
   disconnect(provider: StreamingProviderId): Promise<void>;
 }
