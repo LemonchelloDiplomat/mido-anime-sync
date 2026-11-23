@@ -77,14 +77,14 @@ describe("native streaming runtime bootstrap", () => {
       const provider = path.includes("/animego/") ? "animego" : "anixart";
       return new Response(JSON.stringify({
         provider,
-        adapterAvailable: false,
+        adapterAvailable: provider === "animego",
         status: {
           provider,
           connected: false,
           connectedAt: null,
           expiresAt: null,
           accountLabel: null,
-          state: "unsupported",
+          state: provider === "animego" ? "disconnected" : "unsupported",
           errorMessage: null,
         },
       }), { status: 200 });
@@ -96,8 +96,8 @@ describe("native streaming runtime bootstrap", () => {
 
     expect(runtime?.platform).toBe("web-local");
     expect(runtime?.http).toBeDefined();
-    expect(runtime?.accounts.getStatus("animego").state).toBe("unsupported");
-    expect(runtime?.accounts.hasAdapter("animego")).toBe(false);
+    expect(runtime?.accounts.getStatus("animego").state).toBe("disconnected");
+    expect(runtime?.accounts.hasAdapter("animego")).toBe(true);
     expect(loader).not.toHaveBeenCalled();
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
