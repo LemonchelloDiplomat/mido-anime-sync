@@ -57,6 +57,14 @@ No CSRF meta fields were found. The logout forms show a hidden field named `_csr
 
 This confirms the existence and shape of the rating form only. It does **not** yet confirm the encoding, token source/value, update semantics, success response, or read-back behavior. Do not enable rating writes until those are validated safely. The search form is not a mutation capability. No status-change, progress-update, or remove form was found in this inspection.
 
+The expanded control scan on the same authenticated title page also found:
+- A native rating select: `select#entity-rating__native-select-anime-694` with `name=rate`.
+- Multiple `button.list-group-mylist` controls, including one with a `text-danger` class. Their exact action and request payload are not yet established.
+- Player controls `button.btn-player-watched`, `button.player-episode-picker__toggle`, and schedule controls `button.schedule-episodes-table__watched` with observed class variants `watch`, `unwatch`, and `bookmarks`.
+- Same-origin bundles `/build/174.4ab9d6d2.js`, `/build/866.6986ec75.js`, `/build/app.0ef6a83a.js`, and `/build/runtime.a5bcfab0.js`.
+
+These are control names and script paths observed in the rendered HTML, not proof of what network requests their runtime handlers send. The `text-danger` class alone does not prove a delete action.
+
 Next validation:
 1. Inspect the rating form's encoding and safe control metadata without returning values.
 2. Determine how the page populates/refreshes the `token` field, keeping token values inside Rust and never exposing them to React or logs.
