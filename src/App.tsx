@@ -3223,7 +3223,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                 </div>
                 <div className="filter-section">
                   <h3>Тип</h3><div className="filter-options">
-                    {([["TV","Сериал"],["MOVIE","Фильм"],["SPECIAL","Спешл"],["OVA","OVA"],["ONA","ONA"]] as const).map(([value,label]) => <label key={value}><input type="checkbox" checked={filters.formats.includes(value)} onChange={() => toggleArrayFilter("formats", value)} /> {label}</label>)}
+                    {([["TV","Сериал"],["TV_SHORT","Короткий сериал"],["TV_SPECIAL","ТВ-спецвыпуск"],["MOVIE","Фильм"],["SPECIAL","Спешл"],["OVA","OVA"],["ONA","ONA"],["CM","Реклама"],["PV","Промо"],["MUSIC","Музыкальное"]] as const).map(([value,label]) => <label key={value}><input type="checkbox" checked={filters.formats.includes(value)} onChange={() => toggleArrayFilter("formats", value)} /> {label}</label>)}
                   </div>
                 </div>
                 <div className="filter-section">
@@ -3234,7 +3234,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                 </div>
                 <div className="filter-section">
                   <h3>Возрастной рейтинг <span title="G: без ограничений. PG: рекомендуется присутствие родителей. PG-13: не рекомендуется детям до 13 лет. R-17: до 17 лет только со взрослым. R+: просмотр до 17 лет запрещён.">ⓘ</span></h3>
-                  <div className="filter-options">{(["G","PG","PG13","R17","R+"] as const).map((value) => <label key={value}><input type="checkbox" checked={filters.ageRatings.includes(value)} onChange={() => toggleArrayFilter("ageRatings", value)} /> {value === "PG13" ? "PG-13" : value === "R17" ? "R-17" : value}</label>)}</div>
+                  <div className="filter-options">{(["G","PG","PG13","R17","R+","RX"] as const).map((value) => <label key={value}><input type="checkbox" checked={filters.ageRatings.includes(value)} onChange={() => toggleArrayFilter("ageRatings", value)} /> {value === "PG13" ? "PG-13" : value === "R17" ? "R-17" : value}</label>)}</div>
                 </div>
                 <div className="filter-section">
                   <h3>Количество эпизодов <span title="Короткие: до 13. Средние: 14–26. Длинные: 27–100. Очень длинные: более 100.">ⓘ</span></h3>
@@ -3619,7 +3619,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                 Тип аниме
                 <select value={form.format} onChange={(event) => setForm({ ...form, format: event.target.value as AnimeFormat | "" })}>
                   <option value="">Не указан</option>
-                  <option value="TV">Сериал</option><option value="MOVIE">Фильм</option><option value="SPECIAL">Спешл</option><option value="OVA">OVA</option><option value="ONA">ONA</option><option value="MUSIC">Музыкальное</option>
+                  <option value="TV">Сериал</option><option value="TV_SHORT">Короткий сериал</option><option value="TV_SPECIAL">ТВ-спецвыпуск</option><option value="MOVIE">Фильм</option><option value="SPECIAL">Спешл</option><option value="OVA">OVA</option><option value="ONA">ONA</option><option value="CM">Реклама</option><option value="PV">Промо</option><option value="MUSIC">Музыкальное</option>
                 </select>
               </label>
             </div>
@@ -3633,7 +3633,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
               <label>
                 Возрастной рейтинг
                 <select value={form.ageRating} onChange={(event) => setForm({ ...form, ageRating: event.target.value as AnimeAgeRating | "" })}>
-                  <option value="">Не указан</option><option value="G">G</option><option value="PG">PG</option><option value="PG13">PG-13</option><option value="R17">R-17</option><option value="R+">R+</option>
+                  <option value="">Не указан</option><option value="G">G</option><option value="PG">PG</option><option value="PG13">PG-13</option><option value="R17">R-17</option><option value="R+">R+</option><option value="RX">RX</option>
                 </select>
               </label>
               <label>
