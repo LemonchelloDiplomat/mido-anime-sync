@@ -99,4 +99,29 @@ describe("streaming account manager", () => {
     expect(await vault.read("animego")).toBeNull();
     expect(manager.getStatus("animego").state).toBe("disconnected");
   });
+  it("fetches a read-only provider list only through the registered native adapter", async () => {
+    const manager = new StreamingAccountManager(new StreamingAccountSessionVault(createStore()));
+    const expected = {
+      provider: "animego",
+      account: { userId: "123456", accountLabel: "demo-user" },
+      fetchedAt: "unix:123",
+      lists: [{ listType: 1, pageCount: 1, itemCount: 1 }],
+      total: 1,
+      items: [{ provider: "animego", listEntryId: "77", animeId: "4033", listType: 1 }],
+    };
+    let fetchCount = 0;
+    manager.register({
+      provider: "animego",
+      async connect() { return { sessionPayload: "opaque-session" }; },
+      async validateSession() { return true; },
+      async fetchList() { fetchCount += 1; return expected; },
+    });
+
+    await manager.connect("animego", {});
+    const result = await manager.fetchList("animego");
+
+    expect(result).toEqual(expected);
+    expect(fetchCount).toBe(1);
+  });
+
 });
