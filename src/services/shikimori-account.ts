@@ -265,6 +265,8 @@ export function parseShikimoriAccountList(
       },
       sourceMetadata: {
         shikimoriRateId: raw.id,
+        originalScore: raw.score ?? 0,
+        scoreScale: 10,
         rewatches: raw.rewatches ?? 0,
         text: raw.text ?? "",
       },
