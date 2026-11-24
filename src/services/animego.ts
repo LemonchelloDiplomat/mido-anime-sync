@@ -1,3 +1,4 @@
+import type { AnimeIdentity } from "../core/types.js";
 import type {
   StreamingCatalogProvider,
   StreamingSearchQuery,
@@ -35,6 +36,19 @@ export class AnimeGoCatalogProvider implements StreamingCatalogProvider {
       page: Number(payload.page) || 1,
       hasNextPage: Boolean(payload.hasNextPage),
     };
+  }
+
+  async getMetadata(externalId: string, signal?: AbortSignal): Promise<StreamingTitle & { identity: AnimeIdentity }> {
+    if (!/^[\p{L}\p{N}-]+$/u.test(externalId)) throw new Error("Некорректный AnimeGO slug.");
+    const payload = await request<StreamingTitle & { identity: AnimeIdentity }>(
+      "/api/animego/anime/" + encodeURIComponent(externalId) + "/metadata",
+      signal,
+    );
+    if (payload.provider !== "animego" || !payload.externalId || !payload.title ||
+        !payload.identity || payload.identity.externalIds.animego !== payload.externalId) {
+      throw new Error("AnimeGO вернул метаданные в неожиданном формате.");
+    }
+    return payload;
   }
 
   async getEpisodeVoices(episodeId: string, signal?: AbortSignal): Promise<StreamingVoice[]> {
