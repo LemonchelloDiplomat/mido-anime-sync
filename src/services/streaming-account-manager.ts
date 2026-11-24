@@ -13,12 +13,45 @@ export interface StreamingAccountStatus extends StreamingAccountSessionInfo {
 }
 
 /** Shared UI-facing account lifecycle contract implemented by native and web runtimes. */
+export interface AnimeGoWriteFieldInspection {
+  name: string;
+  tag: string;
+  inputType: string;
+  required: boolean;
+}
+
+export interface AnimeGoWriteFormInspection {
+  method: string;
+  actionPath: string;
+  enctype: string;
+  purpose: string;
+  fieldNames: string[];
+  fields: AnimeGoWriteFieldInspection[];
+  hasCsrfField: boolean;
+  hasInlineEventHandler: boolean;
+  hasDataAction: boolean;
+}
+
+export interface AnimeGoInteractiveControlInspection {
+  tag: string;
+  name: string | null;
+  inputType: string | null;
+  id: string | null;
+  classNames: string[];
+  required: boolean;
+  hasInlineEventHandler: boolean;
+  hasDataAction: boolean;
+}
+
 export interface AnimeGoWriteInspection {
   provider: "animego";
   titleUrl: string;
   httpStatus: number;
-  forms: Array<{ method: string; actionPath: string; fieldNames: string[]; hasCsrfField: boolean }>;
+  forms: AnimeGoWriteFormInspection[];
   csrfMetaNames: string[];
+  interactiveControls: AnimeGoInteractiveControlInspection[];
+  sameOriginScriptPaths: string[];
+  inlineScriptHints: string[];
   note: string;
 }
 
