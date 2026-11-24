@@ -164,11 +164,9 @@ const GENRE_TRANSLATIONS: Record<string, string> = {
 };
 
 function mapFuzzyDate(value: { year: number | null; month: number | null; day: number | null } | undefined): string | null {
-  if (!value?.year) return null;
+  if (!value?.year || !value.month || !value.day) return null;
   const year = String(value.year).padStart(4, "0");
-  if (!value.month) return year + "-01-01";
   const month = String(value.month).padStart(2, "0");
-  if (!value.day) return year + "-" + month + "-01";
   return year + "-" + month + "-" + String(value.day).padStart(2, "0");
 }
 
