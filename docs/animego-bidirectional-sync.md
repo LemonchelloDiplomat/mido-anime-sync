@@ -37,6 +37,10 @@ These are third-party observations, not an official AnimeGO API contract. The ap
 
 No guessed route, payload, token selector, or response interpretation may be used for a production write.
 
+## Current implementation checkpoint
+
+Branch 59 includes the native read-only command `animego_account_write_inspect`, registered in the Tauri command handler and exposed through the Windows account manager panel after a list preview has been loaded. The panel inspects the first imported title as a sample. It displays only form methods, same-origin action paths, field names, and whether a CSRF field is present. It performs no POST/PUT/DELETE requests.
+
 ## Implementation sequence
 
 ### Phase A: inspect and validate
