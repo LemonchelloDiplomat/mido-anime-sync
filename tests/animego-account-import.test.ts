@@ -1,11 +1,43 @@
 import { describe, expect, it } from "vitest";
-import { normalizeAnimeGoAccountList, normalizeAnimeGoFetchedAt } from "../src/services/animego-account-import.js";
+import { mergeAnimeGoTitleMetadata, normalizeAnimeGoAccountList, normalizeAnimeGoFetchedAt } from "../src/services/animego-account-import.js";
 
 describe("AnimeGO account-list import", () => {
   it("normalizes native Unix-style fetch timestamps to valid snapshot dates", () => {
     const fallback = new Date("2026-11-25T12:00:00.000Z");
     expect(normalizeAnimeGoFetchedAt("unix:1795608000", fallback)).toBe(fallback.toISOString());
     expect(normalizeAnimeGoFetchedAt("2026-11-24T08:30:00.000Z", fallback)).toBe("2026-11-24T08:30:00.000Z");
+  });
+
+  it("fills missing catalog fields without overwriting valid local metadata and repairs placeholder posters", () => {
+    const current = normalizeAnimeGoAccountList({
+      listType: 1,
+      sourceUrl: "https://animego.me/profile/test?type=1",
+      entries: [{ animeId: "3642", title: "91 день", posterUrl: "https://cdngos.com" }],
+    }).rows[0]!.anime;
+    current.year = 2015;
+    current.averageScore = 8.4;
+    current.posterUrl = "https://cdngos.com";
+    const incoming = {
+      ...current,
+      year: 2016,
+      format: "TV" as const,
+      episodes: 12,
+      genres: ["Экшен", "Драма"],
+      ageRating: "R+" as const,
+      posterUrl: "https://img.cdngos.com/posters/91-days.jpg",
+      averageScore: 9,
+      startDate: "2016-07-09",
+      releaseStatus: "RELEASED" as const,
+    };
+    const merged = mergeAnimeGoTitleMetadata(current, incoming);
+    expect(merged.year).toBe(2015);
+    expect(merged.averageScore).toBe(8.4);
+    expect(merged.format).toBe("TV");
+    expect(merged.episodes).toBe(12);
+    expect(merged.genres).toEqual(["Экшен", "Драма"]);
+    expect(merged.posterUrl).toBe("https://img.cdngos.com/posters/91-days.jpg");
+    expect(merged.startDate).toBe("2016-07-09");
+    expect(merged.releaseStatus).toBe("RELEASED");
   });
 
   it("maps all six profile list types to the corresponding local status", () => {

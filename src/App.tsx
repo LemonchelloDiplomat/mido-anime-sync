@@ -768,9 +768,10 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
         !identity.genres?.length,
         identity.averageScore == null,
       ].filter(Boolean).length;
-      const posterMissing = !identity.posterUrl || (() => {
+      const posterUrl = identity.posterUrl;
+      const posterMissing = !posterUrl || (() => {
         try {
-          const url = new URL(identity.posterUrl);
+          const url = new URL(posterUrl);
           return (url.protocol !== "https:" && url.protocol !== "http:") || url.pathname.length <= 1;
         } catch {
           return true;
