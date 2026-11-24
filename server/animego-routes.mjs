@@ -317,17 +317,42 @@ export function parseAnimeGoSearch(html) {
 function animeGoDetailField(html, label) {
   const heading = html.search(/<h1\b/i);
   const source = heading >= 0 ? html.slice(heading) : html;
-  const match = new RegExp("(?:^|[>\\s])" + label + "\\s*:?\\s*", "i").exec(source);
-  if (!match) return "";
-  const valueStart = match.index + match[0].length;
-  const openTagEnd = source.lastIndexOf(">", match.index);
-  const openTagStart = source.lastIndexOf("<", openTagEnd);
-  const openTag = source.slice(openTagStart + 1, openTagEnd).match(/^([a-z][\w:-]*)/i)?.[1];
-  if (openTag) {
-    const closePattern = new RegExp("</" + openTag + "\\s*>", "ig");
-    closePattern.lastIndex = valueStart;
-    const close = closePattern.exec(source);
-    if (close) return stripTags(source.slice(valueStart, close.index)).replace(/^[\s:,-]+|[\s,;]+$/g, "").trim();
+  const escapedLabel = label.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&");
+  const labelMatch = new RegExp(escapedLabel + "\\s*:?\\s*", "i").exec(source);
+  if (!labelMatch) return "";
+  const valueStart = labelMatch.index + labelMatch[0].length;
+  const voidTags = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
+  const stack = [];
+  const tagPattern = /<(\/?)([a-z][\w:-]*)\b[^>]*>/gi;
+  let tagMatch;
+  while ((tagMatch = tagPattern.exec(source)) && tagMatch.index < labelMatch.index) {
+    const name = tagMatch[2].toLowerCase();
+    if (tagMatch[1]) {
+      const openIndex = stack.map((item) => item.name).lastIndexOf(name);
+      if (openIndex >= 0) stack.splice(openIndex);
+    } else if (!voidTags.has(name) && !/\/\s*>$/.test(tagMatch[0])) {
+      stack.push({ name, start: tagMatch.index });
+    }
+  }
+  const container = [...stack].reverse().find((item) =>
+    ["div", "li", "tr", "dd", "dt", "dl", "p", "section", "article"].includes(item.name),
+  );
+  if (container) {
+    const sameTag = new RegExp("</?" + container.name + "\\b[^>]*>", "ig");
+    sameTag.lastIndex = container.start;
+    let depth = 0;
+    let rowEnd = source.length;
+    let rowTag;
+    while ((rowTag = sameTag.exec(source))) {
+      if (/^<\//.test(rowTag[0])) depth -= 1;
+      else if (!/\/\s*>$/.test(rowTag[0])) depth += 1;
+      if (depth === 0) {
+        rowEnd = rowTag.index;
+        break;
+      }
+    }
+    return stripTags(source.slice(valueStart, rowEnd))
+      .replace(/^[\s:,-]+|[\s,;]+$/g, "").trim();
   }
   const nextLabel = /(?:>|\\s)(?:Тип|Эпизоды|Статус|Жанр|Темы|Первоисточник|Сезон|Выпуск|Рейтинг MPAA|Возрастные ограничения|Длительность|Студия)\\s*:?\\s*/ig;
   nextLabel.lastIndex = valueStart;
