@@ -45,6 +45,7 @@ import { reconcileUnfinishedSyncOperations } from "./core/sync-recovery.js";
 import { mergeSharedMetadataIntoProviderMetadata } from "./core/shared-entry-metadata.js";
 import { reconcileInterruptedSyncSessions } from "./core/sync-session-recovery.js";
 import { findExactIdentityDuplicatePairs } from "./core/identity-reconciliation.js";
+import { mergeAnimeMetadata } from "./core/anime-metadata.js";
 import { getProviderLabel, getProviderServiceId } from "./core/provider-capabilities.js";
 import { createWatchSourceEntry, findExactAnimeTitleMatches, validateWatchEvent, type WatchEvent } from "./core/watch-events.js";
 
@@ -516,40 +517,12 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       const targetId = existing?.anime.id ?? anime.id;
       const currentAnime = existing?.anime;
       const mergedAnime: AnimeIdentity = {
-        ...anime,
-        ...(currentAnime ?? {}),
+        ...mergeAnimeMetadata(anime, currentAnime ?? anime),
         id: targetId,
-        titles: {
-          ...anime.titles,
-          ...(currentAnime?.titles ?? {}),
-          synonyms: [...new Set([
-            ...anime.titles.synonyms,
-            ...(currentAnime?.titles.synonyms ?? []),
-          ])],
-        },
         externalIds: {
           ...anime.externalIds,
           ...(currentAnime?.externalIds ?? {}),
-          ...(anime.externalIds.anilist
-            ? { anilist: anime.externalIds.anilist }
-            : {}),
-          ...(anime.externalIds.myanimelist
-            ? { myanimelist: anime.externalIds.myanimelist }
-            : {}),
         },
-        year: currentAnime?.year ?? anime.year ?? null,
-        ...(currentAnime?.format ?? anime.format
-          ? { format: currentAnime?.format ?? anime.format! }
-          : {}),
-        episodes: currentAnime?.episodes ?? anime.episodes ?? null,
-        genres: currentAnime?.genres?.length ? currentAnime.genres : (anime.genres ?? []),
-        ageRating: currentAnime?.ageRating ?? anime.ageRating ?? null,
-        posterUrl: currentAnime?.posterUrl ?? anime.posterUrl ?? null,
-        averageScore: currentAnime?.averageScore ?? anime.averageScore ?? null,
-        startDate: currentAnime?.startDate ?? anime.startDate ?? null,
-        ...(currentAnime?.releaseStatus ?? anime.releaseStatus
-          ? { releaseStatus: currentAnime?.releaseStatus ?? anime.releaseStatus! }
-          : {}),
       };
 
       await repository.saveAnime(mergedAnime);
@@ -3327,6 +3300,23 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                         <div className="anime-catalog-meta">
                           {[anime.format, anime.year, anime.ageRating, anime.startDate, releaseStatusLabel, anime.episodes != null ? `${anime.episodes} эп.` : null, ...(anime.genres ?? [])].filter(Boolean).join(" · ") || "Метаданные пока не добавлены"}
                         </div>
+                        {Object.entries(anime.providerScores ?? {}).some(([, metrics]) => metrics.averageScore || metrics.meanScore) && (
+                          <div className="anime-catalog-meta">
+                            {Object.entries(anime.providerScores ?? {}).flatMap(([provider, metrics]) => {
+                              const score = metrics.averageScore ?? metrics.meanScore;
+                              return score ? [`${provider}: ${score.value} / ${score.scale}`] : [];
+                            }).join(" · ")}
+                          </div>
+                        )}
+                        {(anime.themes?.length || anime.demographics?.length || anime.studios?.length) ? (
+                          <div className="anime-catalog-meta">
+                            {[
+                              anime.themes?.length ? `Темы: ${anime.themes.join(", ")}` : null,
+                              anime.demographics?.length ? `Демография: ${anime.demographics.join(", ")}` : null,
+                              anime.studios?.length ? `Студии: ${anime.studios.map((studio) => studio.name).join(", ")}` : null,
+                            ].filter(Boolean).join(" · ")}
+                          </div>
+                        ) : null}
 
                         {entry && (
                           <>
