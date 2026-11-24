@@ -91,9 +91,10 @@ export interface StreamingAccountManagerPort {
   /** Optional two-step sign-in flow for providers that authenticate in a native WebView. */
   beginConnect?(provider: StreamingProviderId): Promise<void>;
   completeConnect?(provider: StreamingProviderId): Promise<StreamingAccountStatus>;
-  /** Optional read-only provider list fetch; secrets remain inside the trusted adapter. */
+  /** Reopen the authenticated provider WebView without changing account state. */
   openSessionWindow?(provider: StreamingProviderId): Promise<void>;
   inspectNetwork?(provider: StreamingProviderId): Promise<AnimeGoNetworkInspection>;
+  /** Optional read-only provider list fetch; secrets remain inside the trusted adapter. */
   fetchList?(provider: StreamingProviderId): Promise<unknown>;
   inspectWriteCapabilities?(provider: StreamingProviderId, titleUrl: string): Promise<AnimeGoWriteInspection>;
 }
@@ -113,9 +114,10 @@ export interface StreamingAccountAdapter {
   beginConnect?(): Promise<void>;
   completeConnect?(): Promise<StreamingAccountConnectResult>;
   getSessionInfo?(): Promise<{ accountLabel?: string | null; expiresAt?: string | null }>;
-  /** Read-only account-list import. The adapter must keep session material native. */
+  /** Reopen the authenticated provider WebView without changing account state. */
   openSessionWindow?(): Promise<void>;
   inspectNetwork?(): Promise<AnimeGoNetworkInspection>;
+  /** Read-only account-list import. The adapter must keep session material native. */
   fetchList?(): Promise<unknown>;
   inspectWriteCapabilities?(titleUrl: string): Promise<AnimeGoWriteInspection>;
 }
