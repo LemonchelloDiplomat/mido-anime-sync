@@ -195,6 +195,7 @@ export function parseAniListAccountList(
           popularity: media.popularity ?? null,
           favourites: media.favourites ?? null,
           isAdult: media.isAdult ?? null,
+          rawMedia: media,
         },
       },
       ...(mapReleaseStatus(media.status) ? { releaseStatus: mapReleaseStatus(media.status)! } : {}),
