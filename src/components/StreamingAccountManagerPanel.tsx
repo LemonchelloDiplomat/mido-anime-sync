@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { StreamingProviderId } from "../services/streaming-provider.js";
-import type { StreamingAccountStatus } from "../services/streaming-account-manager.js";
+import type { AnimeGoWriteInspection, StreamingAccountStatus } from "../services/streaming-account-manager.js";
 import type { StreamingRuntime } from "../services/platform/streaming-runtime.js";
 import type { AnimeGoAccountListResponse } from "../services/platform/web-streaming-account-manager.js";
 
@@ -50,6 +50,8 @@ export function StreamingAccountManagerPanel({
   const [listImportMessage, setListImportMessage] = useState("");
   const [authWindowOpened, setAuthWindowOpened] = useState(false);
   const [listPreview, setListPreview] = useState<AnimeGoAccountListResponse | null>(null);
+  const [writeInspection, setWriteInspection] = useState<AnimeGoWriteInspection | null>(null);
+  const [inspectionLoading, setInspectionLoading] = useState(false);
   const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
@@ -131,6 +133,7 @@ export function StreamingAccountManagerPanel({
     try {
       const result = await runtime.accounts.fetchList("animego") as AnimeGoAccountListResponse;
       setListPreview(result);
+      setWriteInspection(null);
       setListImportMessage("");
     } catch (cause) {
       const message = typeof cause === "string"
@@ -143,6 +146,22 @@ export function StreamingAccountManagerPanel({
       setError(message);
     } finally {
       setListLoading(false);
+    }
+  }
+
+  async function inspectAnimeGoWriteCapabilities() {
+    const firstItem = listPreview?.items[0];
+    if (!firstItem || !runtime?.accounts.inspectWriteCapabilities) return;
+    setInspectionLoading(true);
+    setError("");
+    setWriteInspection(null);
+    try {
+      const result = await runtime.accounts.inspectWriteCapabilities("animego", firstItem.url);
+      setWriteInspection(result);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось исследовать формы AnimeGO.");
+    } finally {
+      setInspectionLoading(false);
     }
   }
 
@@ -307,6 +326,24 @@ export function StreamingAccountManagerPanel({
           </ul>
           {listPreview.total > 12 && <small>И ещё {listPreview.total - 12} записей.</small>}
           {onImportAnimeGoList && <button className="secondary-button" type="button" onClick={() => void importAnimeGoList()} disabled={listImporting || listLoading}>{listImporting ? "Импортируем..." : "Импортировать в библиотеку"}</button>}
+          {runtime?.accounts.inspectWriteCapabilities && listPreview.items.length > 0 && (
+            <button className="secondary-button" type="button" onClick={() => void inspectAnimeGoWriteCapabilities()} disabled={inspectionLoading || listLoading || listImporting}>
+              {inspectionLoading ? "Изучаем страницу..." : "Исследовать формы записи (без изменений)"}
+            </button>
+          )}
+          {writeInspection && (
+            <div className="native-account-write-inspection" role="status">
+              <strong>Проверка страницы завершена. Изменения не отправлялись.</strong>
+              <p>Найдено форм: {writeInspection.forms.length}. CSRF meta-поля: {writeInspection.csrfMetaNames.join(", ") || "не найдены"}.</p>
+              {writeInspection.forms.map((form, index) => (
+                <p key={index}>
+                  {form.method} {form.actionPath}
+                  <small>Поля: {form.fieldNames.join(", ") || "нет"}{form.hasCsrfField ? " · CSRF-поле обнаружено" : ""}</small>
+                </p>
+              ))}
+              <small>{writeInspection.note}</small>
+            </div>
+          )}
           {listImportMessage && <p role="status">{listImportMessage}</p>}
         </div>
       )}
