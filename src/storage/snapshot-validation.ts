@@ -22,11 +22,15 @@ const VALID_STATUSES = [
   "REWATCHING",
 ] as const;
 
-const VALID_AGE_RATINGS = ["G", "PG", "PG13", "R17", "R+"] as const;
+const VALID_AGE_RATINGS = ["G", "PG", "PG13", "R17", "R+", "RX"] as const;
 const VALID_RELEASE_STATUSES = ["ONGOING", "ANNOUNCED", "RELEASED"] as const;
 
 const VALID_FORMATS = [
   "TV",
+  "TV_SHORT",
+  "TV_SPECIAL",
+  "CM",
+  "PV",
   "MOVIE",
   "OVA",
   "ONA",
