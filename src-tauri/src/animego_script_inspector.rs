@@ -73,8 +73,11 @@ pub fn inspect_animego_script(source: &str) -> Vec<AnimeGoScriptRouteCandidate> 
         let context = context_window(source, quote_index, cursor).to_ascii_lowercase();
 
         let mut methods = Vec::new();
-        if context.contains("post") && (context.contains("method:") || context.contains(".post(") || context.contains("type:")) {
+        if context.contains("post") && (context.contains("method:") || context.contains(".post(") || context.contains("type:") || context.contains("open(")) {
             methods.push("POST".to_string());
+        }
+        if context.contains("get") && (context.contains("method:") || context.contains(".get(") || context.contains("open(")) {
+            methods.push("GET".to_string());
         }
         if context.contains("delete") && (context.contains("method:") || context.contains(".delete(")) {
             methods.push("DELETE".to_string());
