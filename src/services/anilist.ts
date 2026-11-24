@@ -175,6 +175,16 @@ function mapFuzzyDate(value: { year: number | null; month: number | null; day: n
 function mapMedia(media: AniListMedia): AnimeIdentity {
   const startDate = mapStartDate(media.startDate);
   const endDate = mapFuzzyDate(media.endDate);
+  const startDateParts = media.startDate?.year ? {
+    year: media.startDate.year,
+    ...(media.startDate.month ? { month: media.startDate.month } : {}),
+    ...(media.startDate.day ? { day: media.startDate.day } : {}),
+  } : null;
+  const endDateParts = media.endDate?.year ? {
+    year: media.endDate.year,
+    ...(media.endDate.month ? { month: media.endDate.month } : {}),
+    ...(media.endDate.day ? { day: media.endDate.day } : {}),
+  } : null;
   const synonyms = [...new Set(
     (media.synonyms ?? [])
       .map((title) => title.trim())
@@ -203,6 +213,8 @@ function mapMedia(media: AniListMedia): AnimeIdentity {
     averageScore:
       media.averageScore == null ? null : media.averageScore / 10,
     ...(endDate ? { endDate } : {}),
+    ...(startDateParts ? { startDateParts } : {}),
+    ...(endDateParts ? { endDateParts } : {}),
     ...(media.season ? { season: media.season as "WINTER" | "SPRING" | "SUMMER" | "FALL" } : {}),
     ...(media.seasonYear ? { seasonYear: media.seasonYear } : {}),
     ...(media.duration != null ? { durationMinutes: media.duration } : {}),
@@ -331,6 +343,19 @@ const MAL_METADATA_FRAGMENT = `
     seasonYear
     startDate { year month day }
     averageScore
+    description
+    endDate { year month day }
+    season
+    duration
+    countryOfOrigin
+    source
+    bannerImage
+    meanScore
+    popularity
+    favourites
+    tags { name rank isGeneralSpoiler isAdultSpoiler category }
+    studios { nodes { id name isAnimationStudio } }
+    staff { edges { role node { id name { full } } } }
     genres
     coverImage { extraLarge large }
   }
