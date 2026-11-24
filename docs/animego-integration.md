@@ -17,7 +17,13 @@ The adapter stores the provider's embed URL in transient UI state only. It does 
 
 ## Account and progress
 
-No authoritative public AnimeGO account API has been verified. Account connection, personal-list import, and remote list writes remain disabled. The existing browser extension remains the source of watch-progress events from AnimeGO pages and sends those events to the local library as a separate source entry.
+AnimeGO does not publish a documented public third-party account API. Windows account sign-in is performed in the first-party site through Tauri WebView2. The resulting cookies are kept in Rust and Windows Credential Manager; they are never sent to React, the local Node API, IndexedDB, or the library.
+
+The Windows native adapter reads the six personal-list categories from signed-in profile pages (/profile/{userId}?type=1..6, with /user/{userId} as a route fallback). Lazy pages are requested through the site's Turbo Frame URLs under /user/mylist/{listId}/{page}?type={type}. The parser extracts exact AnimeGO IDs, titles, poster URLs, release labels, and episode progress when the page exposes it. Requests are sequential, same-origin only, bounded by response/page/item limits, and do not bypass CAPTCHA or anti-bot checks.
+
+The local import normalizer maps the six list types to the app's existing statuses and stores AnimeGO as a separate source entry. Re-import preserves existing provider progress, score, and favorite values when the current response does not expose those fields. The operation is read-only: no remote status, rating, favorite, or progress writes are performed. This is first-party page parsing, not an official public API, and site markup/routes may change.
+
+The existing browser extension remains an additional source of watch-progress events from AnimeGO pages and sends those events to the local library as a separate source entry. Android account sign-in/list import remains deferred until a dedicated Android WebView cookie adapter is implemented.
 
 ## Network compatibility
 
