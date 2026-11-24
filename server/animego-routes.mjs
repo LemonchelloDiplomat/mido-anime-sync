@@ -334,10 +334,10 @@ function animeGoDetailField(html, label) {
       stack.push({ name, start: tagMatch.index });
     }
   }
-  const container = [...stack].reverse().find((item) =>
+  const containers = [...stack].reverse().filter((item) =>
     ["div", "li", "tr", "dd", "dt", "dl", "p", "section", "article"].includes(item.name),
   );
-  if (container) {
+  for (const container of containers) {
     const sameTag = new RegExp("</?" + container.name + "\\b[^>]*>", "ig");
     sameTag.lastIndex = container.start;
     let depth = 0;
@@ -351,8 +351,9 @@ function animeGoDetailField(html, label) {
         break;
       }
     }
-    return stripTags(source.slice(valueStart, rowEnd))
+    const value = stripTags(source.slice(valueStart, rowEnd))
       .replace(/^[\s:,-]+|[\s,;]+$/g, "").trim();
+    if (value) return value;
   }
   const nextLabel = /(?:>|\\s)(?:Тип|Эпизоды|Статус|Жанр|Темы|Первоисточник|Сезон|Выпуск|Рейтинг MPAA|Возрастные ограничения|Длительность|Студия)\\s*:?\\s*/ig;
   nextLabel.lastIndex = valueStart;
