@@ -215,7 +215,7 @@ export function parseShikimoriAccountList(
       averageScore,
       ...(mapAgeRating(animeData.rating) ? { ageRating: mapAgeRating(animeData.rating)! } : {}),
       ...(mapReleaseStatus(animeData.status) ? { releaseStatus: mapReleaseStatus(animeData.status)! } : {}),
-      ...(animeData.aired_on ? { startDate: airedOn } : {}),
+      ...(animeData.aired_on ? { startDate: airedOn ?? null } : {}),
       ...(animeData.released_on ? { endDate: safeDate(animeData.released_on) ?? null } : {}),
       ...(animeData.aired_on_parts?.year ? { startDateParts: animeData.aired_on_parts } : {}),
       ...(animeData.released_on_parts?.year ? { endDateParts: animeData.released_on_parts } : {}),
