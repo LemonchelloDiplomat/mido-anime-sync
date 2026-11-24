@@ -15,11 +15,29 @@ export const SHIKIMORI_USER_ANIME_RATES_QUERY = `
         malId
         name
         russian
+        english
+        japanese
+        synonyms
         kind
+        status
         episodes
+        episodesAired
+        duration
         score
+        rating
+        origin
+        season
+        franchise
+        isCensored
         airedOn { date year month day }
+        releasedOn { date year month day }
+        description
+        descriptionHtml
+        genres { id name russian kind }
+        studios { id name }
+        licensors
         poster { originalUrl mainUrl }
+        opengraphImageUrl
       }
     }
   }
@@ -77,10 +95,30 @@ export async function fetchShikimoriAnimeRates(
           malId: rate.anime.malId ?? null,
           name: rate.anime.name,
           russian: rate.anime.russian ?? null,
+          english: rate.anime.english ?? null,
+          japanese: rate.anime.japanese ?? null,
+          synonyms: rate.anime.synonyms ?? [],
           kind: rate.anime.kind ?? null,
+          status: rate.anime.status ?? null,
           episodes: rate.anime.episodes ?? null,
+          episodes_aired: rate.anime.episodesAired ?? null,
+          duration: rate.anime.duration ?? null,
           score: rate.anime.score ?? null,
+          rating: rate.anime.rating ?? null,
+          origin: rate.anime.origin ?? null,
+          season: rate.anime.season ?? null,
+          franchise: rate.anime.franchise ?? null,
+          is_censored: rate.anime.isCensored ?? null,
           aired_on: rate.anime.airedOn?.date ?? null,
+          aired_on_parts: rate.anime.airedOn ?? null,
+          released_on: rate.anime.releasedOn?.date ?? null,
+          released_on_parts: rate.anime.releasedOn ?? null,
+          description: rate.anime.description ?? null,
+          description_html: rate.anime.descriptionHtml ?? null,
+          genres: rate.anime.genres ?? [],
+          studios: rate.anime.studios ?? [],
+          licensors: rate.anime.licensors ?? [],
+          opengraph_image_url: rate.anime.opengraphImageUrl ?? null,
           image: {
             original: rate.anime.poster?.originalUrl ?? null,
             preview: rate.anime.poster?.mainUrl ?? null,
