@@ -128,12 +128,22 @@ export function parseMyAnimeListApiList(
       },
       externalIds: { myanimelist: String(node.id) },
       ...(startDate ? { startDate, year: Number(startDate.slice(0, 4)) } : {}),
+      ...(node.start_date ? { startDateParts: {
+        year: Number(node.start_date.slice(0, 4)),
+        ...(node.start_date.length >= 7 ? { month: Number(node.start_date.slice(5, 7)) } : {}),
+        ...(node.start_date.length >= 10 ? { day: Number(node.start_date.slice(8, 10)) } : {}),
+      } } : {}),
       ...(mapFormat(node.media_type) ? { format: mapFormat(node.media_type)! } : {}),
       ...(Number.isInteger(node.num_episodes) ? { episodes: node.num_episodes } : {}),
       ...(node.genres ? { genres: node.genres.map((genre) => genre.name).filter(Boolean) } : {}),
       posterUrl: node.main_picture?.large || node.main_picture?.medium || null,
       averageScore: typeof node.mean === "number" ? node.mean : null,
       endDate: safeDate(node.end_date),
+      ...(node.end_date ? { endDateParts: {
+        year: Number(node.end_date.slice(0, 4)),
+        ...(node.end_date.length >= 7 ? { month: Number(node.end_date.slice(5, 7)) } : {}),
+        ...(node.end_date.length >= 10 ? { day: Number(node.end_date.slice(8, 10)) } : {}),
+      } } : {}),
       season: node.start_season?.season ? ({
         winter: "WINTER", spring: "SPRING", summer: "SUMMER", fall: "FALL",
       } as const)[node.start_season.season as "winter" | "spring" | "summer" | "fall"] ?? null : null,
@@ -149,7 +159,7 @@ export function parseMyAnimeListApiList(
       providerScores: {
         myanimelist: {
           ...(typeof node.mean === "number" ? { meanScore: {
-            value: node.mean, scale: 10, normalizedValue: Math.round(node.mean * 1000) / 10, kind: "mean" as const,
+            value: node.mean, scale: 10, normalizedValue: Math.round(node.mean * 1000) / 100, kind: "mean" as const,
             voteCount: Number.isSafeInteger(node.num_scoring_users) ? node.num_scoring_users : null,
           } } : {}),
           ...(Number.isSafeInteger(node.rank) ? { rank: node.rank } : {}),
@@ -165,6 +175,12 @@ export function parseMyAnimeListApiList(
           source: node.source ?? null,
           numScoringUsers: node.num_scoring_users ?? null,
           numListUsers: node.num_list_users ?? null,
+          genres: node.genres ?? [],
+          themes: node.themes ?? [],
+          demographics: node.demographics ?? [],
+          studios: node.studios ?? [],
+          producers: node.producers ?? [],
+          licensors: node.licensors ?? [],
         },
       },
       ...(mapAgeRating(node.rating) ? { ageRating: mapAgeRating(node.rating)! } : {}),
