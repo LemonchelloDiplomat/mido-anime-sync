@@ -3298,13 +3298,16 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                         <h3>{title}</h3>
                         <p className="anime-subtitle">{anime.titles.romaji ?? " "}</p>
                         <div className="anime-catalog-meta">
-                          {[anime.format, anime.year, anime.ageRating, anime.startDate, releaseStatusLabel, anime.episodes != null ? `${anime.episodes} эп.` : null, ...(anime.genres ?? [])].filter(Boolean).join(" · ") || "Метаданные пока не добавлены"}
+                          {[anime.format, anime.year, anime.season ? `${anime.season} ${anime.seasonYear ?? ""}`.trim() : null, anime.ageRating, anime.startDate, anime.endDate, releaseStatusLabel, anime.episodes != null ? `${anime.episodes} эп.` : null, anime.episodesAired != null ? `${anime.episodesAired} вышло` : null, anime.durationMinutes != null ? `${anime.durationMinutes} мин.` : null, anime.countryOfOrigin, anime.sourceMaterial, ...(anime.genres ?? [])].filter(Boolean).join(" · ") || "Метаданные пока не добавлены"}
                         </div>
                         {Object.entries(anime.providerScores ?? {}).some(([, metrics]) => metrics.averageScore || metrics.meanScore) && (
                           <div className="anime-catalog-meta">
                             {Object.entries(anime.providerScores ?? {}).flatMap(([provider, metrics]) => {
-                              const score = metrics.averageScore ?? metrics.meanScore;
-                              return score ? [`${provider}: ${score.value} / ${score.scale}`] : [];
+                              const label = ({ myanimelist: "MAL", anilist: "AniList", shikimori: "Shikimori", animego: "AnimeGO", anixart: "AnixART", yummyanime: "YummyAnime" } as Record<string, string>)[provider] ?? provider;
+                              return [
+                                ...(metrics.averageScore ? [`${label} avg: ${metrics.averageScore.value} / ${metrics.averageScore.scale}${metrics.averageScore.voteCount != null ? ` (голосов: ${metrics.averageScore.voteCount})` : ""}`] : []),
+                                ...(metrics.meanScore ? [`${label} mean: ${metrics.meanScore.value} / ${metrics.meanScore.scale}${metrics.meanScore.voteCount != null ? ` (голосов: ${metrics.meanScore.voteCount})` : ""}`] : []),
+                              ];
                             }).join(" · ")}
                           </div>
                         )}
@@ -3314,6 +3317,9 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                               anime.themes?.length ? `Темы: ${anime.themes.join(", ")}` : null,
                               anime.demographics?.length ? `Демография: ${anime.demographics.join(", ")}` : null,
                               anime.studios?.length ? `Студии: ${anime.studios.map((studio) => studio.name).join(", ")}` : null,
+                              anime.producers?.length ? `Продюсеры: ${anime.producers.map((producer) => producer.name).join(", ")}` : null,
+                              anime.licensors?.length ? `Лицензии: ${anime.licensors.map((licensor) => licensor.name).join(", ")}` : null,
+                              anime.tags?.length ? `Теги: ${anime.tags.slice(0, 5).map((tag) => tag.name).join(", ")}` : null,
                             ].filter(Boolean).join(" · ")}
                           </div>
                         ) : null}
