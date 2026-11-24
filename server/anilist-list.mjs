@@ -1,4 +1,4 @@
-export const ANILIST_LIST_CHUNK_SIZE = 500;
+export const ANILIST_LIST_CHUNK_SIZE = 100;
 export const ANILIST_LIST_MAX_CHUNKS = 100;
 
 export async function fetchAniListAnimeList({ request, userId, accessToken }) {
