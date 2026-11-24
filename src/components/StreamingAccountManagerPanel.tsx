@@ -345,6 +345,9 @@ export function StreamingAccountManagerPanel({
                     {disconnecting === provider.id ? "Отключаем..." : "Отключить"}
                   </button>
                 </div>
+                {provider.id === "animego" && runtime.platform === "windows-native" && (
+                  <small>Открой окно AnimeGO, перейди на страницу нужного тайтла и только затем запусти наблюдение. Во время 90 секунд выполни обычные действия на сайте. Инспектор не нажимает кнопки и не меняет данные.</small>
+                )}
               ) : provider.id !== "animego" ? (
                 <button
                   className="secondary-button"
