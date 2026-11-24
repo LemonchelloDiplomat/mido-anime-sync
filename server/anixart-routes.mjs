@@ -244,7 +244,7 @@ export function parseAnixArtDetail(html, requestedUrl) {
       ageRating,
       averageScore,
       ...(averageScore !== null ? { providerScores: { anixart: {
-        averageScore: { value: averageScore, scale: 10, normalizedValue: averageScore * 10, kind: "average" },
+        averageScore: { value: averageScore, scale: 10, normalizedValue: Math.round(averageScore * 1000) / 100, kind: "average" },
       } } } : {}),
       synopsis: description,
       ...(originMatch?.[1]?.trim() ? { sourceMaterial: originMatch[1].trim() } : {}),
