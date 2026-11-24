@@ -995,9 +995,169 @@ pub async fn animego_account_list_fetch() -> Result<AnimeGoAccountListResponse, 
     })
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeGoWriteFormInspection {
+    method: String,
+    action_path: String,
+    field_names: Vec<String>,
+    has_csrf_field: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeGoWriteInspection {
+    provider: &'static str,
+    title_url: String,
+    http_status: u16,
+    forms: Vec<AnimeGoWriteFormInspection>,
+    csrf_meta_names: Vec<String>,
+    note: &'static str,
+}
+
+/// Inspect authenticated title-page forms without submitting them or exposing
+/// cookies, hidden field values, CSRF values, or authenticated HTML to the UI.
+fn parse_animego_write_forms(
+    html: &str,
+    base_url: &reqwest::Url,
+) -> Result<(Vec<AnimeGoWriteFormInspection>, Vec<String>), String> {
+    use scraper::{Html, Selector};
+
+    if html.len() > 2 * 1024 * 1024 {
+        return Err("Страница AnimeGO превышает лимит 2 МБ.".to_string());
+    }
+    if base_url.scheme() != "https" || base_url.host_str() != Some("animego.me") {
+        return Err("Инспектор принимает только страницы animego.me.".to_string());
+    }
+
+    let document = Html::parse_document(html);
+    let form_selector = Selector::parse("form")
+        .map_err(|_| "Не удалось подготовить анализатор форм AnimeGO.".to_string())?;
+    let input_selector = Selector::parse("input[name], select[name], textarea[name], button[name]")
+        .map_err(|_| "Не удалось подготовить анализатор полей AnimeGO.".to_string())?;
+    let meta_selector = Selector::parse("meta[name]")
+        .map_err(|_| "Не удалось подготовить анализатор meta-тегов AnimeGO.".to_string())?;
+
+    let mut forms = Vec::new();
+    for form in document.select(&form_selector).take(100) {
+        let method = form.value().attr("method").unwrap_or("GET").trim().to_ascii_uppercase();
+        if !matches!(method.as_str(), "GET" | "POST") { continue; }
+        let raw_action = form.value().attr("action").unwrap_or(base_url.path());
+        let Ok(action) = base_url.join(raw_action) else { continue; };
+        if action.scheme() != "https" || action.host_str() != Some("animego.me") { continue; }
+
+        let mut field_names: Vec<String> = Vec::new();
+        let mut has_csrf_field = false;
+        for field in form.select(&input_selector).take(100) {
+            let Some(raw_name) = field.value().attr("name") else { continue; };
+            let name = raw_name.trim();
+            if name.is_empty() || name.len() > 100 ||
+                !name.chars().all(|ch| ch.is_ascii_alphanumeric() || "_-[]".contains(ch)) {
+                continue;
+            }
+            let lower = name.to_ascii_lowercase();
+            if lower.contains("csrf") || lower == "token" || lower.contains("xsrf") {
+                has_csrf_field = true;
+            }
+            if !field_names.iter().any(|existing| existing == name) {
+                field_names.push(name.to_string());
+            }
+        }
+        forms.push(AnimeGoWriteFormInspection {
+            method,
+            action_path: action.path().to_string(),
+            field_names,
+            has_csrf_field,
+        });
+    }
+
+    let mut csrf_meta_names = Vec::new();
+    for meta in document.select(&meta_selector).take(100) {
+        let name = meta.value().attr("name").unwrap_or("").trim();
+        let lower = name.to_ascii_lowercase();
+        if (lower.contains("csrf") || lower.contains("xsrf")) && name.len() <= 100 {
+            csrf_meta_names.push(name.to_string());
+        }
+    }
+    csrf_meta_names.sort();
+    csrf_meta_names.dedup();
+    Ok((forms, csrf_meta_names))
+}
+
+#[tauri::command]
+pub async fn animego_account_write_inspect(title_url: String) -> Result<AnimeGoWriteInspection, String> {
+    let requested = reqwest::Url::parse(&title_url)
+        .map_err(|_| "Некорректная ссылка на тайтл AnimeGO.".to_string())?;
+    let origin = reqwest::Url::parse(ANIMEGO_ORIGIN)
+        .map_err(|_| "Некорректный адрес AnimeGO.".to_string())?;
+    let safe_title = safe_animego_title_url(requested.as_str(), &origin)
+        .ok_or_else(|| "Для проверки нужна HTTPS-ссылка на карточку AnimeGO вида /anime/slug-ID.".to_string())?;
+
+    let raw = streaming_secret_get(ANIMEGO_SESSION_KEY.to_string())?
+        .ok_or_else(|| "Сначала подключи аккаунт AnimeGO.".to_string())?;
+    let session: AnimeGoStoredSession = serde_json::from_str(&raw)
+        .map_err(|_| "Сохранённая сессия AnimeGO повреждена. Подключи аккаунт заново.".to_string())?;
+    if session.cookies.is_empty() || session.user_id.is_empty() ||
+        !session.user_id.chars().all(|character| character.is_ascii_digit()) {
+        return Err("Сохранённая сессия AnimeGO неполная. Подключи аккаунт заново.".to_string());
+    }
+
+    let mut cookies = session.cookies.iter().cloned().collect::<HashMap<_, _>>();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 5 { attempt.stop() }
+            else if attempt.url().scheme() == "https" && attempt.url().host_str() == Some("animego.me") { attempt.follow() }
+            else { attempt.stop() }
+        }))
+        .build()
+        .map_err(|_| "Не удалось запустить защищённый HTTP-клиент AnimeGO.".to_string())?;
+
+    let mut path = safe_title.path().to_string();
+    if let Some(query) = safe_title.query() { path.push('?'); path.push_str(query); }
+    let page = animego_fetch_account_page(&client, &mut cookies, &path, ANIMEGO_ORIGIN, None).await?;
+    if !(200..300).contains(&page.status) {
+        return Err(format!("AnimeGO не смог открыть карточку тайтла (HTTP {}).", page.status));
+    }
+
+    let (forms, csrf_meta_names) = parse_animego_write_forms(&page.text, &safe_title)?;
+    Ok(AnimeGoWriteInspection {
+        provider: "animego",
+        title_url: safe_title.to_string(),
+        http_status: page.status,
+        forms,
+        csrf_meta_names,
+        note: "Только чтение. Формы не отправлялись; значения скрытых полей и токены не возвращаются.",
+    })
+}
+
+
 #[cfg(test)]
 mod animego_account_list_tests {
     use super::{parse_animego_mylist_page, parse_animego_progress, parse_animego_score};
+
+
+    #[test]
+    fn inspects_same_origin_forms_without_exposing_hidden_values() {
+        use super::parse_animego_write_forms;
+        let html = r#"<html><head><meta name="csrf-token" content="SECRET-META"></head>
+          <body><form method="post" action="/mylist/anime/123/1/add">
+            <input type="hidden" name="token" value="SECRET-FORM">
+            <input name="rate" value="8">
+          </form>
+          <form method="post" action="https://evil.example/steal"><input name="x"></form>
+          </body></html>"#;
+        let base = reqwest::Url::parse("https://animego.me/anime/example-123").unwrap();
+        let (forms, meta) = parse_animego_write_forms(html, &base).unwrap();
+        assert_eq!(forms.len(), 1);
+        assert_eq!(forms[0].method, "POST");
+        assert_eq!(forms[0].action_path, "/mylist/anime/123/1/add");
+        assert!(forms[0].has_csrf_field);
+        assert_eq!(forms[0].field_names, vec!["token", "rate"]);
+        assert_eq!(meta, vec!["csrf-token"]);
+        let serialized = serde_json::to_string(&(forms, meta)).unwrap();
+        assert!(!serialized.contains("SECRET"));
+    }
 
     #[test]
     fn parses_account_list_card_and_episode_progress() {
