@@ -54,6 +54,10 @@ export class AnimeGoWindowsWebViewAdapter implements StreamingAccountAdapter {
     return { accountLabel: status.accountLabel };
   }
 
+  async fetchList(): Promise<AnimeGoAccountListResponse> {
+    return this.invoke<AnimeGoAccountListResponse>("animego_account_list_fetch");
+  }
+
   async disconnect(): Promise<void> {
     await this.invoke<void>("animego_auth_disconnect");
     this.lastStatus = { connected: false, accountLabel: null, state: "disconnected" };
