@@ -89,6 +89,10 @@ export class AnimeGoWindowsWebViewAdapter implements StreamingAccountAdapter {
     return { accountLabel: status.accountLabel };
   }
 
+  async inspectWriteCapabilities(titleUrl: string): Promise<AnimeGoWriteInspection> {
+    return this.invoke<AnimeGoWriteInspection>("animego_account_write_inspect", { titleUrl });
+  }
+
   async fetchList(): Promise<AnimeGoAccountListResponse> {
     return this.invoke<AnimeGoAccountListResponse>("animego_account_list_fetch");
   }
