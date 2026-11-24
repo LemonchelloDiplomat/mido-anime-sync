@@ -80,14 +80,14 @@ export function mergeAnimeGoTitleMetadata(
     },
     externalIds: { ...incoming.externalIds, ...current.externalIds },
     year: current.year ?? incoming.year ?? null,
-    format: current.format ?? incoming.format,
+    ...((current.format ?? incoming.format) ? { format: current.format ?? incoming.format! } : {}),
     episodes: current.episodes ?? incoming.episodes ?? null,
     genres: current.genres?.length ? current.genres : (incoming.genres ?? []),
     ageRating: current.ageRating ?? incoming.ageRating ?? null,
     posterUrl: currentPoster ?? incomingPoster,
     averageScore: current.averageScore ?? incoming.averageScore ?? null,
     startDate: current.startDate ?? incoming.startDate ?? null,
-    releaseStatus: current.releaseStatus ?? incoming.releaseStatus,
+    ...((current.releaseStatus ?? incoming.releaseStatus) ? { releaseStatus: current.releaseStatus ?? incoming.releaseStatus! } : {}),
   };
 }
 
