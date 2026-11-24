@@ -14,6 +14,16 @@ const EXACT_EXTERNAL_KEYS: Array<keyof AnimeIdentity["externalIds"]> = [
  * Only exact shared external IDs are eligible. Title-only matches and
  * ambiguous many-to-one matches remain separate for a later user decision.
  */
+function isUsablePosterUrl(value: string | null | undefined): value is string {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return (url.protocol === "https:" || url.protocol === "http:") && url.pathname.length > 1;
+  } catch {
+    return false;
+  }
+}
+
 export function reconcileStreamingAccountSnapshot(
   snapshot: AnimeSnapshotV4,
   existingAnime: AnimeIdentity[],
@@ -63,7 +73,7 @@ export function reconcileStreamingAccountSnapshot(
       ...(format ? { format } : {}),
       ...(genres ? { genres } : {}),
       ageRating: existing.ageRating ?? incoming.ageRating ?? null,
-      posterUrl: existing.posterUrl ?? incoming.posterUrl ?? null,
+      posterUrl: isUsablePosterUrl(existing.posterUrl) ? existing.posterUrl : (incoming.posterUrl ?? null),
       averageScore: existing.averageScore ?? incoming.averageScore ?? null,
       startDate: existing.startDate ?? incoming.startDate ?? null,
       ...(releaseStatus ? { releaseStatus } : {}),

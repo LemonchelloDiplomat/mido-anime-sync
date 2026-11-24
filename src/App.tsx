@@ -34,7 +34,8 @@ import type { StreamingRuntime } from "./services/platform/streaming-runtime.js"
 import type { AnimeGoAccountListResponse } from "./services/platform/web-streaming-account-manager.js";
 import { initializeStreamingRuntimeFromHost } from "./services/platform/runtime-bootstrap.js";
 import { reconcileStreamingAccountSnapshot } from "./services/streaming-account-import.js";
-import { normalizeAnimeGoAccountList, normalizeAnimeGoFetchedAt, type AnimeGoAccountListPayload } from "./services/animego-account-import.js";
+import { mergeAnimeGoTitleMetadata, normalizeAnimeGoAccountList, normalizeAnimeGoFetchedAt, type AnimeGoAccountListPayload } from "./services/animego-account-import.js";
+import { AnimeGoCatalogProvider } from "./services/animego.js";
 import { parseAnixartBookmarkExport } from "./services/anixart-export-import.js";
 import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
 import { suggestTrackerMatches, type TrackerMatchSuggestion } from "./services/streaming-tracker-sync.js";
@@ -746,6 +747,96 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       return true;
     });
 
+    const localItems = repository ? await repository.getAll() : [];
+    const localByAnimeGoId = new Map(
+      localItems
+        .filter((item) => item.anime.externalIds.animego)
+        .map((item) => [item.anime.externalIds.animego!, item.anime]),
+    );
+    const itemByAnimeId = new Map(
+      payload.items
+        .filter((item) => item.animeId)
+        .map((item) => [item.animeId!, item]),
+    );
+    const metadataTargets = uniqueRows.flatMap((row) => {
+      const externalId = row.anime.externalIds.animego;
+      const slug = externalId ? itemByAnimeId.get(externalId)?.animeSlug : undefined;
+      const identity = (externalId ? localByAnimeGoId.get(externalId) : undefined) ?? row.anime;
+      const missingCoreFields = [
+        identity.year == null,
+        identity.format == null,
+        !identity.genres?.length,
+        identity.averageScore == null,
+      ].filter(Boolean).length;
+      const posterUrl = identity.posterUrl;
+      let posterMissing = !posterUrl;
+      if (posterUrl) {
+        try {
+          const url = new URL(posterUrl);
+          posterMissing = (url.protocol !== "https:" && url.protocol !== "http:") || url.pathname.length <= 1;
+        } catch {
+          posterMissing = true;
+        }
+      }
+      return slug && (posterMissing || missingCoreFields >= 1) ? [{ row, slug }] : [];
+    });
+
+    let metadataCompleted = 0;
+    let metadataMatched = 0;
+    let metadataFailed = 0;
+    const metadataFailureReasons = new Map<string, number>();
+    if (metadataTargets.length > 0) {
+      setMetadataEnriching(true);
+      setMetadataEnrichmentError("");
+      setMetadataProgress({
+        provider: "AnimeGO",
+        completed: 0,
+        total: metadataTargets.length,
+        matched: 0,
+        missing: 0,
+      });
+      const metadataProvider = new AnimeGoCatalogProvider();
+      let cursor = 0;
+      const worker = async () => {
+        while (cursor < metadataTargets.length) {
+          const target = metadataTargets[cursor++];
+          if (!target) continue;
+          try {
+            const details = await metadataProvider.getMetadata(target.slug);
+            target.row.anime = mergeAnimeGoTitleMetadata(target.row.anime, details.identity);
+            metadataMatched += 1;
+          } catch (error) {
+            metadataFailed += 1;
+            const message = error instanceof Error ? error.message : String(error);
+            const reason = message.match(/HTTP \d{3}/i)?.[0]?.toUpperCase() ??
+              (message.toLowerCase().includes("timeout") || message.toLowerCase().includes("тайм-аут") ? "TIMEOUT" :
+                message.toLowerCase().includes("dns") ? "DNS" :
+                  message.toLowerCase().includes("network") || message.toLowerCase().includes("fetch") ? "NETWORK" :
+                    message.slice(0, 72) || "UNKNOWN");
+            metadataFailureReasons.set(reason, (metadataFailureReasons.get(reason) ?? 0) + 1);
+          }
+          metadataCompleted += 1;
+          setMetadataProgress({
+            provider: "AnimeGO",
+            completed: metadataCompleted,
+            total: metadataTargets.length,
+            matched: metadataMatched,
+            missing: metadataFailed,
+          });
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        }
+      };
+      try {
+        await Promise.all(Array.from(
+          { length: Math.min(3, metadataTargets.length) },
+          () => worker(),
+        ));
+      } finally {
+        setMetadataEnriching(false);
+        setMetadataProgress(null);
+      }
+    }
+
     const snapshot: AnimeSnapshotV4 = {
       schemaVersion: 4,
       exportedAt: normalizeAnimeGoFetchedAt(payload.fetchedAt),
@@ -761,7 +852,16 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
     window.alert(
       "Импорт AnimeGO завершён. Добавлено или обновлено записей: " +
       uniqueRows.length + ". Пропущено некорректных или повторных строк: " + skipped +
-      ". Прогресс эпизодов получен для " + progressCount + " записей, личные оценки для " + scoreCount + ". Данные на AnimeGO не изменялись.",
+      ". Прогресс эпизодов получен для " + progressCount + " записей, личные оценки для " + scoreCount +
+      ". Метаданные карточек получены для " + metadataMatched + " тайтлов, ошибок загрузки: " + metadataFailed +
+      (metadataFailureReasons.size
+        ? ". Причины ошибок: " + [...metadataFailureReasons.entries()]
+            .sort((left, right) => right[1] - left[1])
+            .slice(0, 3)
+            .map(([reason, count]) => reason + " (" + count + ")")
+            .join(", ")
+        : "") +
+      ". Данные на AnimeGO не изменялись.",
     );
   }
 

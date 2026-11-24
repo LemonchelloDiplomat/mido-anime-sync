@@ -56,6 +56,41 @@ function safeAnimeGoProfileUrl(value: string): boolean {
 }
 
 /** Normalize a single user-selected AnimeGO profile list. No remote writes or deletes occur. */
+export function mergeAnimeGoTitleMetadata(
+  current: AnimeIdentity,
+  incoming: AnimeIdentity,
+): AnimeIdentity {
+  const isUsablePoster = (value: string | null | undefined): value is string => {
+    if (!value) return false;
+    try {
+      const url = new URL(value);
+      return (url.protocol === "https:" || url.protocol === "http:") && url.pathname.length > 1;
+    } catch {
+      return false;
+    }
+  };
+  const currentPoster = isUsablePoster(current.posterUrl) ? current.posterUrl : null;
+  const incomingPoster = isUsablePoster(incoming.posterUrl) ? incoming.posterUrl : null;
+  return {
+    ...current,
+    titles: {
+      ...incoming.titles,
+      ...current.titles,
+      synonyms: [...new Set([...(incoming.titles.synonyms ?? []), ...(current.titles.synonyms ?? [])])],
+    },
+    externalIds: { ...incoming.externalIds, ...current.externalIds },
+    year: current.year ?? incoming.year ?? null,
+    ...((current.format ?? incoming.format) ? { format: current.format ?? incoming.format! } : {}),
+    episodes: current.episodes ?? incoming.episodes ?? null,
+    genres: current.genres?.length ? current.genres : (incoming.genres ?? []),
+    ageRating: current.ageRating ?? incoming.ageRating ?? null,
+    posterUrl: currentPoster ?? incomingPoster,
+    averageScore: current.averageScore ?? incoming.averageScore ?? null,
+    startDate: current.startDate ?? incoming.startDate ?? null,
+    ...((current.releaseStatus ?? incoming.releaseStatus) ? { releaseStatus: current.releaseStatus ?? incoming.releaseStatus! } : {}),
+  };
+}
+
 export function normalizeAnimeGoAccountList(
   payload: AnimeGoAccountListPayload,
   now = new Date().toISOString(),

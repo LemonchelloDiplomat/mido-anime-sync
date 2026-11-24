@@ -64,6 +64,37 @@ describe("AnimeGO DNS adapter", () => {
   });
 });
 
+
+describe("AnimeGO title detail metadata", () => {
+  it("extracts catalog fields from visible AnimeGO detail labels", () => {
+    const html = `
+      <link rel="canonical" href="https://animego.me/anime/91-den-3642">
+      <meta property="og:image" content="https://img.cdngos.com/posters/91-days.jpg">
+      <h1>91 день</h1>
+      <div class="rating__value">9.0</div>
+      <div class="detail-row">Тип <a>Сериал</a></div>
+      <div class="detail-row">Эпизоды: 12</div>
+      <div class="detail-row">Статус: Вышел</div>
+      <div class="detail-row"><div class="label"><span>Жанр:</span></div><div class="value"><a>Экшен</a>, <a>Драма</a>, <a>Триллер</a></div></div>
+      <div class="detail-row">Выпуск: с 9 июля 2016 г. по 1 октября 2016 г.</div>
+      <div class="detail-row">Рейтинг MPAA: R-17</div>
+      <div class="detail-row">Возрастные ограничения: 18+</div>
+    `;
+    const result = parseAnimeGoDetail(html, "https://animego.me/anime/91-den-3642");
+    expect(result.identity).toMatchObject({
+      year: 2016,
+      format: "TV",
+      episodes: 12,
+      genres: ["Экшен", "Драма", "Триллер"],
+      ageRating: "R+",
+      averageScore: 9,
+      startDate: "2016-07-09",
+      releaseStatus: "RELEASED",
+      posterUrl: "https://img.cdngos.com/posters/91-days.jpg",
+    });
+  });
+});
+
 describe("AnimeGO public catalog adapter", () => {
   it("parses only actual search cards and ignores AnimeGO navigation links", () => {
     const items = parseAnimeGoSearch(searchHtml);
@@ -198,6 +229,28 @@ describe("AnimeGO public catalog adapter", () => {
     expect(response.json().items).toHaveLength(1);
     expect(response.json().items[0].title).toBe("Shunkashuutou Daikousha: Haru no Mai");
   });
+  it("does not accept a CDN root URL as a poster fallback", () => {
+    const html = `
+      <link rel="canonical" href="https://animego.me/anime/root-poster-9000">
+      <meta property="og:image" content="https://cdngos.com">
+      <h1>Root poster placeholder</h1>
+      <img src="https://cdngos.com" alt="placeholder">
+    `;
+    expect(parseAnimeGoDetail(html, "https://animego.me/anime/root-poster-9000").identity.posterUrl).toBeNull();
+  });
+
+  it("recognizes age-rating labels rendered in a separate sibling column", () => {
+    const html = `
+      <link rel="canonical" href="https://animego.me/anime/age-rating-9001">
+      <h1>Age rating example</h1>
+      <div class="detail-row">
+        <div class="label"><span>Возрастной рейтинг:</span></div>
+        <div class="value"><span>18+</span></div>
+      </div>
+    `;
+    expect(parseAnimeGoDetail(html, "https://animego.me/anime/age-rating-9001").identity.ageRating).toBe("R+");
+  });
+
   it("parses public title metadata and exact AnimeGO identity", () => {
     const title = parseAnimeGoDetail(detailHtml, "https://animego.me/anime/sample-title-1234");
     expect(title).toMatchObject({
@@ -209,6 +262,28 @@ describe("AnimeGO public catalog adapter", () => {
     });
     expect(title.identity.externalIds.animego).toBe("1234");
     expect(title.identity.genres).toEqual(["Action", "Drama"]);
+  });
+
+  it("serves cached title metadata without requesting the player endpoint", async () => {
+    const calls = vi.fn(async (_url: string) => ({
+      ok: true,
+      status: 200,
+      async text() { return detailHtml; },
+    }));
+    const deps = { request: calls, sendJson(res: any, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } };
+    const first = responseCapture();
+    await handleAnimeGoRequest(
+      { method: "GET" }, first,
+      new URL("http://127.0.0.1/api/animego/anime/sample-title-1234/metadata"), deps,
+    );
+    const second = responseCapture();
+    await handleAnimeGoRequest(
+      { method: "GET" }, second,
+      new URL("http://127.0.0.1/api/animego/anime/sample-title-1234/metadata"), deps,
+    );
+    expect(first.status).toBe(200);
+    expect(first.json()).toMatchObject({ title: "Sample Anime", identity: { year: 2024 } });
+    expect(calls).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the title card when AnimeGO has no player endpoint", async () => {
