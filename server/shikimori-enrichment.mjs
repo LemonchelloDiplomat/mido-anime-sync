@@ -119,6 +119,7 @@ export async function fetchShikimoriAnimeRates(
           studios: rate.anime.studios ?? [],
           licensors: rate.anime.licensors ?? [],
           opengraph_image_url: rate.anime.opengraphImageUrl ?? null,
+          raw_metadata: rate.anime,
           image: {
             original: rate.anime.poster?.originalUrl ?? null,
             preview: rate.anime.poster?.mainUrl ?? null,
