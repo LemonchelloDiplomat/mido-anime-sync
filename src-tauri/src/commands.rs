@@ -1350,6 +1350,222 @@ pub async fn animego_account_write_inspect(title_url: String) -> Result<AnimeGoW
 }
 
 
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeGoNetworkEvent {
+    method: String,
+    path: String,
+    transport: String,
+    field_names: Vec<String>,
+    status: Option<u16>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeGoNetworkInspection {
+    provider: &'static str,
+    page_path: String,
+    duration_seconds: u8,
+    events: Vec<AnimeGoNetworkEvent>,
+    note: &'static str,
+}
+
+async fn animego_eval_json(
+    window: &tauri::WebviewWindow,
+    script: &str,
+) -> Result<Value, String> {
+    let (sender, receiver) = std::sync::mpsc::channel::<String>();
+    window.eval_with_callback(script.to_string(), move |result| {
+        let _ = sender.send(result);
+    }).map_err(|_| "Не удалось выполнить безопасную проверку окна AnimeGO.".to_string())?;
+
+    let raw = tauri::async_runtime::spawn_blocking(move || {
+        receiver.recv_timeout(std::time::Duration::from_secs(5))
+    }).await.map_err(|_| "Проверка окна AnimeGO завершилась с ошибкой.".to_string())?
+        .map_err(|_| "Окно AnimeGO не ответило на проверку.".to_string())?;
+
+    let mut value: Value = serde_json::from_str(&raw)
+        .map_err(|_| "Окно AnimeGO вернуло некорректные метаданные.".to_string())?;
+    if let Some(serialized) = value.as_str() {
+        value = serde_json::from_str(serialized)
+            .map_err(|_| "Окно AnimeGO вернуло некорректный JSON.".to_string())?;
+    }
+    Ok(value)
+}
+
+const ANIMEGO_NETWORK_INSPECT_INSTALL: &str = r#"(() => {
+  const key = "__midoAnimeGoNetworkInspector";
+  if (window[key]?.active) return JSON.stringify({ installed: true, alreadyActive: true });
+  const queue = [];
+  const maxEvents = 100;
+  const relevant = /mylist|rating|vote|progress|episode|watch|status|bookmark/i;
+  const safePath = (raw) => {
+    try {
+      const url = new URL(raw, window.location.href);
+      if (url.origin !== window.location.origin || url.hostname !== "animego.me") return null;
+      if (!url.pathname.startsWith("/") || url.pathname === "/logout") return null;
+      return url.pathname.slice(0, 180);
+    } catch { return null; }
+  };
+  const fieldNames = (body) => {
+    try {
+      let names = [];
+      if (body instanceof FormData) names = Array.from(body.keys());
+      else if (body instanceof URLSearchParams) names = Array.from(body.keys());
+      else if (typeof body === "string" && !body.trim().startsWith("{")) {
+        names = Array.from(new URLSearchParams(body).keys());
+      }
+      return Array.from(new Set(names.filter((name) =>
+        typeof name === "string" && /^[A-Za-z0-9_.\[\]-]{1,64}$/.test(name)
+      ))).slice(0, 30);
+    } catch { return []; }
+  };
+  const record = (method, rawUrl, transport, fields, status) => {
+    const path = safePath(rawUrl);
+    const normalizedMethod = String(method || "UNKNOWN").toUpperCase().slice(0, 12);
+    if (!path || normalizedMethod === "GET" && !relevant.test(path)) return;
+    if (queue.length >= maxEvents) queue.shift();
+    queue.push({
+      method: normalizedMethod,
+      path,
+      transport,
+      fieldNames: Array.from(new Set(fields || [])).slice(0, 30),
+      status: Number.isInteger(status) && status >= 100 && status <= 599 ? status : null
+    });
+  };
+
+  const originalFetch = window.fetch;
+  const originalOpen = XMLHttpRequest.prototype.open;
+  const originalSend = XMLHttpRequest.prototype.send;
+  const originalBeacon = navigator.sendBeacon;
+  const formListener = (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    record(form.method || "GET", form.action, "form", Array.from(form.elements)
+      .map((element) => element.name).filter(Boolean), null);
+  };
+
+  if (typeof originalFetch === "function") {
+    window.fetch = function(input, init) {
+      const rawUrl = typeof input === "string" || input instanceof URL ? String(input) : input?.url;
+      const method = init?.method || input?.method || "GET";
+      const fields = fieldNames(init?.body);
+      const request = originalFetch.apply(this, arguments);
+      request.then((response) => record(method, rawUrl, "fetch", fields, response.status))
+        .catch(() => record(method, rawUrl, "fetch", fields, null));
+      return request;
+    };
+  }
+  XMLHttpRequest.prototype.open = function(method, url) {
+    this.__midoAnimeGoRequest = { method, url: String(url) };
+    return originalOpen.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.send = function(body) {
+    const meta = this.__midoAnimeGoRequest;
+    if (meta) {
+      const fields = fieldNames(body);
+      this.addEventListener("loadend", () => record(meta.method, meta.url, "xhr", fields, this.status), { once: true });
+    }
+    return originalSend.apply(this, arguments);
+  };
+  if (typeof originalBeacon === "function") {
+    navigator.sendBeacon = function(url, body) {
+      record("POST", url, "beacon", fieldNames(body), null);
+      return originalBeacon.apply(this, arguments);
+    };
+  }
+  document.addEventListener("submit", formListener, true);
+
+  window[key] = {
+    active: true,
+    drain: () => queue.splice(0, queue.length),
+    stop: () => {
+      if (!window[key]?.active) return;
+      window.fetch = originalFetch;
+      XMLHttpRequest.prototype.open = originalOpen;
+      XMLHttpRequest.prototype.send = originalSend;
+      if (originalBeacon) navigator.sendBeacon = originalBeacon;
+      document.removeEventListener("submit", formListener, true);
+      window[key].active = false;
+    }
+  };
+  return JSON.stringify({ installed: true, alreadyActive: false });
+})()"#;
+
+const ANIMEGO_NETWORK_INSPECT_DRAIN: &str =
+    "JSON.stringify(window.__midoAnimeGoNetworkInspector?.drain?.() ?? [])";
+const ANIMEGO_NETWORK_INSPECT_STOP: &str =
+    "window.__midoAnimeGoNetworkInspector?.stop?.(); JSON.stringify({ stopped: true })";
+
+#[tauri::command]
+pub async fn animego_network_inspect(
+    app: tauri::AppHandle,
+) -> Result<AnimeGoNetworkInspection, String> {
+    use tauri::Manager;
+
+    const DURATION_SECONDS: u8 = 90;
+    let window = app.get_webview_window(ANIMEGO_AUTH_WINDOW)
+        .ok_or_else(|| "Сначала открой встроенное окно AnimeGO и перейди на страницу тайтла.".to_string())?;
+    let current_url = window.url()
+        .map_err(|_| "Не удалось проверить адрес окна AnimeGO.".to_string())?;
+    if current_url.scheme() != "https" || current_url.host_str() != Some("animego.me") {
+        return Err("Для наблюдения открой страницу на https://animego.me.".to_string());
+    }
+
+    let raw_session = streaming_secret_get(ANIMEGO_SESSION_KEY.to_string())?
+        .ok_or_else(|| "Сначала подключи аккаунт AnimeGO.".to_string())?;
+    let session: AnimeGoStoredSession = serde_json::from_str(&raw_session)
+        .map_err(|_| "Сохранённая сессия AnimeGO повреждена.".to_string())?;
+    let (user_id, _) = animego_user_from_webview(&window).await?;
+    if user_id != session.user_id {
+        return Err("Окно AnimeGO не соответствует подключённому аккаунту. Проверка остановлена.".to_string());
+    }
+
+    let page_path = current_url.path().chars().take(180).collect::<String>();
+    let installed = animego_eval_json(&window, ANIMEGO_NETWORK_INSPECT_INSTALL).await?;
+    if installed.get("installed").and_then(Value::as_bool) != Some(true) {
+        return Err("Не удалось включить пассивное наблюдение AnimeGO.".to_string());
+    }
+
+    let deadline = std::time::Instant::now()
+        + std::time::Duration::from_secs(DURATION_SECONDS as u64);
+    let mut events: Vec<AnimeGoNetworkEvent> = Vec::new();
+
+    while std::time::Instant::now() < deadline && events.len() < 100 {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let batch = match animego_eval_json(&window, ANIMEGO_NETWORK_INSPECT_DRAIN).await {
+            Ok(value) => value,
+            Err(_) => break,
+        };
+        let parsed: Vec<AnimeGoNetworkEvent> = match serde_json::from_value(batch) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        for event in parsed {
+            if event.path.starts_with('/')
+                && !event.path.starts_with("//")
+                && event.path != "/logout"
+                && matches!(event.method.as_str(), "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "UNKNOWN")
+                && matches!(event.transport.as_str(), "fetch" | "xhr" | "form" | "beacon")
+            {
+                events.push(event);
+                if events.len() >= 100 { break; }
+            }
+        }
+    }
+
+    let _ = animego_eval_json(&window, ANIMEGO_NETWORK_INSPECT_STOP).await;
+
+    Ok(AnimeGoNetworkInspection {
+        provider: "animego",
+        page_path,
+        duration_seconds: DURATION_SECONDS,
+        events,
+        note: "Пассивное наблюдение завершено. Собирались только метод, путь без query-параметров, названия полей без значений, транспорт и HTTP-статус. Значения полей, тело запросов/ответов, cookies и токены не сохранялись. Запросы не создавались и не изменялись инспектором.",
+    })
+}
+
 #[cfg(test)]
 mod animego_account_list_tests {
     use super::{parse_animego_mylist_page, parse_animego_progress, parse_animego_score};
