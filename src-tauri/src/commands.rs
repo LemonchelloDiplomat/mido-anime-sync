@@ -977,14 +977,18 @@ mod animego_account_list_tests {
     #[test]
     fn parses_account_list_card_and_episode_progress() {
         let html = r#"
-          <div class="user-mylist__item d-flex" data-mylist-id="51630488">
-            <a href="/anime/voyennaya-khronika-romelii-4033"><img src="https://img.cdngos.com/poster.jpg" alt="Военная хроника Ромелии"></a>
-            <div class="user-mylist__title"><a href="/anime/voyennaya-khronika-romelii-4033">Военная хроника Ромелии</a></div>
-            <div class="fw-lighter small">Romelia Senki</div>
-            <div class="user-profile__status">онгоинг</div>
-            <a href="/anime/voyennaya-khronika-romelii-4033#player">Продолжить 7 / 8 (24)</a>
-          </div>
-          <turbo-frame id="profile-my-list-page-3" src="/user/mylist/123456/3?type=1"></turbo-frame>
+          <turbo-stream action="before" targets="#profile-my-list-page-2"><template>
+            <div class="user-mylist__item d-flex" data-mylist-id="51630488">
+              <a href="/anime/voyennaya-khronika-romelii-4033"><img src="https://img.cdngos.com/poster.jpg" alt="Военная хроника Ромелии"></a>
+              <div class="user-mylist__title"><a href="/anime/voyennaya-khronika-romelii-4033">Военная хроника Ромелии</a></div>
+              <div class="fw-lighter small">Romelia Senki</div>
+              <div class="user-profile__status">онгоинг</div>
+              <a href="/anime/voyennaya-khronika-romelii-4033#player">Продолжить 7 / 8 (24)</a>
+            </div>
+          </template></turbo-stream>
+          <turbo-stream action="replace" targets="#profile-my-list-page-2"><template>
+            <turbo-frame id="profile-my-list-page-3" src="/user/mylist/123456/3?type=1"></turbo-frame>
+          </template></turbo-stream>
         "#;
         let base = reqwest::Url::parse("https://animego.me/profile/123456?type=1").unwrap();
         let parsed = parse_animego_mylist_page(html, &base, 1).unwrap();
