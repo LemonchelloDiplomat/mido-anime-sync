@@ -145,7 +145,7 @@ function identityFrom(rawValue: unknown): AnimeIdentity | null {
     posterUrl: title.posterUrl ?? null,
     averageScore: rating,
     ...(rating !== null ? { providerScores: { yummyanime: {
-      averageScore: { value: rating, scale: 10, normalizedValue: rating * 10, kind: "average" as const },
+      averageScore: { value: rating, scale: 10, normalizedValue: Math.round(rating * 1000) / 100, kind: "average" as const },
     } } } : {}),
     providerMetadata: {
       yummyanime: {
