@@ -233,7 +233,7 @@ export function parseShikimoriAccountList(
       providerScores: {
         shikimori: {
           ...(averageScore !== null ? { averageScore: {
-            value: averageScore, scale: 10, normalizedValue: averageScore * 10, kind: "average" as const,
+            value: averageScore, scale: 10, normalizedValue: Math.round(averageScore * 1000) / 100, kind: "average" as const,
           } } : {}),
         },
       },
