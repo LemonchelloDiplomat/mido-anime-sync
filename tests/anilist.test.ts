@@ -88,7 +88,7 @@ describe("AniList catalogue search", () => {
     const [result] = await searchAniListAnime("Frieren");
     expect(result?.year).toBe(2024);
     expect(result?.startDate).toBeNull();
-    expect(result?.format).toBe("TV");
+    expect(result?.format).toBe("TV_SHORT");
     expect(result?.releaseStatus).toBe("ONGOING");
     expect(result?.averageScore).toBeNull();
     expect(result?.externalIds.myanimelist).toBeUndefined();
