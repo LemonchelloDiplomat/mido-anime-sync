@@ -102,8 +102,9 @@ interface AniListSearchResponse {
 function mapFormat(value: string | null): AnimeFormat | undefined {
   switch (value) {
     case "TV":
-    case "TV_SHORT":
       return "TV";
+    case "TV_SHORT":
+      return "TV_SHORT";
     case "MOVIE":
       return "MOVIE";
     case "SPECIAL":
