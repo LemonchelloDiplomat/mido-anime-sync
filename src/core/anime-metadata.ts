@@ -22,8 +22,8 @@ const ARRAY_FIELDS = [
 
 /**
  * Merge metadata without collapsing provider-native ratings or source payloads.
- * The existing record wins by default; pass preferIncoming to let a fresh
- * provider response update canonical scalar fields.
+ * Incoming scalar fields win by default; set preferIncoming=false when the
+ * existing library record must remain authoritative.
  */
 export function mergeAnimeMetadata(
   existing: AnimeIdentity,
@@ -78,10 +78,9 @@ export function mergeAnimeMetadata(
   if (scoreProviders.size) {
     merged.providerScores = {};
     for (const provider of scoreProviders) {
-      merged.providerScores[provider] = {
-        ...existing.providerScores?.[provider],
-        ...incoming.providerScores?.[provider],
-      };
+      const preferred = preferIncoming ? incoming.providerScores?.[provider] : existing.providerScores?.[provider];
+      const fallback = preferIncoming ? existing.providerScores?.[provider] : incoming.providerScores?.[provider];
+      merged.providerScores[provider] = { ...fallback, ...preferred };
     }
   }
 
@@ -92,10 +91,9 @@ export function mergeAnimeMetadata(
   if (metadataProviders.size) {
     merged.providerMetadata = {};
     for (const provider of metadataProviders) {
-      merged.providerMetadata[provider] = {
-        ...existing.providerMetadata?.[provider],
-        ...incoming.providerMetadata?.[provider],
-      };
+      const preferred = preferIncoming ? incoming.providerMetadata?.[provider] : existing.providerMetadata?.[provider];
+      const fallback = preferIncoming ? existing.providerMetadata?.[provider] : incoming.providerMetadata?.[provider];
+      merged.providerMetadata[provider] = { ...fallback, ...preferred };
     }
   }
 
