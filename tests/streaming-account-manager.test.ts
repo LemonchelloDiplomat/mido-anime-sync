@@ -105,8 +105,21 @@ describe("streaming account manager", () => {
       provider: "animego" as const,
       titleUrl: "https://animego.me/anime/example-123",
       httpStatus: 200,
-      forms: [{ method: "POST", actionPath: "/mylist/anime/123/1/add", fieldNames: ["token"], hasCsrfField: true }],
+      forms: [{
+        method: "POST",
+        actionPath: "/mylist/anime/123/1/add",
+        enctype: "application/x-www-form-urlencoded",
+        purpose: "list",
+        fieldNames: ["token"],
+        fields: [{ name: "token", tag: "input", inputType: "hidden", required: false }],
+        hasCsrfField: true,
+        hasInlineEventHandler: false,
+        hasDataAction: false,
+      }],
       csrfMetaNames: ["csrf-token"],
+      interactiveControls: [],
+      sameOriginScriptPaths: [],
+      inlineScriptHints: [],
       note: "read-only",
     };
     let inspectedUrl = "";
