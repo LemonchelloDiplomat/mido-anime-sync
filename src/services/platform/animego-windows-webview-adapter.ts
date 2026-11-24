@@ -1,6 +1,7 @@
 import type {
   StreamingAccountAdapter,
   StreamingAccountConnectResult,
+  AnimeGoWriteInspection,
 } from "../streaming-account-manager.js";
 import type { NativeInvoke } from "./native-platform-adapters.js";
 
