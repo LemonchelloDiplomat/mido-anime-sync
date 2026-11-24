@@ -39,7 +39,7 @@ No guessed route, payload, token selector, or response interpretation may be use
 
 ## Current implementation checkpoint
 
-Branch 59 includes the native read-only command `animego_account_write_inspect`, registered in the Tauri command handler and exposed through the Windows account manager panel after a list preview has been loaded. The panel inspects the first imported title as a sample. It displays only form methods, same-origin action paths, field names, and whether a CSRF field is present. It performs no POST/PUT/DELETE requests.
+Branch 59 includes the native read-only command `animego_account_write_inspect`, registered in the Tauri command handler and exposed through the Windows account manager panel after a list preview has been loaded. The panel inspects the first imported title as a sample. It reports form methods, same-origin action paths, safe encoding metadata, field names/types/required flags, coarse purpose labels, relevant DOM controls, same-origin script paths, and static inline-script keyword hints. It never returns field values, inline source code, cookies, or tokens, and performs no POST/PUT/DELETE requests.
 
 
 ## Windows live inspection checkpoint (25 November 2026)
@@ -62,6 +62,19 @@ Next validation:
 2. Determine how the page populates/refreshes the `token` field, keeping token values inside Rust and never exposing them to React or logs.
 3. Inspect a title already in the user's list to identify status/progress controls and their request metadata without submitting them.
 4. Confirm any candidate operation only with a user-approved, reversible test and verify by re-reading the list.
+
+
+## Expanded static inspection checkpoint
+
+The native parser now also reports:
+
+- Form encoding from the allowlisted values `application/x-www-form-urlencoded`, `multipart/form-data`, and `text/plain`; unexpected values are reduced to `other`.
+- Named form controls with tag, normalized input type, and required flag. Field values are never returned.
+- A coarse form purpose (`logout`, `rating`, `list`, or `unknown`) derived only from the same-origin action path. This is descriptive metadata, not authorization to write.
+- Relevant controls whose identifiers suggest status, progress, episodes, list membership, rating, vote, or watch actions. Only sanitized identifiers and boolean handler-presence flags are returned.
+- Same-origin script paths and a fixed vocabulary of inline-script keyword hints. Script source and handler bodies are never returned.
+
+Static HTML cannot reveal event listeners attached later by external JavaScript or prove what a handler sends at runtime. These hints are leads for further read-only investigation, not evidence of a working write operation. Off-origin forms and script URLs remain excluded. The inspection still performs no mutation requests.
 
 ## Implementation sequence
 
