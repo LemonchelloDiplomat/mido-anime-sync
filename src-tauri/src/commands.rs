@@ -699,7 +699,13 @@ fn parse_animego_mylist_page(
         // AnimeGO exposes a user's personal score in the card's data-rating-value element.
         // Missing or out-of-range values stay unknown instead of being converted to zero.
         let score = card.select(&rating_selector).next()
-            .and_then(|element| parse_animego_score(&normalize_html_text(element.text().collect::<Vec<_>>().join(" "))));
+            .and_then(|element| {
+                element.value().attr("data-rating-value")
+                    .and_then(parse_animego_score)
+                    .or_else(|| parse_animego_score(&normalize_html_text(
+                        element.text().collect::<Vec<_>>().join(" ")
+                    )))
+            });
 
         let mut poster_url = None;
         if let Some(image) = card.select(&image_selector).next() {
@@ -1001,7 +1007,7 @@ mod animego_account_list_tests {
               <div class="user-mylist__title"><a href="/anime/voyennaya-khronika-romelii-4033">Военная хроника Ромелии</a></div>
               <div class="fw-lighter small">Romelia Senki</div>
               <div class="user-profile__status">онгоинг</div>
-              <div data-rating-value>8</div>
+              <div data-rating-value="8"></div>
               <a href="/anime/voyennaya-khronika-romelii-4033#player">Продолжить 7 / 8 (24)</a>
             </div>
           </template></turbo-stream>
@@ -1021,6 +1027,19 @@ mod animego_account_list_tests {
         assert_eq!(parsed.items[0].score, Some(8));
         assert_eq!(parsed.next_page_frame_id.as_deref(), Some("profile-my-list-page-3"));
         assert_eq!(parsed.next_page_url.as_deref(), Some("/user/mylist/123456/3?type=1"));
+    }
+
+    #[test]
+    fn reads_personal_score_from_data_rating_value_attribute() {
+        let html = r#"<div class="user-mylist__item" data-mylist-id="2">
+          <a href="/anime/example-123"><img src="https://img.cdngos.com/example.jpg" alt="Example"></a>
+          <div class="user-mylist__title"><a href="/anime/example-123">Example</a></div>
+          <div data-rating-value="6"></div>
+        </div>"#;
+        let base = reqwest::Url::parse("https://animego.me/profile/123456?type=1").unwrap();
+        let parsed = parse_animego_mylist_page(html, &base, 1).unwrap();
+        assert_eq!(parsed.items.len(), 1);
+        assert_eq!(parsed.items[0].score, Some(6));
     }
 
     #[test]
