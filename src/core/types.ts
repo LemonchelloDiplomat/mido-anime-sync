@@ -113,6 +113,8 @@ export interface AnimeIdentity {
   posterUrl?: string | null;
   averageScore?: number | null;
   startDate?: string | null;
+  startDateParts?: AnimeFuzzyDate | null;
+  endDateParts?: AnimeFuzzyDate | null;
   releaseStatus?: AnimeReleaseStatus;
 }
 
