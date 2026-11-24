@@ -37,6 +37,7 @@ interface ShikimoriAnime {
   studios?: Array<{ id?: number; name?: string }>;
   licensors?: string[];
   opengraph_image_url?: string | null;
+  raw_metadata?: Record<string, unknown>;
   image?: {
     original?: string | null;
     preview?: string | null;
@@ -245,6 +246,7 @@ export function parseShikimoriAccountList(
           franchise: animeData.franchise ?? null,
           isCensored: animeData.is_censored ?? null,
           descriptionHtml: animeData.description_html ?? null,
+          raw: animeData.raw_metadata ?? null,
         },
       },
       posterUrl: normalizePoster(
