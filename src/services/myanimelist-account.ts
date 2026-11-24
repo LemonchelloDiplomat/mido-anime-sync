@@ -186,6 +186,7 @@ export function parseMyAnimeListApiList(
           studios: node.studios ?? [],
           producers: node.producers ?? [],
           licensors: node.licensors ?? [],
+          raw: node,
         },
       },
       ...(mapAgeRating(node.rating) ? { ageRating: mapAgeRating(node.rating)! } : {}),
