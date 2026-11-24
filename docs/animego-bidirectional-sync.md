@@ -1,0 +1,87 @@
+# AnimeGO bidirectional synchronization
+
+## Branch scope
+
+This branch builds on the AnimeGO Windows WebView2 connection and read-only account import already present in the stacked PR chain. The local library remains authoritative and must remain usable offline.
+
+This document records the first reverse-engineering checkpoint. It intentionally separates community-reported website actions from behavior verified by this application. No remote write is enabled by this document.
+
+## Existing read path
+
+The native Windows adapter stores AnimeGO cookies and account identity in Windows Credential Manager. The renderer receives parsed account-list data only. The current account-list command reads all six list categories, including list-entry IDs, AnimeGO IDs, progress, and personal score. It validates the authenticated account before returning data.
+
+The current read operation is implemented by `animego_account_list_fetch` in `src-tauri/src/commands.rs`.
+
+## Publicly reported write routes (unverified by this application)
+
+A community post on Shikimori, updated with a comment dated 16 September 2026, reports the following AnimeGO website requests:
+
+- Add an anime to a list: `POST /mylist/anime/{animeId}/{listType}/add`
+- Vote for an anime: `POST /rating/anime/{animeId}/vote`, with multipart fields `token` (CSRF token) and `rate` (integer 1–10).
+- List type mapping: 1 watching, 2 completed, 3 on hold, 4 dropped, 5 planned, 6 rewatching.
+- AnimeGO IDs can be resolved from the site's search response at `/search/all?q={name}&navbar=true`.
+
+Source: https://shikimori.io/forum/site/609251-eksport-spiska-s-animego-na-shikimori (community post and comments, lines 464–498).
+
+These are third-party observations, not an official AnimeGO API contract. The app must not assume that the routes remain stable or that a successful HTTP response means the account state changed.
+
+## Unknowns that must be established before enabling writes
+
+1. Whether the add route is also an upsert when the title already belongs to a list, or whether it creates duplicates / returns a conflict.
+2. Whether moving between statuses requires a dedicated remove or edit operation before adding to the new list.
+3. The supported way to remove a title from the account entirely.
+4. Whether progress has a separate endpoint, or is changed by controls on the title page; exact request body and CSRF requirements are unknown.
+5. How the CSRF token is supplied and refreshed in the authenticated WebView2 session.
+6. Whether rating can be cleared, and how an existing rating is updated.
+7. Which HTTP status and response body reliably confirm each mutation.
+
+No guessed route, payload, token selector, or response interpretation may be used for a production write.
+
+## Implementation sequence
+
+### Phase A: inspect and validate
+
+- Add a native, read-only inspection path that uses the existing protected session.
+- Inspect only first-party pages and forms for the authenticated user and the selected AnimeGO title.
+- Return sanitized form metadata (method, same-origin action, field names, and non-secret capability flags). Never return cookies, CSRF values, or hidden session material to React.
+- Add fixture-based parser tests and Windows live-test instructions.
+- Do not send mutation requests in this phase.
+
+### Phase B: guarded writes
+
+Only after a route and payload are confirmed against the live website:
+
+- Keep all authenticated HTTP and CSRF handling in Rust.
+- Restrict requests to HTTPS `animego.me`, same-origin redirects, bounded body/response sizes, and a strict method/path allowlist.
+- Require explicit user confirmation for each batch. Show the exact number of titles and fields to be changed.
+- Apply one mutation at a time, verify the result by re-reading the account list, and stop on the first ambiguous response.
+- Never log cookies, CSRF tokens, request bodies containing secrets, or full authenticated HTML.
+
+### Phase C: reconciliation
+
+- Compare local AnimeGO source entries with a freshly fetched remote snapshot.
+- Use stable AnimeGO IDs for identity; do not match by title alone when an external ID is absent.
+- Distinguish an absent field from an explicit empty value. Unknown remote progress or score must never erase known local values.
+- Treat simultaneous local and remote changes as conflicts. Do not use `updatedAt` from unrelated clocks as proof of ordering.
+- Do not propagate deletions automatically. A remote deletion requires an explicit deletion intent and confirmation.
+- Preserve the existing offline-first library and queue only explicitly approved remote operations.
+
+## Initial capability matrix
+
+| Field / operation | Read | Write |
+| --- | --- | --- |
+| List status | Yes, via six list categories | Candidate route reported; not verified |
+| Episode progress | Yes, when exposed in list card | Unknown |
+| Personal score | Yes, when exposed in list card | Candidate vote route reported; not verified |
+| Favorite | Not yet confirmed by the current account-list response | Unknown |
+| Remove from account | Not established | Unknown |
+| Account identity | Yes | Not applicable |
+
+## Acceptance criteria
+
+- No mutation is sent during account connection, import, or background refresh.
+- A remote write is enabled only after a Windows live test confirms the request and the subsequent read-back.
+- Failed or ambiguous writes leave local data untouched and are reported per title.
+- Re-import remains safe and idempotent.
+- All six status categories continue to import correctly.
+- Existing snapshot versions remain backward-compatible; any new sync metadata must be optional and covered by migration tests.
