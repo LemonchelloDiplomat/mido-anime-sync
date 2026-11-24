@@ -242,6 +242,28 @@ describe("AnimeGO public catalog adapter", () => {
     expect(title.identity.genres).toEqual(["Action", "Drama"]);
   });
 
+  it("serves cached title metadata without requesting the player endpoint", async () => {
+    const calls = vi.fn(async (_url: string) => ({
+      ok: true,
+      status: 200,
+      async text() { return detailHtml; },
+    }));
+    const deps = { request: calls, sendJson(res: any, status: number, body: unknown) { res.writeHead(status); res.end(JSON.stringify(body)); } };
+    const first = responseCapture();
+    await handleAnimeGoRequest(
+      { method: "GET" }, first,
+      new URL("http://127.0.0.1/api/animego/anime/sample-title-1234/metadata"), deps,
+    );
+    const second = responseCapture();
+    await handleAnimeGoRequest(
+      { method: "GET" }, second,
+      new URL("http://127.0.0.1/api/animego/anime/sample-title-1234/metadata"), deps,
+    );
+    expect(first.status).toBe(200);
+    expect(first.json()).toMatchObject({ title: "Sample Anime", identity: { year: 2024 } });
+    expect(calls).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the title card when AnimeGO has no player endpoint", async () => {
     const calls = vi.fn(async (url: string) => {
       if (url.includes("/anime/")) return { ok: true, status: 200, async text() { return detailHtml; } };

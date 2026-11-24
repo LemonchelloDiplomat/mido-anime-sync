@@ -709,7 +709,7 @@ fn parse_animego_mylist_page(
 
         let mut poster_url = None;
         if let Some(image) = card.select(&image_selector).next() {
-            for name in ["src", "data-src", "data-original", "data-lazy-src", "data-original-src"] {
+            for name in ["data-original", "data-original-src", "data-lazy-src", "data-src", "src"] {
                 let Some(raw) = image.value().attr(name) else { continue; };
                 if raw.starts_with("data:") || raw.starts_with("blob:") || raw.starts_with("javascript:") {
                     continue;
@@ -717,7 +717,8 @@ fn parse_animego_mylist_page(
                 let Ok(mut candidate) = base_url.join(raw) else { continue; };
                 let host = candidate.host_str().unwrap_or("");
                 let trusted = host == "animego.me" || host == "img.cdngos.com" || host.ends_with(".cdngos.com");
-                if !trusted || !matches!(candidate.scheme(), "http" | "https") { continue; }
+                if !trusted || !matches!(candidate.scheme(), "http" | "https") ||
+                    (candidate.path() == "/" && candidate.query().is_none()) { continue; }
                 if candidate.scheme() == "http" {
                     let _ = candidate.set_scheme("https");
                 }
@@ -1027,6 +1028,19 @@ mod animego_account_list_tests {
         assert_eq!(parsed.items[0].score, Some(8));
         assert_eq!(parsed.next_page_frame_id.as_deref(), Some("profile-my-list-page-3"));
         assert_eq!(parsed.next_page_url.as_deref(), Some("/user/mylist/123456/3?type=1"));
+    }
+
+    #[test]
+    fn prefers_lazy_poster_url_over_root_placeholder_src() {
+        let html = r#"<div class="user-mylist__item" data-mylist-id="3">
+          <a href="/anime/example-123">
+            <img src="https://cdngos.com" data-src="https://img.cdngos.com/posters/example.jpg" alt="Example">
+          </a>
+          <div class="user-mylist__title"><a href="/anime/example-123">Example</a></div>
+        </div>"#;
+        let base = reqwest::Url::parse("https://animego.me/profile/123456?type=1").unwrap();
+        let parsed = parse_animego_mylist_page(html, &base, 1).unwrap();
+        assert_eq!(parsed.items[0].poster_url.as_deref(), Some("https://img.cdngos.com/posters/example.jpg"));
     }
 
     #[test]

@@ -60,6 +60,15 @@ describe("streaming account import reconciliation", () => {
     }
   });
 
+  it("replaces a root-only placeholder poster with a real incoming poster URL", () => {
+    const incoming = identity("animego:123", { animego: "123" });
+    incoming.posterUrl = "https://img.cdngos.com/posters/123.jpg";
+    const local = identity("local:1", { animego: "123" });
+    local.posterUrl = "https://cdngos.com";
+    const result = reconcileStreamingAccountSnapshot(snapshot(incoming), [local]);
+    expect(result.anime[0]?.posterUrl).toBe("https://img.cdngos.com/posters/123.jpg");
+  });
+
   it("does not merge matching titles when there is no shared external ID", () => {
     const incoming = identity("yummyanime:456", { yummyanime: "456" });
     const local = identity("local:1");
