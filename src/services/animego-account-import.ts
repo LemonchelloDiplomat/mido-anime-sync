@@ -17,6 +17,15 @@ export interface AnimeGoAccountListPayload {
   entries: unknown[];
 }
 
+/** Keep native fetch timestamps compatible with the snapshot ISO-8601 contract. */
+export function normalizeAnimeGoFetchedAt(value: unknown, now = new Date()): string {
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    if (Number.isFinite(parsed.getTime())) return parsed.toISOString();
+  }
+  return now.toISOString();
+}
+
 export interface NormalizedAnimeGoAccountList {
   status: AnimeStatus;
   rows: Array<{ anime: AnimeIdentity; entry: AnimeListEntry }>;

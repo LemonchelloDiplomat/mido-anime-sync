@@ -61,6 +61,16 @@ describe("platform streaming runtime composition", () => {
       if (command === "animego_auth_complete" || command === "animego_auth_status") {
         return { connected: true, accountLabel: "animego-user", state: "connected" };
       }
+      if (command === "animego_account_list_fetch") {
+        return {
+          provider: "animego",
+          account: { userId: "123456", accountLabel: "animego-user" },
+          fetchedAt: "unix:123",
+          lists: [{ listType: 1, pageCount: 1, itemCount: 1 }],
+          total: 1,
+          items: [{ provider: "animego", listEntryId: "77", animeId: "4033", listType: 1 }],
+        };
+      }
       if (command === "streaming_secret_set" || command === "streaming_secret_remove") return undefined;
       if (command === "streaming_secret_get") return "windows-webview-session:v1";
       throw new Error("Unexpected command: " + command);
@@ -75,6 +85,11 @@ describe("platform streaming runtime composition", () => {
     expect(status).toMatchObject({ connected: true, accountLabel: "animego-user" });
     expect(invoke).toHaveBeenCalledWith("animego_auth_complete");
     expect(JSON.stringify(status)).not.toContain("cookie");
+
+    const accountList = await runtime.accounts.fetchList!("animego") as { total: number; items: unknown[] };
+    expect(accountList.total).toBe(1);
+    expect(accountList.items).toHaveLength(1);
+    expect(invoke).toHaveBeenCalledWith("animego_account_list_fetch");
   });
 
   it("composes Android Keystore and Capacitor native HTTP without web storage", async () => {

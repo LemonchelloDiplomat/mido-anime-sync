@@ -10,6 +10,40 @@ interface NativeAnimeGoAuthStatus {
   state: "connected" | "disconnected" | "expired";
 }
 
+interface AnimeGoAccountListItem {
+  provider: string;
+  listEntryId: string;
+  animeId: string | null;
+  animeSlug: string;
+  url: string;
+  title: string;
+  alternativeTitle: string | null;
+  posterUrl: string | null;
+  listType: number;
+  releaseStatus: string | null;
+  episodesWatched: number | null;
+  episodesTotal: number | null;
+  progressText: string | null;
+}
+
+interface AnimeGoAccountListSummary {
+  listType: number;
+  pageCount: number;
+  itemCount: number;
+}
+
+interface AnimeGoAccountListResponse {
+  provider: string;
+  account: {
+    userId: string;
+    accountLabel: string | null;
+  };
+  fetchedAt: string;
+  lists: AnimeGoAccountListSummary[];
+  total: number;
+  items: AnimeGoAccountListItem[];
+}
+
 /**
  * Windows sign-in happens in a dedicated Tauri WebView2 window.
  * The HttpOnly cookies never leave Rust: commands validate and persist them
@@ -52,6 +86,10 @@ export class AnimeGoWindowsWebViewAdapter implements StreamingAccountAdapter {
     const status = this.lastStatus ?? await this.invoke<NativeAnimeGoAuthStatus>("animego_auth_status");
     this.lastStatus = status;
     return { accountLabel: status.accountLabel };
+  }
+
+  async fetchList(): Promise<AnimeGoAccountListResponse> {
+    return this.invoke<AnimeGoAccountListResponse>("animego_account_list_fetch");
   }
 
   async disconnect(): Promise<void> {

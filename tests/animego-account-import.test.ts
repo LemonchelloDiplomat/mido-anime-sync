@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { normalizeAnimeGoAccountList } from "../src/services/animego-account-import.js";
+import { normalizeAnimeGoAccountList, normalizeAnimeGoFetchedAt } from "../src/services/animego-account-import.js";
 
 describe("AnimeGO account-list import", () => {
+  it("normalizes native Unix-style fetch timestamps to valid snapshot dates", () => {
+    const fallback = new Date("2026-11-25T12:00:00.000Z");
+    expect(normalizeAnimeGoFetchedAt("unix:1795608000", fallback)).toBe(fallback.toISOString());
+    expect(normalizeAnimeGoFetchedAt("2026-11-24T08:30:00.000Z", fallback)).toBe("2026-11-24T08:30:00.000Z");
+  });
+
   it("maps all six profile list types to the corresponding local status", () => {
     const expected = ["WATCHING", "COMPLETED", "ON_HOLD", "DROPPED", "PLANNING", "REWATCHING"];
     expected.forEach((status, index) => {

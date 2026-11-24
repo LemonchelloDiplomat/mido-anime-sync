@@ -16,8 +16,9 @@ Cookies are never returned to React, the local Node API, IndexedDB, or the anime
 
 ## Current scope and limitations
 
-- Implemented in this phase: Windows WebView2 sign-in, identity verification, secure session persistence, status restoration, and disconnecting the app's stored session.
-- Not implemented in this phase: native AnimeGO list retrieval through the stored session, remote status writes, ratings, or watch-progress writes.
+- Implemented: Windows WebView2 sign-in, identity verification, secure session persistence, status restoration, and disconnecting the app's stored session.
+- Implemented in the native account-list phase: read-only retrieval of all six personal-list categories using the saved session, same-origin requests, bounded pagination, and a typed response containing parsed list entries only.
+- Not implemented: remote status writes, rating writes, favorite writes, or progress writes. The native list reader does not expose cookies or raw session material to the renderer.
 - Browser mode does not have access to another origin's cookies and therefore does not provide this native sign-in flow. Use `npm run tauri:dev` to test Windows WebView2.
 - Android is intentionally deferred. Tauri's `cookies_for_url` API documents that Android returns an empty cookie list; Android needs a platform-specific WebView/CookieManager adapter rather than reusing the Windows implementation.
 - Closing the app connection removes the app's protected session copy. It does not clear all WebView browsing data or sign the user out of other website sessions.
@@ -26,7 +27,8 @@ Cookies are never returned to React, the local Node API, IndexedDB, or the anime
 
 - Only the exact HTTPS origin `animego.me` is accepted for sign-in verification.
 - The native command validates the current auth window URL before reading cookies.
-- Session cookies remain in Rust and Windows Credential Manager.
+- The account-list command reads the protected session directly from Windows Credential Manager and attaches cookies only to HTTPS requests to the exact `animego.me` host.
+- Session cookies remain in Rust and Windows Credential Manager; only parsed list data is returned to the renderer.
 - No CAPTCHA, Cloudflare, or other anti-bot challenge is bypassed.
 - The first-party page `data-user` identity is treated as a verification signal, not as an authentication credential. Cookies are collected separately from the WebView2 cookie manager.
 - This is a first-party website sign-in flow, not official OAuth or a documented public AnimeGO API.

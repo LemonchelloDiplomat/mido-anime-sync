@@ -22,7 +22,7 @@ export interface StreamingAccountManagerPort {
   /** Optional two-step sign-in flow for providers that authenticate in a native WebView. */
   beginConnect?(provider: StreamingProviderId): Promise<void>;
   completeConnect?(provider: StreamingProviderId): Promise<StreamingAccountStatus>;
-  /** Optional read-only provider list fetch exposed by server-backed web adapters. */
+  /** Optional read-only provider list fetch; secrets remain inside the trusted adapter. */
   fetchList?(provider: StreamingProviderId): Promise<unknown>;
 }
 
@@ -41,6 +41,8 @@ export interface StreamingAccountAdapter {
   beginConnect?(): Promise<void>;
   completeConnect?(): Promise<StreamingAccountConnectResult>;
   getSessionInfo?(): Promise<{ accountLabel?: string | null; expiresAt?: string | null }>;
+  /** Read-only account-list import. The adapter must keep session material native. */
+  fetchList?(): Promise<unknown>;
 }
 
 /**
@@ -150,6 +152,14 @@ export class StreamingAccountManager {
       this.states.set(provider, status);
       return { ...status };
     }
+  }
+
+  async fetchList(provider: StreamingProviderId): Promise<unknown> {
+    const adapter = this.requireAdapter(provider);
+    if (!adapter.fetchList) throw new Error(`Account-list import is unavailable for ${provider}.`);
+    const status = await this.restore(provider);
+    if (!status.connected) throw new Error(`Сначала подключи аккаунт ${provider}.`);
+    return adapter.fetchList();
   }
 
   async disconnect(provider: StreamingProviderId): Promise<void> {

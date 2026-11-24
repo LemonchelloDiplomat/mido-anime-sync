@@ -16,7 +16,7 @@ const PROVIDERS: ProviderCard[] = [
     id: "animego",
     name: "AnimeGO",
     description: "Аккаунт и личный список просмотра",
-    limitation: "Вход через встроенное окно сайта Windows. Чтение списка подключим через защищённую нативную сессию следующим этапом.",
+    limitation: "Вход через встроенное окно Windows. Личный список читается через защищённую нативную сессию; запись на сайт пока не поддерживается.",
   },
   {
     id: "anixart",
@@ -133,7 +133,14 @@ export function StreamingAccountManagerPanel({
       setListPreview(result);
       setListImportMessage("");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Не удалось загрузить личный список AnimeGO.");
+      const message = typeof cause === "string"
+        ? cause
+        : cause instanceof Error
+          ? cause.message
+          : cause && typeof cause === "object" && "message" in cause && typeof cause.message === "string"
+            ? cause.message
+            : "Не удалось загрузить личный список AnimeGO.";
+      setError(message);
     } finally {
       setListLoading(false);
     }

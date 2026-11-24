@@ -34,7 +34,7 @@ import type { StreamingRuntime } from "./services/platform/streaming-runtime.js"
 import type { AnimeGoAccountListResponse } from "./services/platform/web-streaming-account-manager.js";
 import { initializeStreamingRuntimeFromHost } from "./services/platform/runtime-bootstrap.js";
 import { reconcileStreamingAccountSnapshot } from "./services/streaming-account-import.js";
-import { normalizeAnimeGoAccountList, type AnimeGoAccountListPayload } from "./services/animego-account-import.js";
+import { normalizeAnimeGoAccountList, normalizeAnimeGoFetchedAt, type AnimeGoAccountListPayload } from "./services/animego-account-import.js";
 import { parseAnixartBookmarkExport } from "./services/anixart-export-import.js";
 import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
 import { suggestTrackerMatches, type TrackerMatchSuggestion } from "./services/streaming-tracker-sync.js";
@@ -747,7 +747,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
 
     const snapshot: AnimeSnapshotV4 = {
       schemaVersion: 4,
-      exportedAt: payload.fetchedAt || new Date().toISOString(),
+      exportedAt: normalizeAnimeGoFetchedAt(payload.fetchedAt),
       anime: uniqueRows.map((row) => row.anime),
       entries: [],
       sourceEntries: uniqueRows.map((row) => row.entry),
