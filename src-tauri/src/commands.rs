@@ -1231,7 +1231,7 @@ fn parse_animego_write_forms(
             }
         } else {
             let source = script.text().collect::<String>().to_ascii_lowercase();
-            for (needle, label) in script_hint_tokens {
+            for &(needle, label) in &script_hint_tokens {
                 if source.contains(&needle.to_ascii_lowercase()) && !inline_script_hints.iter().any(|item| item == label) {
                     inline_script_hints.push(label.to_string());
                 }
