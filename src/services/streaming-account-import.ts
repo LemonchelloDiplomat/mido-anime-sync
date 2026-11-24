@@ -1,4 +1,5 @@
 import type { AnimeIdentity, AnimeListEntry, AnimeSnapshotV4 } from "../core/types.js";
+import { mergeAnimeMetadata } from "../core/anime-metadata.js";
 
 const EXACT_EXTERNAL_KEYS: Array<keyof AnimeIdentity["externalIds"]> = [
   "myanimelist",
@@ -59,8 +60,7 @@ export function reconcileStreamingAccountSnapshot(
     const format = existing?.format ?? incoming.format;
     const releaseStatus = existing?.releaseStatus ?? incoming.releaseStatus;
     const merged: AnimeIdentity = existing ? {
-      ...incoming,
-      ...existing,
+      ...mergeAnimeMetadata(incoming, existing),
       id: targetId,
       titles: {
         ...incoming.titles,
