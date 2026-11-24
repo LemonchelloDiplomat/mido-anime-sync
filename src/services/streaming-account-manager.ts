@@ -43,7 +43,7 @@ export interface AnimeGoInteractiveControlInspection {
   hasDataAction: boolean;
 }
 
-export interface AnimeGoWriteInspection {
+export interface AnimeGoScriptRouteCandidateInspection {\n  path: string;\n  methods: string[];\n  capabilities: string[];\n  fieldHints: string[];\n  signals: string[];\n}\n\nexport interface AnimeGoWriteInspection {
   provider: "animego";
   titleUrl: string;
   httpStatus: number;
