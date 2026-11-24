@@ -784,6 +784,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
     let metadataCompleted = 0;
     let metadataMatched = 0;
     let metadataFailed = 0;
+    const metadataFailureReasons = new Map<string, number>();
     if (metadataTargets.length > 0) {
       setMetadataEnriching(true);
       setMetadataEnrichmentError("");
@@ -804,8 +805,15 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
             const details = await metadataProvider.getMetadata(target.slug);
             target.row.anime = mergeAnimeGoTitleMetadata(target.row.anime, details.identity);
             metadataMatched += 1;
-          } catch {
+          } catch (error) {
             metadataFailed += 1;
+            const message = error instanceof Error ? error.message : String(error);
+            const reason = message.match(/HTTP \d{3}/i)?.[0]?.toUpperCase() ??
+              (message.toLowerCase().includes("timeout") || message.toLowerCase().includes("тайм-аут") ? "TIMEOUT" :
+                message.toLowerCase().includes("dns") ? "DNS" :
+                  message.toLowerCase().includes("network") || message.toLowerCase().includes("fetch") ? "NETWORK" :
+                    message.slice(0, 72) || "UNKNOWN");
+            metadataFailureReasons.set(reason, (metadataFailureReasons.get(reason) ?? 0) + 1);
           }
           metadataCompleted += 1;
           setMetadataProgress({
@@ -846,6 +854,13 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       uniqueRows.length + ". Пропущено некорректных или повторных строк: " + skipped +
       ". Прогресс эпизодов получен для " + progressCount + " записей, личные оценки для " + scoreCount +
       ". Метаданные карточек получены для " + metadataMatched + " тайтлов, ошибок загрузки: " + metadataFailed +
+      (metadataFailureReasons.size
+        ? ". Причины ошибок: " + [...metadataFailureReasons.entries()]
+            .sort((left, right) => right[1] - left[1])
+            .slice(0, 3)
+            .map(([reason, count]) => reason + " (" + count + ")")
+            .join(", ")
+        : "") +
       ". Данные на AnimeGO не изменялись.",
     );
   }
