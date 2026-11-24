@@ -301,7 +301,11 @@ export function parseYummyAccountSnapshot(
       favorite: Boolean(userList.is_fav),
       updatedAt,
       source: "yummyanime",
-      sourceMetadata: { yummyanimeListId: statusId },
+      sourceMetadata: {
+        yummyanimeListId: statusId,
+        originalScore: user.rate ?? null,
+        scoreScale: 10,
+      },
     };
     anime.push(identity);
     entries.push(entry);
