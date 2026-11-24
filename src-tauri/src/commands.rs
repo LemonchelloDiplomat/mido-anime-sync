@@ -1119,6 +1119,11 @@ pub async fn animego_account_write_inspect(title_url: String) -> Result<AnimeGoW
     if !(200..300).contains(&page.status) {
         return Err(format!("AnimeGO не смог открыть карточку тайтла (HTTP {}).", page.status));
     }
+    let (confirmed_user_id, _) = animego_user_from_html(&page.text)
+        .ok_or_else(|| "AnimeGO не подтвердил авторизованный профиль на странице тайтла. Повтори вход.".to_string())?;
+    if confirmed_user_id != session.user_id {
+        return Err("Страница AnimeGO принадлежит другому аккаунту или сессия истекла. Проверка остановлена.".to_string());
+    }
 
     let (forms, csrf_meta_names) = parse_animego_write_forms(&page.text, &safe_title)?;
     Ok(AnimeGoWriteInspection {
