@@ -25,7 +25,7 @@ fn safe_relative_path(value: &str) -> Option<String> {
     if !path.starts_with('/') || path.starts_with("//") || path.len() < 2 || path.len() > 180 {
         return None;
     }
-    if !path.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"/_-.:{}*".contains(&byte)) {
+    if !path.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"/_-.:{}*$".contains(&byte)) {
         return None;
     }
     if !relevant_text(path) { return None; }
@@ -156,7 +156,7 @@ mod tests {
         let found = inspect_animego_script(source);
         assert!(found.iter().any(|item| item.path == "/mylist/anime/"));
         assert!(found.iter().any(|item| item.path == "/rating/anime/"));
-        assert!(found.iter().any(|item| item.path == "/episode/progress/update"));
+        assert!(found.iter().any(|item| item.path == "/episode/${episodeId}/progress"));
         let list = found.iter().find(|item| item.path == "/mylist/anime/").unwrap();
         assert!(list.methods.contains(&"POST".to_string()));
         assert!(list.capabilities.contains(&"list-membership".to_string()));
