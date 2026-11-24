@@ -336,11 +336,35 @@ export function StreamingAccountManagerPanel({
               <strong>Проверка страницы завершена. Изменения не отправлялись.</strong>
               <p>Найдено форм: {writeInspection.forms.length}. CSRF meta-поля: {writeInspection.csrfMetaNames.join(", ") || "не найдены"}.</p>
               {writeInspection.forms.map((form, index) => (
-                <p key={index}>
-                  {form.method} {form.actionPath}
-                  <small>Поля: {form.fieldNames.join(", ") || "нет"}{form.hasCsrfField ? " · CSRF-поле обнаружено" : ""}</small>
-                </p>
+                <div key={index}>
+                  <p>
+                    <strong>{form.method} {form.actionPath}</strong>
+                    <small>Назначение: {form.purpose} · Кодировка: {form.enctype}</small>
+                    <small>Поля: {form.fieldNames.join(", ") || "нет"}{form.hasCsrfField ? " · CSRF-поле обнаружено" : ""}</small>
+                    <small>{form.fields.map((field) => `${field.name} (${field.tag}/${field.inputType}${field.required ? ", обязательно" : ""})`).join(" · ")}</small>
+                    {(form.hasInlineEventHandler || form.hasDataAction) && (
+                      <small>Обработчики: {form.hasInlineEventHandler ? "inline JS" : ""}{form.hasInlineEventHandler && form.hasDataAction ? " · " : ""}{form.hasDataAction ? "data-action" : ""}</small>
+                    )}
+                  </p>
+                </div>
               ))}
+              {writeInspection.interactiveControls.length > 0 && (
+                <div>
+                  <strong>Интерактивные элементы, похожие на управление списком</strong>
+                  {writeInspection.interactiveControls.map((control, index) => (
+                    <p key={index}>
+                      {control.tag}{control.name ? ` name=${control.name}` : ""}{control.id ? ` #${control.id}` : ""}
+                      <small>{control.classNames.join(" ")}{control.required ? " · обязательно" : ""}{control.hasInlineEventHandler ? " · inline JS" : ""}{control.hasDataAction ? " · data-action" : ""}</small>
+                    </p>
+                  ))}
+                </div>
+              )}
+              {writeInspection.sameOriginScriptPaths.length > 0 && (
+                <p><strong>Скрипты AnimeGO:</strong><small>{writeInspection.sameOriginScriptPaths.join(", ")}</small></p>
+              )}
+              {writeInspection.inlineScriptHints.length > 0 && (
+                <p><strong>Подсказки из inline JS:</strong><small>{writeInspection.inlineScriptHints.join(", ")}</small></p>
+              )}
               <small>{writeInspection.note}</small>
             </div>
           )}
