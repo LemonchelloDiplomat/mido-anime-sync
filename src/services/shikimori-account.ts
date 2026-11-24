@@ -107,7 +107,7 @@ function mapReleaseStatus(value?: string | null): AnimeIdentity["releaseStatus"]
 }
 
 function mapSeason(value?: string | null): { season: "WINTER" | "SPRING" | "SUMMER" | "FALL"; year: number } | null {
-  const match = /^(winter|spring|summer|fall)_(\\d{4})$/i.exec(value ?? "");
+  const match = /^(winter|spring|summer|fall)_(\d{4})$/i.exec(value ?? "");
   if (!match) return null;
   return {
     season: match[1]!.toUpperCase() as "WINTER" | "SPRING" | "SUMMER" | "FALL",
