@@ -354,25 +354,14 @@ fn animego_user_from_json(raw: &str) -> Option<(String, Option<String>)> {
 }
 
 fn animego_user_from_html(html: &str) -> Option<(String, Option<String>)> {
-    let tag_start = html.find("<html")?;
-    let tag_end = html[tag_start..].find('>')? + tag_start;
-    let tag = &html[tag_start..tag_end];
-    let attr_start = tag.find("data-user")?;
-    let after_name = &tag[attr_start + "data-user".len()..];
-    let equals = after_name.find('=')?;
-    let after_equals = after_name[equals + 1..].trim_start();
-    let quote = after_equals.chars().next()?;
-    if quote != '"' && quote != '\'' { return None; }
-    let raw = &after_equals[1..];
-    let end = raw.find(quote)?;
-    let decoded = raw[..end]
-        .replace("&quot;", "\"")
-        .replace("&#34;", "\"")
-        .replace("&#x22;", "\"")
-        .replace("&amp;", "&")
-        .replace("&#39;", "'")
-        .replace("&apos;", "'");
-    animego_user_from_json(&decoded)
+    use scraper::{Html, Selector};
+
+    // HTML tag and attribute names are case-insensitive. Parse the document
+    // instead of searching raw source so attribute entities are decoded too.
+    let document = Html::parse_document(html);
+    let selector = Selector::parse("html[data-user]").ok()?;
+    let user_json = document.select(&selector).next()?.value().attr("data-user")?;
+    animego_user_from_json(user_json)
 }
 
 async fn animego_user_from_webview(window: &tauri::WebviewWindow) -> Result<(String, Option<String>), String> {
@@ -1042,6 +1031,15 @@ mod animego_auth_tests {
         assert_eq!(
             animego_user_from_html(html),
             Some(("1367030".to_string(), Some("demo".to_string())))
+        );
+    }
+
+    #[test]
+    fn reads_user_payload_when_html_tag_and_attribute_are_uppercase() {
+        let html = r#"<HTML DATA-USER="{&quot;id&quot;:&quot;1367030&quot;,&quot;username&quot;:&quot;demo-user&quot;}"></HTML>"#;
+        assert_eq!(
+            animego_user_from_html(html),
+            Some(("1367030".to_string(), Some("demo-user".to_string())))
         );
     }
 
