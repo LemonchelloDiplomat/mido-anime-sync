@@ -133,7 +133,14 @@ export function StreamingAccountManagerPanel({
       setListPreview(result);
       setListImportMessage("");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Не удалось загрузить личный список AnimeGO.");
+      const message = typeof cause === "string"
+        ? cause
+        : cause instanceof Error
+          ? cause.message
+          : cause && typeof cause === "object" && "message" in cause && typeof cause.message === "string"
+            ? cause.message
+            : "Не удалось загрузить личный список AnimeGO.";
+      setError(message);
     } finally {
       setListLoading(false);
     }
