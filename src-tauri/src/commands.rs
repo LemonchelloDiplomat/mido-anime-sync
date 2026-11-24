@@ -965,7 +965,7 @@ mod animego_account_list_tests {
 
     #[test]
     fn parses_account_list_card_and_episode_progress() {
-        let html = r#"
+        let html = r##"
           <turbo-stream action="before" targets="#profile-my-list-page-2"><template>
             <div class="user-mylist__item d-flex" data-mylist-id="51630488">
               <a href="/anime/voyennaya-khronika-romelii-4033"><img src="https://img.cdngos.com/poster.jpg" alt="Военная хроника Ромелии"></a>
@@ -978,7 +978,7 @@ mod animego_account_list_tests {
           <turbo-stream action="replace" targets="#profile-my-list-page-2"><template>
             <turbo-frame id="profile-my-list-page-3" src="/user/mylist/123456/3?type=1"></turbo-frame>
           </template></turbo-stream>
-        "#;
+        "##;
         let base = reqwest::Url::parse("https://animego.me/profile/123456?type=1").unwrap();
         let parsed = parse_animego_mylist_page(html, &base, 1).unwrap();
         assert_eq!(parsed.items.len(), 1);
