@@ -1403,7 +1403,8 @@ const ANIMEGO_NETWORK_INSPECT_INSTALL: &str = r#"(() => {
   const safePath = (raw) => {
     try {
       const url = new URL(raw, window.location.href);
-      if (url.origin !== window.location.origin || url.hostname !== "animego.me") return null;
+      const trustedHost = url.hostname === "animego.me" || url.hostname.endsWith(".animego.me");
+      if (url.protocol !== "https:" || !trustedHost || (url.port && url.port !== "443")) return null;
       if (!url.pathname.startsWith("/") || url.pathname === "/logout") return null;
       return url.pathname.slice(0, 180);
     } catch { return null; }
@@ -1439,12 +1440,14 @@ const ANIMEGO_NETWORK_INSPECT_INSTALL: &str = r#"(() => {
   const originalOpen = XMLHttpRequest.prototype.open;
   const originalSend = XMLHttpRequest.prototype.send;
   const originalBeacon = navigator.sendBeacon;
-  const formListener = (event) => {
-    const form = event.target;
+  const originalFormSubmit = HTMLFormElement.prototype.submit;
+  const formFieldNames = (form) => Array.from(form.elements)
+    .map((element) => element.name).filter(Boolean);
+  const recordForm = (form) => {
     if (!(form instanceof HTMLFormElement)) return;
-    record(form.method || "GET", form.action, "form", Array.from(form.elements)
-      .map((element) => element.name).filter(Boolean), null);
+    record(form.method || "GET", form.action, "form", formFieldNames(form), null);
   };
+  const formListener = (event) => recordForm(event.target);
 
   if (typeof originalFetch === "function") {
     window.fetch = function(input, init) {
@@ -1476,6 +1479,12 @@ const ANIMEGO_NETWORK_INSPECT_INSTALL: &str = r#"(() => {
     };
   }
   document.addEventListener("submit", formListener, true);
+  // HTMLFormElement.submit() bypasses the DOM submit event, so observe that
+  // invocation separately. requestSubmit() is already covered by formListener.
+  HTMLFormElement.prototype.submit = function() {
+    recordForm(this);
+    return originalFormSubmit.apply(this, arguments);
+  };
 
   window[key] = {
     active: true,
@@ -1486,6 +1495,7 @@ const ANIMEGO_NETWORK_INSPECT_INSTALL: &str = r#"(() => {
       XMLHttpRequest.prototype.open = originalOpen;
       XMLHttpRequest.prototype.send = originalSend;
       if (originalBeacon) navigator.sendBeacon = originalBeacon;
+      HTMLFormElement.prototype.submit = originalFormSubmit;
       document.removeEventListener("submit", formListener, true);
       window[key].active = false;
     }
