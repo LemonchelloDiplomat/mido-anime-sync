@@ -385,19 +385,8 @@ function animeGoGenres(html, jsonLdGenres) {
 function animeGoAverageScore(html, jsonLd) {
   const jsonRating = Number(jsonLd?.aggregateRating?.ratingValue);
   if (Number.isFinite(jsonRating) && jsonRating > 0 && jsonRating <= 10) return jsonRating;
-  const candidates = [];
-  for (const match of html.matchAll(/<(span|div)\b([^>]*)>([^<]{1,24})<\/\1>/gi)) {
-    const classes = attr(match[2], "class");
-    if (!/(?:rating__value|rating-value|anime-rating|score-value)/i.test(classes) &&
-        attr(match[2], "itemprop").toLowerCase() !== "ratingvalue") continue;
-    const value = Number(stripTags(match[3]).replace(",", "."));
-    if (Number.isFinite(value) && value > 0 && value <= 10) candidates.push(value);
-  }
-  for (const match of html.matchAll(/<meta\b[^>]*itemprop\s*=\s*["']ratingValue["'][^>]*>/gi)) {
-    const value = Number(attr(match[0], "content").replace(",", "."));
-    if (Number.isFinite(value) && value > 0 && value <= 10) candidates.push(value);
-  }
-  return candidates[0] ?? null;
+  const cardRating = ratingFromCard(html);
+  return typeof cardRating === "number" && cardRating > 0 && cardRating <= 10 ? cardRating : null;
 }
 export function parseAnimeGoDetail(html, url) {
   const canonicalTag = html.match(/<link\b[^>]*rel\s*=\s*(['"])canonical\1[^>]*>/i)?.[0] || "";
@@ -422,7 +411,8 @@ export function parseAnimeGoDetail(html, url) {
   const rating = animeGoAverageScore(html, jsonLd);
   const slug = new URL(canonical).pathname.split("/").filter(Boolean).at(-1) || canonical;
   const id = slug.match(/-(\d+)$/)?.[1] || slug;
-  const poster = safeUrl(attr(ogImageTag, "content"));
+  const ogPoster = safeUrl(attr(ogImageTag, "content"));
+  const poster = ogPoster && new URL(ogPoster).pathname.length > 1 ? ogPoster : posterFromCard(html);
   const format = animeGoFormat(typeText);
   const ageRating = animeGoAgeRating(ageText);
   const releaseStatus = animeGoReleaseStatus(statusText);
