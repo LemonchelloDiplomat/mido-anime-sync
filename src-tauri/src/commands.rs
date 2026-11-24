@@ -1494,7 +1494,7 @@ const ANIMEGO_NETWORK_INSPECT_INSTALL: &str = r#"(() => {
 })()"#;
 
 const ANIMEGO_NETWORK_INSPECT_DRAIN: &str =
-    "JSON.stringify(window.__midoAnimeGoNetworkInspector?.drain?.() ?? [])";
+    "JSON.stringify({ active: !!window.__midoAnimeGoNetworkInspector?.active, events: window.__midoAnimeGoNetworkInspector?.drain?.() ?? [] })";
 const ANIMEGO_NETWORK_INSPECT_STOP: &str =
     "window.__midoAnimeGoNetworkInspector?.stop?.(); JSON.stringify({ stopped: true })";
 
@@ -1534,13 +1534,22 @@ pub async fn animego_network_inspect(
 
     while std::time::Instant::now() < deadline && events.len() < 100 {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let observed_url = match window.url() {
+            Ok(url) if url.scheme() == "https" && url.host_str() == Some("animego.me") => url,
+            _ => break,
+        };
+        let _ = observed_url;
         let batch = match animego_eval_json(&window, ANIMEGO_NETWORK_INSPECT_DRAIN).await {
             Ok(value) => value,
             Err(_) => break,
         };
-        let parsed: Vec<AnimeGoNetworkEvent> = match serde_json::from_value(batch) {
-            Ok(value) => value,
-            Err(_) => continue,
+        if batch.get("active").and_then(Value::as_bool) != Some(true) {
+            break;
+        }
+        let parsed: Vec<AnimeGoNetworkEvent> = match batch.get("events").cloned()
+            .and_then(|value| serde_json::from_value(value).ok()) {
+            Some(value) => value,
+            None => continue,
         };
         for event in parsed {
             if event.path.starts_with('/')
@@ -1555,7 +1564,9 @@ pub async fn animego_network_inspect(
         }
     }
 
-    let _ = animego_eval_json(&window, ANIMEGO_NETWORK_INSPECT_STOP).await;
+    if window.url().map(|url| url.scheme() == "https" && url.host_str() == Some("animego.me")).unwrap_or(false) {
+        let _ = animego_eval_json(&window, ANIMEGO_NETWORK_INSPECT_STOP).await;
+    }
 
     Ok(AnimeGoNetworkInspection {
         provider: "animego",
