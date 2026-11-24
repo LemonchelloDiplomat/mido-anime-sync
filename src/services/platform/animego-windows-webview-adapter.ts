@@ -2,6 +2,7 @@ import type {
   StreamingAccountAdapter,
   StreamingAccountConnectResult,
   AnimeGoWriteInspection,
+  AnimeGoNetworkInspection,
 } from "../streaming-account-manager.js";
 import type { NativeInvoke } from "./native-platform-adapters.js";
 
@@ -88,6 +89,14 @@ export class AnimeGoWindowsWebViewAdapter implements StreamingAccountAdapter {
     const status = this.lastStatus ?? await this.invoke<NativeAnimeGoAuthStatus>("animego_auth_status");
     this.lastStatus = status;
     return { accountLabel: status.accountLabel };
+  }
+
+  async openSessionWindow(): Promise<void> {
+    await this.invoke<void>("animego_auth_open");
+  }
+
+  async inspectNetwork(): Promise<AnimeGoNetworkInspection> {
+    return this.invoke<AnimeGoNetworkInspection>("animego_network_inspect");
   }
 
   async inspectWriteCapabilities(titleUrl: string): Promise<AnimeGoWriteInspection> {
