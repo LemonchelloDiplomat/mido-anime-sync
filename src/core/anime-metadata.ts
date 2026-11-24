@@ -40,26 +40,33 @@ export function mergeAnimeMetadata(
     if (values.length) Object.assign(merged, { [field]: values });
   }
 
+  const preferredOrder = preferIncoming
+    ? [existing, incoming]
+    : [incoming, existing];
+
   const mergedTags = new Map<string, NonNullable<AnimeIdentity["tags"]>[number]>();
-  for (const tag of [...(existing.tags ?? []), ...(incoming.tags ?? [])]) {
-    const key = [tag.name.trim().toLocaleLowerCase(), tag.category ?? ""].join("|");
-    mergedTags.set(key, tag);
+  for (const record of preferredOrder) {
+    for (const tag of record.tags ?? []) {
+      const key = [tag.name.trim().toLocaleLowerCase(), tag.category ?? ""].join("|");
+      mergedTags.set(key, tag);
+    }
   }
   if (mergedTags.size) merged.tags = [...mergedTags.values()];
 
   const mergeNamed = <T extends { name: string; externalId?: string | null; role?: string | null; language?: string | null }>(
-    left: T[] | undefined,
-    right: T[] | undefined,
+    records: Array<T[] | undefined>,
   ): T[] => {
     const values = new Map<string, T>();
-    for (const item of [...(left ?? []), ...(right ?? [])]) {
-      const key = [item.name.trim().toLocaleLowerCase(), item.externalId ?? "", item.role ?? "", item.language ?? ""].join("|");
-      values.set(key, item);
+    for (const items of records) {
+      for (const item of items ?? []) {
+        const key = [item.name.trim().toLocaleLowerCase(), item.externalId ?? "", item.role ?? "", item.language ?? ""].join("|");
+        values.set(key, item);
+      }
     }
     return [...values.values()];
   };
   for (const field of ["studios", "producers", "licensors", "staff"] as const) {
-    const values = mergeNamed(existing[field], incoming[field]);
+    const values = mergeNamed(preferredOrder.map((record) => record[field]));
     if (values.length) Object.assign(merged, { [field]: values });
   }
 
