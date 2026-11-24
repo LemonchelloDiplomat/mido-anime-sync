@@ -41,6 +41,28 @@ No guessed route, payload, token selector, or response interpretation may be use
 
 Branch 59 includes the native read-only command `animego_account_write_inspect`, registered in the Tauri command handler and exposed through the Windows account manager panel after a list preview has been loaded. The panel inspects the first imported title as a sample. It displays only form methods, same-origin action paths, field names, and whether a CSRF field is present. It performs no POST/PUT/DELETE requests.
 
+
+## Windows live inspection checkpoint (25 November 2026)
+
+The read-only inspection was run in the connected Windows app against an authenticated account page. It found four same-origin forms:
+
+| Method | Action path | Field names | Interpretation |
+| --- | --- | --- | --- |
+| POST | `/logout` | `_csrf_token` | Logout form; explicitly excluded from write capabilities |
+| POST | `/logout` | `_csrf_token` | Duplicate logout form; explicitly excluded from write capabilities |
+| POST | `/rating/anime/694/vote` | `token`, `rate` | Live-observed rating form for sample AnimeGO ID 694 |
+| GET | `/search/all` | `q` | Search form; read-only lookup |
+
+No CSRF meta fields were found. The logout forms show a hidden field named `_csrf_token`; the rating form exposes a field named `token`. The inspection deliberately did not return either field's value, submit a form, or change the account.
+
+This confirms the existence and shape of the rating form only. It does **not** yet confirm the encoding, token source/value, update semantics, success response, or read-back behavior. Do not enable rating writes until those are validated safely. The search form is not a mutation capability. No status-change, progress-update, or remove form was found in this inspection.
+
+Next validation:
+1. Inspect the rating form's encoding and safe control metadata without returning values.
+2. Determine how the page populates/refreshes the `token` field, keeping token values inside Rust and never exposing them to React or logs.
+3. Inspect a title already in the user's list to identify status/progress controls and their request metadata without submitting them.
+4. Confirm any candidate operation only with a user-approved, reversible test and verify by re-reading the list.
+
 ## Implementation sequence
 
 ### Phase A: inspect and validate
