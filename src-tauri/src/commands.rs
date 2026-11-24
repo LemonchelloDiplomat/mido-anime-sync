@@ -932,9 +932,6 @@ pub async fn animego_account_list_fetch() -> Result<AnimeGoAccountListResponse, 
             for item in parsed.items {
                 if seen.insert(item.list_entry_id.clone()) {
                     all_items.push(item);
-                    if all_items.len() > 3000 {
-                        return Err("AnimeGO вернул больше 3000 записей. Импорт остановлен для защиты библиотеки.".to_string());
-                    }
                 }
             }
 
