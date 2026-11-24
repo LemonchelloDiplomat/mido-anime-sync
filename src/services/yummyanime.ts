@@ -141,6 +141,7 @@ function identityFrom(rawValue: unknown): AnimeIdentity | null {
     ...(mapFormat(raw.type) ? { format: mapFormat(raw.type)! } : {}),
     episodes: title.episodeCount ?? null,
     genres,
+    synopsis: title.description ?? null,
     posterUrl: title.posterUrl ?? null,
     averageScore: rating,
     ...(rating !== null ? { providerScores: { yummyanime: {
