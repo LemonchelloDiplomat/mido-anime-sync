@@ -25,9 +25,7 @@ fn safe_relative_path(value: &str) -> Option<String> {
     if !path.starts_with('/') || path.starts_with("//") || path.len() < 2 || path.len() > 180 {
         return None;
     }
-    if !path.bytes().all(|byte| {
-        byte.is_ascii_alphanumeric() || b"/_-.:{}*".contains(&byte)
-    }) {
+    if !path.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"/_-.:{}*".contains(&byte)) {
         return None;
     }
     if !relevant_text(path) { return None; }
@@ -56,15 +54,13 @@ pub fn inspect_animego_script(source: &str) -> Vec<AnimeGoScriptRouteCandidate> 
             .find_map(|(offset, ch)| if ch == '"' || ch == '\'' { Some((cursor + offset, ch)) } else { None })
         else { break; };
         let value_start = quote_index + quote.len_utf8();
-        let mut end = value_start;
         let mut escaped = false;
         let mut closing = None;
         for (offset, ch) in source[value_start..].char_indices() {
             if escaped { escaped = false; continue; }
-            if ch == '\\\\' { escaped = true; continue; }
+            if ch == '\\' { escaped = true; continue; }
             if ch == quote { closing = Some(value_start + offset); break; }
             if offset > 240 { break; }
-            end = value_start + offset + ch.len_utf8();
         }
         let Some(value_end) = closing else {
             cursor = value_start;
@@ -77,15 +73,16 @@ pub fn inspect_animego_script(source: &str) -> Vec<AnimeGoScriptRouteCandidate> 
         let context = context_window(source, quote_index, cursor).to_ascii_lowercase();
 
         let mut methods = Vec::new();
-        if ["method:"post"", "method: 'post'", "type:"post"", "type: 'post'", ".post(", "method:"delete"", "method: 'delete'", ".delete("]
-            .iter().any(|needle| context.contains(needle)) {
-            if context.contains("delete") { methods.push("DELETE".to_string()); }
-            if context.contains("post") { methods.push("POST".to_string()); }
+        if context.contains("post") && (context.contains("method:") || context.contains(".post(") || context.contains("type:")) {
+            methods.push("POST".to_string());
         }
-        if ["method:"put"", "method: 'put'", ".put("].iter().any(|needle| context.contains(needle)) {
+        if context.contains("delete") && (context.contains("method:") || context.contains(".delete(")) {
+            methods.push("DELETE".to_string());
+        }
+        if context.contains("put") && (context.contains("method:") || context.contains(".put(")) {
             methods.push("PUT".to_string());
         }
-        if ["method:"patch"", "method: 'patch'", ".patch("].iter().any(|needle| context.contains(needle)) {
+        if context.contains("patch") && (context.contains("method:") || context.contains(".patch(")) {
             methods.push("PATCH".to_string());
         }
         if methods.is_empty() { methods.push("unknown".to_string()); }
@@ -95,16 +92,10 @@ pub fn inspect_animego_script(source: &str) -> Vec<AnimeGoScriptRouteCandidate> 
         let searchable = format!("{} {}", path.to_ascii_lowercase(), context);
         let mut capabilities = Vec::new();
         for (needle, label) in [
-            ("rating", "rating"),
-            ("vote", "rating"),
-            ("progress", "progress"),
-            ("episode", "episode-progress"),
-            ("watched", "episode-progress"),
-            ("watch", "episode-progress"),
-            ("status", "list-status"),
-            ("mylist", "list-membership"),
-            ("remove", "remove"),
-            ("delete", "remove"),
+            ("rating", "rating"), ("vote", "rating"), ("progress", "progress"),
+            ("episode", "episode-progress"), ("watched", "episode-progress"),
+            ("watch", "episode-progress"), ("status", "list-status"),
+            ("mylist", "list-membership"), ("remove", "remove"), ("delete", "remove"),
         ] {
             if searchable.contains(needle) && !capabilities.iter().any(|item| item == label) {
                 capabilities.push(label.to_string());
@@ -113,24 +104,17 @@ pub fn inspect_animego_script(source: &str) -> Vec<AnimeGoScriptRouteCandidate> 
 
         let mut field_hints = Vec::new();
         for field in ["token", "csrf", "status", "type", "progress", "episode", "rate", "score", "animeId", "mylistId"] {
-            if searchable.contains(&field.to_ascii_lowercase()) {
-                field_hints.push(field.to_string());
-            }
+            if searchable.contains(&field.to_ascii_lowercase()) { field_hints.push(field.to_string()); }
         }
 
         let mut signals = Vec::new();
         for (needle, label) in [
-            ("fetch(", "fetch"),
-            ("xmlhttprequest", "XMLHttpRequest"),
-            ("axios", "axios"),
-            ("formdata", "FormData"),
-            ("urlsearchparams", "URLSearchParams"),
-            ("addEventListener", "addEventListener"),
+            ("fetch(", "fetch"), ("xmlhttprequest", "XMLHttpRequest"),
+            ("axios", "axios"), ("formdata", "FormData"),
+            ("urlsearchparams", "URLSearchParams"), ("addeventlistener", "addEventListener"),
             ("turbo", "Turbo"),
         ] {
-            if context.contains(&needle.to_ascii_lowercase()) {
-                signals.push(label.to_string());
-            }
+            if context.contains(needle) { signals.push(label.to_string()); }
         }
 
         let candidate = AnimeGoScriptRouteCandidate { path, methods, capabilities, field_hints, signals };
