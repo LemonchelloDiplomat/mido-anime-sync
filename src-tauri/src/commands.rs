@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use uuid::Uuid;
+use crate::animego_script_inspector::{inspect_animego_script, AnimeGoScriptRouteCandidate};
 
 const KEYRING_SERVICE: &str = "com.mido-anime-sync.streaming";
 const SESSION_KEY_PREFIX: &str = "mido-anime-sync:streaming-session:v1:";
@@ -1042,6 +1043,9 @@ pub struct AnimeGoWriteInspection {
     interactive_controls: Vec<AnimeGoInteractiveControlInspection>,
     same_origin_script_paths: Vec<String>,
     inline_script_hints: Vec<String>,
+    scripts_inspected: usize,
+    scripts_skipped: usize,
+    script_route_candidates: Vec<AnimeGoScriptRouteCandidate>,
     note: &'static str,
 }
 
@@ -1288,6 +1292,47 @@ pub async fn animego_account_write_inspect(title_url: String) -> Result<AnimeGoW
 
     let (forms, csrf_meta_names, interactive_controls, same_origin_script_paths, inline_script_hints) =
         parse_animego_write_forms(&page.text, &safe_title)?;
+
+    // Fetch a small, bounded set of first-party bundles. Never execute them and
+    // never return their source, response headers, cookies, or token values.
+    let mut scripts_inspected = 0usize;
+    let mut scripts_skipped = 0usize;
+    let mut script_route_candidates: Vec<AnimeGoScriptRouteCandidate> = Vec::new();
+    for script_path in same_origin_script_paths.iter()
+        .filter(|path| path.starts_with("/build/") && !path.contains('?'))
+        .take(8) {
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+        let script_page = match animego_fetch_account_page(
+            &client, &mut cookies, script_path, safe_title.as_str(), None
+        ).await {
+            Ok(result) if (200..300).contains(&result.status) => result,
+            _ => { scripts_skipped += 1; continue; }
+        };
+        if script_page.text.trim_start().starts_with("<") {
+            scripts_skipped += 1;
+            continue;
+        }
+        scripts_inspected += 1;
+        for candidate in inspect_animego_script(&script_page.text) {
+            if let Some(existing) = script_route_candidates.iter_mut().find(|item| item.path == candidate.path) {
+                for method in candidate.methods {
+                    if !existing.methods.contains(&method) { existing.methods.push(method); }
+                }
+                for capability in candidate.capabilities {
+                    if !existing.capabilities.contains(&capability) { existing.capabilities.push(capability); }
+                }
+                for field in candidate.field_hints {
+                    if !existing.field_hints.contains(&field) { existing.field_hints.push(field); }
+                }
+                for signal in candidate.signals {
+                    if !existing.signals.contains(&signal) { existing.signals.push(signal); }
+                }
+            } else if script_route_candidates.len() < 80 {
+                script_route_candidates.push(candidate);
+            }
+        }
+    }
+
     Ok(AnimeGoWriteInspection {
         provider: "animego",
         title_url: safe_title.to_string(),
@@ -1297,7 +1342,10 @@ pub async fn animego_account_write_inspect(title_url: String) -> Result<AnimeGoW
         interactive_controls,
         same_origin_script_paths,
         inline_script_hints,
-        note: "Только чтение. Значения полей, токены, cookies и исходный код скриптов не возвращаются. JS-подсказки основаны на статическом HTML и не подтверждают runtime-обработчики.",
+        scripts_inspected,
+        scripts_skipped,
+        script_route_candidates,
+        note: "Только чтение. JavaScript-бандлы анализируются статически и не выполняются. Возвращаются только кандидаты путей и фиксированные подсказки; исходный код, значения полей, токены и cookies не возвращаются. Кандидаты не являются подтверждённым API-контрактом.",
     })
 }
 
