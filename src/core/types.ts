@@ -18,6 +18,10 @@ export type AnimeStatus =
 
 export type AnimeFormat =
   | "TV"
+  | "TV_SHORT"
+  | "TV_SPECIAL"
+  | "CM"
+  | "PV"
   | "MOVIE"
   | "OVA"
   | "ONA"
@@ -25,7 +29,7 @@ export type AnimeFormat =
   | "MUSIC"
   | "UNKNOWN";
 
-export type AnimeAgeRating = "G" | "PG" | "PG13" | "R17" | "R+";
+export type AnimeAgeRating = "G" | "PG" | "PG13" | "R17" | "R+" | "RX";
 export type AnimeReleaseStatus = "ONGOING" | "ANNOUNCED" | "RELEASED";
 
 export type AnimeSeason = "WINTER" | "SPRING" | "SUMMER" | "FALL";
