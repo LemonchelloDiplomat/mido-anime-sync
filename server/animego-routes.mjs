@@ -312,47 +312,143 @@ export function parseAnimeGoSearch(html) {
   return results.slice(0, 30);
 }
 
+function animeGoDetailField(html, label) {
+  const heading = html.search(/<h1\b/i);
+  const source = heading >= 0 ? html.slice(heading) : html;
+  const labels = ["Тип", "Эпизоды", "Статус", "Жанр", "Темы", "Первоисточник", "Сезон", "Выпуск", "Рейтинг MPAA", "Возрастные ограничения", "Длительность", "Студия"];
+  const match = new RegExp("(?:>|\\s)" + label + "\\s*:?\\s*", "i").exec(source);
+  if (!match) return "";
+  const valueStart = match.index + match[0].length;
+  let valueEnd = source.length;
+  for (const nextLabel of labels) {
+    if (nextLabel.toLowerCase() === label.toLowerCase()) continue;
+    const next = new RegExp("(?:>|\\s)" + nextLabel + "\\s*:?\\s*", "i").exec(source.slice(valueStart));
+    if (next) valueEnd = Math.min(valueEnd, valueStart + next.index);
+  }
+  return stripTags(source.slice(valueStart, valueEnd)).replace(/^[\\s:,-]+|[\\s,;]+$/g, "").trim();
+}
+
+function animeGoFormat(value) {
+  const text = String(value || "").toLowerCase();
+  if (/фильм|movie/.test(text)) return "MOVIE";
+  if (/\\bova\\b/.test(text)) return "OVA";
+  if (/\\bona\\b/.test(text)) return "ONA";
+  if (/спешл|special/.test(text)) return "SPECIAL";
+  if (/музык|music/.test(text)) return "MUSIC";
+  if (/сериал|tv|сезон/.test(text)) return "TV";
+  return undefined;
+}
+
+function animeGoReleaseStatus(value) {
+  const text = String(value || "").toLowerCase();
+  if (/онгоинг|выходит|выходят/.test(text)) return "ONGOING";
+  if (/анонс|скоро|запланирован/.test(text)) return "ANNOUNCED";
+  if (/вышел|заверш|выпущен/.test(text)) return "RELEASED";
+  return undefined;
+}
+
+function animeGoAgeRating(value) {
+  const text = String(value || "").toUpperCase().replace(/\\s/g, "");
+  if (/R-17|R17/.test(text)) return "R17";
+  if (/R\\+|18\\+|18PLUS/.test(text)) return "R+";
+  if (/PG-13|PG13|13\\+/.test(text)) return "PG13";
+  if (/PG|6\\+/.test(text)) return "PG";
+  if (/G|0\\+/.test(text)) return "G";
+  return null;
+}
+
+function animeGoDate(value, jsonLdDate) {
+  const iso = String(jsonLdDate || "").match(/\\b(19|20)\\d{2}-\\d{2}-\\d{2}\\b/)?.[0];
+  if (iso) return iso;
+  const text = String(value || "").toLowerCase();
+  const match = text.match(/(?:с\\s*)?(\\d{1,2})\\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\\s+(\\d{4})/i);
+  if (!match) return null;
+  const months = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
+  const month = months.indexOf(match[2]) + 1;
+  return month > 0 ? match[3] + "-" + String(month).padStart(2,"0") + "-" + String(Number(match[1])).padStart(2,"0") : null;
+}
+
+function animeGoGenres(html, jsonLdGenres) {
+  if (Array.isArray(jsonLdGenres) && jsonLdGenres.length) return jsonLdGenres.map(String);
+  const field = animeGoDetailField(html, "Жанр");
+  return [...new Set(field.split(/[,·]/).map((value) => value.trim()).filter(Boolean))];
+}
+
+function animeGoAverageScore(html, jsonLd) {
+  const jsonRating = Number(jsonLd?.aggregateRating?.ratingValue);
+  if (Number.isFinite(jsonRating) && jsonRating > 0 && jsonRating <= 10) return jsonRating;
+  const candidates = [];
+  for (const match of html.matchAll(/<(?:span|div|meta)\\b([^>]*)>([\\s\\S]*?)<\\/(?:span|div)>/gi)) {
+    const tag = match[1] || "";
+    if (!/(?:rating__value|rating-value|anime-rating|score-value)/i.test(attr(tag, "class")) &&
+        attr(tag, "itemprop").toLowerCase() !== "ratingvalue") continue;
+    const value = Number(stripTags(match[2]).replace(",", "."));
+    if (Number.isFinite(value) && value > 0 && value <= 10) candidates.push(value);
+  }
+  for (const match of html.matchAll(/<meta\\b[^>]*itemprop\\s*=\\s*["']ratingValue["'][^>]*>/gi)) {
+    const value = Number(attr(match[0], "content").replace(",", "."));
+    if (Number.isFinite(value) && value > 0 && value <= 10) candidates.push(value);
+  }
+  return candidates[0] ?? null;
+}
+
 export function parseAnimeGoDetail(html, url) {
-  const canonicalTag = html.match(/<link\b[^>]*rel\s*=\s*(['"])canonical\1[^>]*>/i)?.[0] || "";
-  const ogTitleTag = html.match(/<meta\b[^>]*property\s*=\s*(['"])og:title\1[^>]*>/i)?.[0] || "";
-  const ogImageTag = html.match(/<meta\b[^>]*property\s*=\s*(['"])og:image\1[^>]*>/i)?.[0] || "";
-  const descTag = html.match(/<meta\b[^>]*name\s*=\s*(['"])description\1[^>]*>/i)?.[0] || "";
-  const h1 = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || "";
+  const canonicalTag = html.match(/<link\\b[^>]*rel\\s*=\\s*(['"])canonical\\1[^>]*>/i)?.[0] || "";
+  const ogTitleTag = html.match(/<meta\\b[^>]*property\\s*=\\s*(['"])og:title\\1[^>]*>/i)?.[0] || "";
+  const ogImageTag = html.match(/<meta\\b[^>]*property\\s*=\\s*(['"])og:image\\1[^>]*>/i)?.[0] || "";
+  const descTag = html.match(/<meta\\b[^>]*name\\s*=\\s*(['"])description\\1[^>]*>/i)?.[0] || "";
+  const h1 = html.match(/<h1\\b[^>]*>([\\s\\S]*?)<\\/h1>/i)?.[1] || "";
   const canonical = safeUrl(attr(canonicalTag, "href") || url);
-  const title = stripTags(h1) || stripTags(attr(ogTitleTag, "content")).replace(/\s*[-|].*$/, "");
+  const title = stripTags(h1) || stripTags(attr(ogTitleTag, "content")).replace(/\\s*[-|].*$/, "");
   if (!canonical || !title) throw new Error("AnimeGO не вернул распознаваемую публичную карточку аниме.");
-  const jsonLdRaw = html.match(/<script\b[^>]*type\s*=\s*(['"])application\/ld\+json\1[^>]*>([\s\S]*?)<\/script>/i)?.[2] || "";
+  const jsonLdRaw = html.match(/<script\\b[^>]*type\\s*=\\s*(['"])application\\/ld\\+json\\1[^>]*>([\\s\\S]*?)<\\/script>/i)?.[2] || "";
   let jsonLd = {};
   try { jsonLd = JSON.parse(jsonLdRaw); } catch {}
-  const year = Number(String(jsonLd.datePublished || "").slice(0, 4)) || null;
-  const genres = Array.isArray(jsonLd.genre) ? jsonLd.genre.map(String) : [];
-  const rating = Number(jsonLd.aggregateRating?.ratingValue);
+  const typeText = animeGoDetailField(html, "Тип");
+  const statusText = animeGoDetailField(html, "Статус");
+  const ageText = animeGoDetailField(html, "Возрастные ограничения") || animeGoDetailField(html, "Рейтинг MPAA");
+  const releaseText = animeGoDetailField(html, "Выпуск");
+  const yearFromJsonLd = Number(String(jsonLd.datePublished || "").slice(0, 4)) || null;
+  const yearFromRelease = Number(releaseText.match(/\\b(?:19|20)\\d{2}\\b/)?.[0]) || null;
+  const year = yearFromJsonLd || yearFromRelease || null;
+  const genres = animeGoGenres(html, jsonLd.genre);
+  const rating = animeGoAverageScore(html, jsonLd);
   const slug = new URL(canonical).pathname.split("/").filter(Boolean).at(-1) || canonical;
-  const id = slug.match(/-(\d+)$/)?.[1] || slug;
+  const id = slug.match(/-(\\d+)$/)?.[1] || slug;
   const poster = safeUrl(attr(ogImageTag, "content"));
+  const format = animeGoFormat(typeText);
+  const ageRating = animeGoAgeRating(ageText);
+  const releaseStatus = animeGoReleaseStatus(statusText);
+  const startDate = animeGoDate(releaseText, jsonLd.datePublished);
+  const episodeCount = Number(jsonLd.numberOfEpisodes) || Number(animeGoDetailField(html, "Эпизоды").match(/\\d+/)?.[0]) || null;
+  const alternateName = String(jsonLd.alternateName || "");
   return {
     provider: "animego",
     externalId: id,
     url: canonical,
     title,
-    alternativeTitles: [String(jsonLd.alternateName || "")].filter(Boolean),
+    alternativeTitles: [alternateName].filter(Boolean),
     posterUrl: poster,
     description: stripTags(attr(descTag, "content")) || null,
     year,
-    episodeCount: Number(jsonLd.numberOfEpisodes) || null,
+    episodeCount,
+    rating,
     identity: {
       id: "animego:" + id,
-      titles: { romaji: title, synonyms: [String(jsonLd.alternateName || "")].filter(Boolean) },
+      titles: { romaji: title, synonyms: [alternateName].filter(Boolean) },
       externalIds: { animego: id },
       year,
-      episodes: Number(jsonLd.numberOfEpisodes) || null,
+      ...(format ? { format } : {}),
+      episodes: episodeCount,
       genres,
+      ageRating,
       posterUrl: poster,
-      averageScore: Number.isFinite(rating) && rating > 0 ? rating : null,
+      averageScore: rating,
+      startDate,
+      ...(releaseStatus ? { releaseStatus } : {}),
     },
   };
 }
-
 function playerContent(payload) {
   const content = payload?.data?.content;
   if (typeof content !== "string") throw new Error("AnimeGO вернул список эпизодов в неожиданном формате.");
