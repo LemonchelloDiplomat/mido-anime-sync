@@ -24,6 +24,7 @@ interface AnimeGoAccountListItem {
   episodesWatched: number | null;
   episodesTotal: number | null;
   progressText: string | null;
+  score: number | null;
 }
 
 interface AnimeGoAccountListSummary {

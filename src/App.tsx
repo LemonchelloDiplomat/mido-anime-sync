@@ -728,6 +728,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
             href: item.url,
             episodesWatched: item.episodesWatched,
             episodesTotal: item.episodesTotal,
+            score: item.score,
           })),
       });
       rows.push(...normalized.rows);
@@ -756,10 +757,11 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
     };
     await importStreamingAccountSnapshot(snapshot, "animego");
     const progressCount = uniqueRows.filter((row) => row.entry.sourceMetadata?.progressKnown === true).length;
+    const scoreCount = uniqueRows.filter((row) => row.entry.sourceMetadata?.scoreKnown === true).length;
     window.alert(
       "Импорт AnimeGO завершён. Добавлено или обновлено записей: " +
       uniqueRows.length + ". Пропущено некорректных или повторных строк: " + skipped +
-      ". Прогресс эпизодов получен для " + progressCount + " записей. Данные на AnimeGO не изменялись.",
+      ". Прогресс эпизодов получен для " + progressCount + " записей, личные оценки для " + scoreCount + ". Данные на AnimeGO не изменялись.",
     );
   }
 

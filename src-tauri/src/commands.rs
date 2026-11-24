@@ -529,6 +529,7 @@ struct AnimeGoAccountListItem {
     episodes_watched: Option<u32>,
     episodes_total: Option<u32>,
     progress_text: Option<String>,
+    score: Option<u8>,
 }
 
 #[derive(Debug, Serialize)]
@@ -577,6 +578,11 @@ fn parse_leading_number(value: &str) -> Option<u32> {
         .take_while(|character| character.is_ascii_digit())
         .collect::<String>();
     if digits.is_empty() { None } else { digits.parse().ok() }
+}
+
+fn parse_animego_score(value: &str) -> Option<u8> {
+    let score = parse_leading_number(value)?;
+    (1..=10).contains(&score).then_some(score as u8)
 }
 
 fn parse_animego_progress(value: &str) -> (Option<u32>, Option<u32>, Option<String>) {
@@ -652,6 +658,8 @@ fn parse_animego_mylist_page(
         .map_err(|_| "Не удалось подготовить парсер альтернативных названий AnimeGO.".to_string())?;
     let release_selector = Selector::parse(".user-profile__status")
         .map_err(|_| "Не удалось подготовить парсер статусов AnimeGO.".to_string())?;
+    let rating_selector = Selector::parse("[data-rating-value]")
+        .map_err(|_| "Не удалось подготовить парсер оценок AnimeGO.".to_string())?;
     let image_selector = Selector::parse("img")
         .map_err(|_| "Не удалось подготовить парсер постеров AnimeGO.".to_string())?;
     let frame_selector = Selector::parse("turbo-frame[id][src]")
@@ -688,6 +696,16 @@ fn parse_animego_mylist_page(
         let release_status = card.select(&release_selector).next()
             .map(|element| normalize_html_text(element.text().collect::<Vec<_>>().join(" ")))
             .filter(|value| !value.is_empty());
+        // AnimeGO exposes a user's personal score in the card's data-rating-value element.
+        // Missing or out-of-range values stay unknown instead of being converted to zero.
+        let score = card.select(&rating_selector).next()
+            .and_then(|element| {
+                element.value().attr("data-rating-value")
+                    .and_then(parse_animego_score)
+                    .or_else(|| parse_animego_score(&normalize_html_text(
+                        element.text().collect::<Vec<_>>().join(" ")
+                    )))
+            });
 
         let mut poster_url = None;
         if let Some(image) = card.select(&image_selector).next() {
@@ -731,6 +749,7 @@ fn parse_animego_mylist_page(
             episodes_watched,
             episodes_total,
             progress_text: parsed_progress_text,
+            score,
         });
     }
 
@@ -977,7 +996,7 @@ pub async fn animego_account_list_fetch() -> Result<AnimeGoAccountListResponse, 
 
 #[cfg(test)]
 mod animego_account_list_tests {
-    use super::{parse_animego_mylist_page, parse_animego_progress};
+    use super::{parse_animego_mylist_page, parse_animego_progress, parse_animego_score};
 
     #[test]
     fn parses_account_list_card_and_episode_progress() {
@@ -988,6 +1007,7 @@ mod animego_account_list_tests {
               <div class="user-mylist__title"><a href="/anime/voyennaya-khronika-romelii-4033">Военная хроника Ромелии</a></div>
               <div class="fw-lighter small">Romelia Senki</div>
               <div class="user-profile__status">онгоинг</div>
+              <div data-rating-value="8"></div>
               <a href="/anime/voyennaya-khronika-romelii-4033#player">Продолжить 7 / 8 (24)</a>
             </div>
           </template></turbo-stream>
@@ -1004,8 +1024,22 @@ mod animego_account_list_tests {
         assert_eq!(parsed.items[0].alternative_title.as_deref(), Some("Romelia Senki"));
         assert_eq!(parsed.items[0].episodes_watched, Some(7));
         assert_eq!(parsed.items[0].episodes_total, Some(8));
+        assert_eq!(parsed.items[0].score, Some(8));
         assert_eq!(parsed.next_page_frame_id.as_deref(), Some("profile-my-list-page-3"));
         assert_eq!(parsed.next_page_url.as_deref(), Some("/user/mylist/123456/3?type=1"));
+    }
+
+    #[test]
+    fn reads_personal_score_from_data_rating_value_attribute() {
+        let html = r#"<div class="user-mylist__item" data-mylist-id="2">
+          <a href="/anime/example-123"><img src="https://img.cdngos.com/example.jpg" alt="Example"></a>
+          <div class="user-mylist__title"><a href="/anime/example-123">Example</a></div>
+          <div data-rating-value="6"></div>
+        </div>"#;
+        let base = reqwest::Url::parse("https://animego.me/profile/123456?type=1").unwrap();
+        let parsed = parse_animego_mylist_page(html, &base, 1).unwrap();
+        assert_eq!(parsed.items.len(), 1);
+        assert_eq!(parsed.items[0].score, Some(6));
     }
 
     #[test]
@@ -1017,6 +1051,15 @@ mod animego_account_list_tests {
         let base = reqwest::Url::parse("https://animego.me/profile/123456?type=1").unwrap();
         let parsed = parse_animego_mylist_page(html, &base, 1).unwrap();
         assert!(parsed.items.is_empty());
+    }
+
+    #[test]
+    fn parses_personal_score_only_within_animego_ten_point_range() {
+        assert_eq!(parse_animego_score("8"), Some(8));
+        assert_eq!(parse_animego_score("10"), Some(10));
+        assert_eq!(parse_animego_score("0"), None);
+        assert_eq!(parse_animego_score("11"), None);
+        assert_eq!(parse_animego_score(""), None);
     }
 
     #[test]
