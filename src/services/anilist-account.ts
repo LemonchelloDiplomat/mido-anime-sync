@@ -219,6 +219,7 @@ export function parseAniListAccountList(
         repeat: raw.repeat ?? 0,
         notes: raw.notes ?? "",
         scoreFormat,
+        originalScore: raw.score,
         startedAt: formatDate(raw.startedAt),
         completedAt: formatDate(raw.completedAt),
       },
