@@ -247,6 +247,7 @@ export function parseAnixArtDetail(html, requestedUrl) {
         averageScore: { value: averageScore, scale: 10, normalizedValue: averageScore * 10, kind: "average" },
       } } } : {}),
       synopsis: description,
+      ...(originMatch?.[1]?.trim() ? { sourceMaterial: originMatch[1].trim() } : {}),
       posterUrl: poster,
       providerMetadata: {
         anixart: {
