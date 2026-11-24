@@ -328,7 +328,7 @@ export function StreamingAccountManagerPanel({
           {onImportAnimeGoList && <button className="secondary-button" type="button" onClick={() => void importAnimeGoList()} disabled={listImporting || listLoading}>{listImporting ? "Импортируем..." : "Импортировать в библиотеку"}</button>}
           {runtime?.accounts.inspectWriteCapabilities && listPreview.items.length > 0 && (
             <button className="secondary-button" type="button" onClick={() => void inspectAnimeGoWriteCapabilities()} disabled={inspectionLoading || listLoading || listImporting}>
-              {inspectionLoading ? "Изучаем страницу..." : "Исследовать формы записи (без изменений)"}
+              {inspectionLoading ? "Изучаем страницу..." : "Исследовать формы и скрипты (без изменений)"}
             </button>
           )}
           {writeInspection && (
