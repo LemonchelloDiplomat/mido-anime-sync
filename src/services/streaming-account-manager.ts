@@ -13,6 +13,15 @@ export interface StreamingAccountStatus extends StreamingAccountSessionInfo {
 }
 
 /** Shared UI-facing account lifecycle contract implemented by native and web runtimes. */
+export interface AnimeGoWriteInspection {
+  provider: "animego";
+  titleUrl: string;
+  httpStatus: number;
+  forms: Array<{ method: string; actionPath: string; fieldNames: string[]; hasCsrfField: boolean }>;
+  csrfMetaNames: string[];
+  note: string;
+}
+
 export interface StreamingAccountManagerPort {
   hasAdapter(provider: StreamingProviderId): boolean;
   getStatus(provider: StreamingProviderId): StreamingAccountStatus;
@@ -24,6 +33,7 @@ export interface StreamingAccountManagerPort {
   completeConnect?(provider: StreamingProviderId): Promise<StreamingAccountStatus>;
   /** Optional read-only provider list fetch; secrets remain inside the trusted adapter. */
   fetchList?(provider: StreamingProviderId): Promise<unknown>;
+  inspectWriteCapabilities?(provider: StreamingProviderId, titleUrl: string): Promise<AnimeGoWriteInspection>;
 }
 
 export interface StreamingAccountConnectResult {
@@ -43,6 +53,7 @@ export interface StreamingAccountAdapter {
   getSessionInfo?(): Promise<{ accountLabel?: string | null; expiresAt?: string | null }>;
   /** Read-only account-list import. The adapter must keep session material native. */
   fetchList?(): Promise<unknown>;
+  inspectWriteCapabilities?(titleUrl: string): Promise<AnimeGoWriteInspection>;
 }
 
 /**
@@ -152,6 +163,14 @@ export class StreamingAccountManager {
       this.states.set(provider, status);
       return { ...status };
     }
+  }
+
+  async inspectWriteCapabilities(provider: StreamingProviderId, titleUrl: string): Promise<AnimeGoWriteInspection> {
+    const adapter = this.requireAdapter(provider);
+    if (!adapter.inspectWriteCapabilities) throw new Error(`Write inspection is unavailable for ${provider}.`);
+    const status = await this.restore(provider);
+    if (!status.connected) throw new Error(`Сначала подключи аккаунт ${provider}.`);
+    return adapter.inspectWriteCapabilities(titleUrl);
   }
 
   async fetchList(provider: StreamingProviderId): Promise<unknown> {
