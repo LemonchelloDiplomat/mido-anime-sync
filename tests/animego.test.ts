@@ -229,6 +229,28 @@ describe("AnimeGO public catalog adapter", () => {
     expect(response.json().items).toHaveLength(1);
     expect(response.json().items[0].title).toBe("Shunkashuutou Daikousha: Haru no Mai");
   });
+  it("does not accept a CDN root URL as a poster fallback", () => {
+    const html = `
+      <link rel="canonical" href="https://animego.me/anime/root-poster-9000">
+      <meta property="og:image" content="https://cdngos.com">
+      <h1>Root poster placeholder</h1>
+      <img src="https://cdngos.com" alt="placeholder">
+    `;
+    expect(parseAnimeGoDetail(html, "https://animego.me/anime/root-poster-9000").identity.posterUrl).toBeNull();
+  });
+
+  it("recognizes age-rating labels rendered in a separate sibling column", () => {
+    const html = `
+      <link rel="canonical" href="https://animego.me/anime/age-rating-9001">
+      <h1>Age rating example</h1>
+      <div class="detail-row">
+        <div class="label"><span>Возрастной рейтинг:</span></div>
+        <div class="value"><span>18+</span></div>
+      </div>
+    `;
+    expect(parseAnimeGoDetail(html, "https://animego.me/anime/age-rating-9001").identity.ageRating).toBe("R+");
+  });
+
   it("parses public title metadata and exact AnimeGO identity", () => {
     const title = parseAnimeGoDetail(detailHtml, "https://animego.me/anime/sample-title-1234");
     expect(title).toMatchObject({
