@@ -638,7 +638,21 @@ fn parse_animego_mylist_page(
         return Err("Неизвестная категория списка AnimeGO.".to_string());
     }
 
-    let document = Html::parse_document(html);
+    // Turbo Stream responses wrap cards and the next lazy frame in <template>.
+    // Extract those template fragments as ordinary HTML before querying them.
+    let mut expanded_html = html.to_string();
+    let lower_html = html.to_ascii_lowercase();
+    let mut template_cursor = 0usize;
+    while let Some(relative_start) = lower_html[template_cursor..].find("<template") {
+        let template_start = template_cursor + relative_start;
+        let Some(open_end_relative) = lower_html[template_start..].find('>') else { break; };
+        let content_start = template_start + open_end_relative + 1;
+        let Some(close_relative) = lower_html[content_start..].find("</template") else { break; };
+        let content_end = content_start + close_relative;
+        expanded_html.push_str(&html[content_start..content_end]);
+        template_cursor = content_end + "</template".len();
+    }
+    let document = Html::parse_document(&expanded_html);
     let card_selector = Selector::parse("div.user-mylist__item[data-mylist-id]")
         .map_err(|_| "Не удалось подготовить парсер карточек AnimeGO.".to_string())?;
     let link_selector = Selector::parse("a[href]")
