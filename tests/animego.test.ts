@@ -67,7 +67,7 @@ describe("AnimeGO DNS adapter", () => {
 
 describe("AnimeGO title detail metadata", () => {
   it("extracts catalog fields from visible AnimeGO detail labels", () => {
-    const html = \`
+    const html = `
       <link rel="canonical" href="https://animego.me/anime/91-den-3642">
       <meta property="og:image" content="https://img.cdngos.com/posters/91-days.jpg">
       <h1>91 день</h1>
@@ -79,7 +79,7 @@ describe("AnimeGO title detail metadata", () => {
       <div class="detail-row">Выпуск: с 9 июля 2016 г. по 1 октября 2016 г.</div>
       <div class="detail-row">Рейтинг MPAA: R-17</div>
       <div class="detail-row">Возрастные ограничения: 18+</div>
-    \`;
+    `;
     const result = parseAnimeGoDetail(html, "https://animego.me/anime/91-den-3642");
     expect(result.identity).toMatchObject({
       year: 2016,
