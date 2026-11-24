@@ -305,6 +305,7 @@ export function StreamingAccountManagerPanel({
               </div>
 
               {connected && runtime ? (
+                <>
                 <div className="native-account-actions">
                   {provider.id === "animego" && runtime.platform === "windows-native" && runtime.accounts.openSessionWindow && (
                     <button
@@ -348,6 +349,7 @@ export function StreamingAccountManagerPanel({
                 {provider.id === "animego" && runtime.platform === "windows-native" && (
                   <small>Открой окно AnimeGO, перейди на страницу нужного тайтла и только затем запусти наблюдение. Во время 90 секунд выполни обычные действия на сайте. Инспектор не нажимает кнопки и не меняет данные.</small>
                 )}
+                </>
               ) : provider.id !== "animego" ? (
                 <button
                   className="secondary-button"
