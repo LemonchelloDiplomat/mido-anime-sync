@@ -152,6 +152,8 @@ export function normalizeAnimeGoAccountList(
         progressKnown,
         episodesTotal,
         scoreKnown,
+        originalScore: raw.score ?? null,
+        scoreScale: 10,
         favoriteKnown: false,
       },
     };
