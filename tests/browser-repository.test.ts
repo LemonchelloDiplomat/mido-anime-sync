@@ -1564,6 +1564,51 @@ describe("BrowserAnimeRepository catalog metadata", () => {
     ]);
   });
 
+  it("round-trips expanded provider metadata through a V4 backup", async () => {
+    const sourceRepo = await createRepository();
+    const anime: AnimeIdentity = {
+      ...makeAnime("metadata-roundtrip"),
+      externalIds: { myanimelist: "100", anilist: "200" },
+      synopsis: "Original synopsis",
+      background: "Production background",
+      bannerUrl: "https://example.com/banner.jpg",
+      season: "SPRING",
+      seasonYear: 2024,
+      durationMinutes: 24,
+      episodesAired: 12,
+      themes: ["Space"],
+      demographics: ["Seinen"],
+      tags: [{ name: "Found Family", category: "Theme", rank: 92 }],
+      studios: [{ name: "Sunrise", externalId: "14" }],
+      producers: [{ name: "Bandai Visual", externalId: "23" }],
+      licensors: [{ name: "Example Licensee", externalId: "24" }],
+      staff: [{ name: "Director A", externalId: "5", role: "Director", language: "Japanese" }],
+      providerScores: {
+        myanimelist: {
+          meanScore: { value: 8.5, scale: 10, normalizedValue: 85, kind: "mean", voteCount: 1200 },
+        },
+        anilist: {
+          averageScore: { value: 86, scale: 100, normalizedValue: 86, kind: "average" },
+        },
+      },
+      providerMetadata: {
+        myanimelist: { rank: 42, rating: "pg_13" },
+        anilist: { popularity: 900, favourites: 120 },
+      },
+    };
+
+    await sourceRepo.saveAnime(anime);
+    const backup = await sourceRepo.snapshot();
+
+    const targetRepo = await createRepository();
+    await targetRepo.importSnapshot(backup);
+
+    expect(await targetRepo.getAnime(anime.id)).toEqual(anime);
+    const restoredBackup = await targetRepo.snapshot();
+    expect(restoredBackup.anime[0]).toEqual(anime);
+    expect(restoredBackup.schemaVersion).toBe(4);
+  });
+
   it("rejects catalog metadata with a conflicting external ID", async () => {
     const repo = await createRepository();
     const anime = makeAnime("mal:100");

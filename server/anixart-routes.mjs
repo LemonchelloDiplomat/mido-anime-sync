@@ -201,6 +201,18 @@ export function parseAnixArtDetail(html, requestedUrl) {
   const bodyText = stripTags(html);
   const yearMatch = bodyText.match(/(?:Год|Год выпуска)\s*:\s*(20\d{2}|19\d{2})/i);
   const year = yearMatch ? Number(yearMatch[1]) : null;
+  const scoreMatch = bodyText.match(/(?:Средний рейтинг|Рейтинг|Оценка)\s*:?\s*(10(?:[.,]\d+)?|[0-9](?:[.,]\d+)?)/i);
+  const averageScore = scoreMatch ? Number(scoreMatch[1].replace(",", ".")) : null;
+  const ageMatch = bodyText.match(/(?:Возрастной рейтинг|Возрастные ограничения|Рейтинг MPAA)\s*:?\s*(G|PG-13|PG|R\+|R-17|R-18|RX|18\+)/i);
+  const rawAgeRating = ageMatch?.[1]?.toUpperCase() || null;
+  const ageRating = rawAgeRating === "G" ? "G" : rawAgeRating === "PG" ? "PG"
+    : rawAgeRating === "PG-13" ? "PG13" : rawAgeRating === "R+" ? "R+"
+    : rawAgeRating === "RX" ? "RX" : rawAgeRating ? "R17" : null;
+  const episodeMatch = bodyText.match(/Эпизоды\s*:?\s*(\d+)/i);
+  const durationMatch = bodyText.match(/Длительность эпизода\s*:?\s*(\d+)\s*мин/i);
+  const studios = sectionLinks(html, "Студия");
+  const themes = sectionLinks(html, "Тема");
+  const originMatch = bodyText.match(/Первоисточник\s*:?\s*([^\n|]+)/i);
   const voices = sectionLinks(html, "Озвучка").map((name, index) => ({
     externalId: "voice:" + index + ":" + name.toLocaleLowerCase(),
     name,
@@ -224,9 +236,29 @@ export function parseAnixArtDetail(html, requestedUrl) {
       titles: { romaji: title, synonyms: [] },
       externalIds: { anixart: identityId },
       year,
-      episodes: null,
+      episodes: episodeMatch ? Number(episodeMatch[1]) : null,
+      ...(durationMatch ? { durationMinutes: Number(durationMatch[1]) } : {}),
       genres,
+      themes,
+      studios: studios.map((name) => ({ name })),
+      ageRating,
+      averageScore,
+      ...(averageScore !== null ? { providerScores: { anixart: {
+        averageScore: { value: averageScore, scale: 10, normalizedValue: Math.round(averageScore * 1000) / 100, kind: "average" },
+      } } } : {}),
+      synopsis: description,
+      ...(originMatch?.[1]?.trim() ? { sourceMaterial: originMatch[1].trim() } : {}),
       posterUrl: poster,
+      providerMetadata: {
+        anixart: {
+          rawAgeRating,
+          rawYear: year,
+          sourceMaterial: originMatch?.[1]?.trim() ?? null,
+          playerTitleId: playerId || null,
+          publisherId: publisherId || null,
+          aggregator,
+        },
+      },
     },
     seasons: [],
     voices,

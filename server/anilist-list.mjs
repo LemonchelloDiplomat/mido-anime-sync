@@ -1,4 +1,4 @@
-export const ANILIST_LIST_CHUNK_SIZE = 500;
+export const ANILIST_LIST_CHUNK_SIZE = 100;
 export const ANILIST_LIST_MAX_CHUNKS = 100;
 
 export async function fetchAniListAnimeList({ request, userId, accessToken }) {
@@ -22,7 +22,13 @@ export async function fetchAniListAnimeList({ request, userId, accessToken }) {
             title { romaji english native }
             synonyms format status episodes seasonYear
             startDate { year month day }
-            averageScore genres
+            averageScore meanScore popularity favourites
+            description endDate { year month day }
+            season duration countryOfOrigin source bannerImage isAdult
+            tags { name rank isGeneralSpoiler isAdultSpoiler category }
+            studios { nodes { id name isAnimationStudio } }
+            staff { edges { role node { id name { full } } } }
+            genres
             coverImage { extraLarge large }
           }
         }

@@ -21,6 +21,20 @@ interface AniListApiEntry {
     seasonYear?: number | null;
     startDate?: { year?: number | null; month?: number | null; day?: number | null };
     averageScore?: number | null;
+    meanScore?: number | null;
+    popularity?: number | null;
+    favourites?: number | null;
+    description?: string | null;
+    endDate?: { year?: number | null; month?: number | null; day?: number | null };
+    season?: string | null;
+    duration?: number | null;
+    countryOfOrigin?: string | null;
+    source?: string | null;
+    bannerImage?: string | null;
+    isAdult?: boolean;
+    tags?: Array<{ name: string; rank: number; isGeneralSpoiler: boolean; isAdultSpoiler: boolean; category: string }>;
+    studios?: { nodes?: Array<{ id: number; name: string; isAnimationStudio: boolean }> };
+    staff?: { edges?: Array<{ role: string; node: { id: number; name: { full: string } } }> };
     genres?: string[];
     isFavourite?: boolean;
     coverImage?: { extraLarge?: string | null; large?: string | null };
@@ -60,15 +74,27 @@ function formatDate(value?: AniListApiEntry["startedAt"] | null): string | null 
 
 function mapFormat(value?: string | null): AnimeIdentity["format"] {
   switch (value) {
-    case "TV":
-    case "TV_SHORT": return "TV";
+    case "TV": return "TV";
+    case "TV_SHORT": return "TV_SHORT";
     case "MOVIE": return "MOVIE";
     case "OVA": return "OVA";
     case "ONA": return "ONA";
     case "SPECIAL": return "SPECIAL";
+    case "TV_SPECIAL": return "TV_SPECIAL";
+    case "CM": return "CM";
+    case "PV": return "PV";
     case "MUSIC": return "MUSIC";
     default: return undefined;
   }
+}
+
+function mapPartialDate(value?: { year?: number | null; month?: number | null; day?: number | null } | null) {
+  if (!value?.year) return null;
+  return {
+    year: value.year,
+    ...(value.month ? { month: value.month } : {}),
+    ...(value.day ? { day: value.day } : {}),
+  };
 }
 
 function mapReleaseStatus(value?: string | null): AnimeIdentity["releaseStatus"] {
@@ -100,6 +126,9 @@ export function parseAniListAccountList(
     const media = raw.media;
     const id = "anilist:" + media.id;
     const startDate = formatDate(media.startDate);
+    const endDate = formatDate(media.endDate);
+    const startDateParts = mapPartialDate(media.startDate);
+    const endDateParts = mapPartialDate(media.endDate);
     const updatedAt = Number.isFinite(raw.updatedAt) && raw.updatedAt > 0
       ? new Date(raw.updatedAt * 1000).toISOString()
       : exportedAt;
@@ -122,6 +151,53 @@ export function parseAniListAccountList(
       genres: media.genres || [],
       posterUrl: media.coverImage?.extraLarge || media.coverImage?.large || null,
       averageScore: media.averageScore == null ? null : media.averageScore / 10,
+      ...(endDate ? { endDate } : {}),
+      ...(startDateParts ? { startDateParts } : {}),
+      ...(endDateParts ? { endDateParts } : {}),
+      ...(media.season ? { season: media.season as "WINTER" | "SPRING" | "SUMMER" | "FALL" } : {}),
+      ...(media.seasonYear ? { seasonYear: media.seasonYear } : {}),
+      ...(media.duration != null ? { durationMinutes: media.duration } : {}),
+      ...(media.countryOfOrigin ? { countryOfOrigin: media.countryOfOrigin } : {}),
+      ...(media.source ? { sourceMaterial: media.source } : {}),
+      ...(media.description ? { synopsis: media.description } : {}),
+      ...(media.bannerImage ? { bannerUrl: media.bannerImage } : {}),
+      tags: (media.tags ?? []).map((tag) => ({
+        name: tag.name,
+        category: tag.category,
+        rank: tag.rank,
+        isSpoiler: Boolean(tag.isGeneralSpoiler || tag.isAdultSpoiler),
+        isAdult: Boolean(tag.isAdultSpoiler),
+      })),
+      studios: (media.studios?.nodes ?? []).map((studio) => ({
+        name: studio.name,
+        externalId: String(studio.id),
+        role: studio.isAnimationStudio ? "animation" : "production",
+      })),
+      staff: (media.staff?.edges ?? []).map((edge) => ({
+        name: edge.node.name.full,
+        externalId: String(edge.node.id),
+        role: edge.role,
+      })),
+      providerScores: {
+        anilist: {
+          ...(media.averageScore != null ? { averageScore: {
+            value: media.averageScore, scale: 100, normalizedValue: media.averageScore, kind: "average" as const,
+          } } : {}),
+          ...(media.meanScore != null ? { meanScore: {
+            value: media.meanScore, scale: 100, normalizedValue: media.meanScore, kind: "mean" as const,
+          } } : {}),
+          ...(media.popularity != null ? { popularity: media.popularity } : {}),
+          ...(media.favourites != null ? { favorites: media.favourites } : {}),
+        },
+      },
+      providerMetadata: {
+        anilist: {
+          popularity: media.popularity ?? null,
+          favourites: media.favourites ?? null,
+          isAdult: media.isAdult ?? null,
+          rawMedia: media,
+        },
+      },
       ...(mapReleaseStatus(media.status) ? { releaseStatus: mapReleaseStatus(media.status)! } : {}),
     };
     const entry: AnimeListEntry = {
@@ -144,6 +220,7 @@ export function parseAniListAccountList(
         repeat: raw.repeat ?? 0,
         notes: raw.notes ?? "",
         scoreFormat,
+        originalScore: raw.score,
         startedAt: formatDate(raw.startedAt),
         completedAt: formatDate(raw.completedAt),
       },

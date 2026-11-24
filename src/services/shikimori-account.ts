@@ -13,10 +13,31 @@ interface ShikimoriAnime {
   mal_id?: number | string | null;
   malId?: number | string | null;
   russian?: string | null;
+  english?: string | null;
+  japanese?: string | null;
+  synonyms?: string[];
   kind?: string | null;
+  status?: string | null;
   episodes?: number | null;
+  episodes_aired?: number | null;
+  duration?: number | null;
   score?: number | string | null;
+  rating?: string | null;
+  origin?: string | null;
+  season?: string | null;
+  franchise?: string | null;
+  is_censored?: boolean | null;
   aired_on?: string | null;
+  aired_on_parts?: { year?: number | null; month?: number | null; day?: number | null } | null;
+  released_on?: string | null;
+  released_on_parts?: { year?: number | null; month?: number | null; day?: number | null } | null;
+  description?: string | null;
+  description_html?: string | null;
+  genres?: Array<{ id?: number; name?: string; russian?: string; kind?: string }>;
+  studios?: Array<{ id?: number; name?: string }>;
+  licensors?: string[];
+  opengraph_image_url?: string | null;
+  raw_metadata?: Record<string, unknown>;
   image?: {
     original?: string | null;
     preview?: string | null;
@@ -49,14 +70,50 @@ function mapStatus(value: string): AnimeStatus {
 
 function mapFormat(value?: string | null): AnimeFormat | undefined {
   switch (value) {
-    case "tv": return "TV";
+    case "tv":
+    case "tv_13":
+    case "tv_24": return "TV";
+    case "tv_special": return "TV_SPECIAL";
     case "movie": return "MOVIE";
     case "ova": return "OVA";
     case "ona": return "ONA";
     case "special": return "SPECIAL";
     case "music": return "MUSIC";
+    case "tv_short": return "TV_SHORT";
+    case "cm": return "CM";
+    case "pv": return "PV";
     default: return undefined;
   }
+}
+
+function mapAgeRating(value?: string | null): AnimeIdentity["ageRating"] {
+  switch (value) {
+    case "g": return "G";
+    case "pg": return "PG";
+    case "pg_13": return "PG13";
+    case "r": return "R17";
+    case "r_plus": return "R+";
+    case "rx": return "RX";
+    default: return null;
+  }
+}
+
+function mapReleaseStatus(value?: string | null): AnimeIdentity["releaseStatus"] {
+  switch (value) {
+    case "ongoing": return "ONGOING";
+    case "anons": return "ANNOUNCED";
+    case "released": return "RELEASED";
+    default: return undefined;
+  }
+}
+
+function mapSeason(value?: string | null): { season: "WINTER" | "SPRING" | "SUMMER" | "FALL"; year: number } | null {
+  const match = /^(winter|spring|summer|fall)_(\d{4})$/i.exec(value ?? "");
+  if (!match) return null;
+  return {
+    season: match[1]!.toUpperCase() as "WINTER" | "SPRING" | "SUMMER" | "FALL",
+    year: Number(match[2]),
+  };
 }
 
 function normalizePoster(value?: string | null): string | null {
@@ -134,11 +191,15 @@ export function parseShikimoriAccountList(
     const myanimelistId = normalizeMyAnimeListId(
       animeData.myanimelist_id ?? animeData.mal_id ?? animeData.malId,
     );
+    const season = mapSeason(animeData.season);
+    const genreRows = animeData.genres ?? [];
     const identity: AnimeIdentity = {
       id,
       titles: {
         romaji: animeData.name,
-        synonyms: animeData.russian ? [animeData.russian] : [],
+        ...(animeData.english ? { english: animeData.english } : {}),
+        ...(animeData.japanese ? { native: animeData.japanese } : {}),
+        synonyms: [...new Set([...(animeData.synonyms ?? []), ...(animeData.russian ? [animeData.russian] : [])])],
       },
       externalIds: {
         shikimori: String(animeData.id),
@@ -149,7 +210,45 @@ export function parseShikimoriAccountList(
       episodes: typeof animeData.episodes === "number" && Number.isInteger(animeData.episodes)
         ? animeData.episodes
         : null,
+      episodesAired: typeof animeData.episodes_aired === "number" ? animeData.episodes_aired : null,
+      durationMinutes: typeof animeData.duration === "number" ? animeData.duration : null,
       averageScore,
+      ...(mapAgeRating(animeData.rating) ? { ageRating: mapAgeRating(animeData.rating)! } : {}),
+      ...(mapReleaseStatus(animeData.status) ? { releaseStatus: mapReleaseStatus(animeData.status)! } : {}),
+      ...(animeData.aired_on ? { startDate: airedOn ?? null } : {}),
+      ...(animeData.released_on ? { endDate: safeDate(animeData.released_on) ?? null } : {}),
+      ...(animeData.aired_on_parts?.year ? { startDateParts: animeData.aired_on_parts } : {}),
+      ...(animeData.released_on_parts?.year ? { endDateParts: animeData.released_on_parts } : {}),
+      ...(season ? { season: season.season, seasonYear: season.year } : {}),
+      sourceMaterial: animeData.origin ?? null,
+      synopsis: animeData.description ?? null,
+      genres: genreRows.filter((genre) => !genre.kind || genre.kind === "genre").map((genre) => genre.russian || genre.name || "").filter(Boolean),
+      themes: genreRows.filter((genre) => genre.kind === "theme").map((genre) => genre.russian || genre.name || "").filter(Boolean),
+      demographics: genreRows.filter((genre) => genre.kind === "demographic").map((genre) => genre.russian || genre.name || "").filter(Boolean),
+      studios: (animeData.studios ?? []).map((studio) => ({
+        name: studio.name || "",
+        ...(studio.id ? { externalId: String(studio.id) } : {}),
+      })).filter((studio) => studio.name),
+      licensors: (animeData.licensors ?? []).map((name) => ({ name })),
+      bannerUrl: animeData.opengraph_image_url ?? null,
+      providerScores: {
+        shikimori: {
+          ...(averageScore !== null ? { averageScore: {
+            value: averageScore, scale: 10, normalizedValue: Math.round(averageScore * 1000) / 100, kind: "average" as const,
+          } } : {}),
+        },
+      },
+      providerMetadata: {
+        shikimori: {
+          rating: animeData.rating ?? null,
+          status: animeData.status ?? null,
+          season: animeData.season ?? null,
+          franchise: animeData.franchise ?? null,
+          isCensored: animeData.is_censored ?? null,
+          descriptionHtml: animeData.description_html ?? null,
+          raw: animeData.raw_metadata ?? null,
+        },
+      },
       posterUrl: normalizePoster(
         animeData.image?.original || animeData.image?.preview || animeData.image?.x96,
       ),
@@ -168,6 +267,8 @@ export function parseShikimoriAccountList(
       },
       sourceMetadata: {
         shikimoriRateId: raw.id,
+        originalScore: raw.score ?? 0,
+        scoreScale: 10,
         rewatches: raw.rewatches ?? 0,
         text: raw.text ?? "",
       },

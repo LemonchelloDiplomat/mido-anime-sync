@@ -45,6 +45,7 @@ import { reconcileUnfinishedSyncOperations } from "./core/sync-recovery.js";
 import { mergeSharedMetadataIntoProviderMetadata } from "./core/shared-entry-metadata.js";
 import { reconcileInterruptedSyncSessions } from "./core/sync-session-recovery.js";
 import { findExactIdentityDuplicatePairs } from "./core/identity-reconciliation.js";
+import { mergeAnimeMetadata } from "./core/anime-metadata.js";
 import { getProviderLabel, getProviderServiceId } from "./core/provider-capabilities.js";
 import { createWatchSourceEntry, findExactAnimeTitleMatches, validateWatchEvent, type WatchEvent } from "./core/watch-events.js";
 
@@ -516,40 +517,12 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       const targetId = existing?.anime.id ?? anime.id;
       const currentAnime = existing?.anime;
       const mergedAnime: AnimeIdentity = {
-        ...anime,
-        ...(currentAnime ?? {}),
+        ...mergeAnimeMetadata(anime, currentAnime ?? anime),
         id: targetId,
-        titles: {
-          ...anime.titles,
-          ...(currentAnime?.titles ?? {}),
-          synonyms: [...new Set([
-            ...anime.titles.synonyms,
-            ...(currentAnime?.titles.synonyms ?? []),
-          ])],
-        },
         externalIds: {
           ...anime.externalIds,
           ...(currentAnime?.externalIds ?? {}),
-          ...(anime.externalIds.anilist
-            ? { anilist: anime.externalIds.anilist }
-            : {}),
-          ...(anime.externalIds.myanimelist
-            ? { myanimelist: anime.externalIds.myanimelist }
-            : {}),
         },
-        year: currentAnime?.year ?? anime.year ?? null,
-        ...(currentAnime?.format ?? anime.format
-          ? { format: currentAnime?.format ?? anime.format! }
-          : {}),
-        episodes: currentAnime?.episodes ?? anime.episodes ?? null,
-        genres: currentAnime?.genres?.length ? currentAnime.genres : (anime.genres ?? []),
-        ageRating: currentAnime?.ageRating ?? anime.ageRating ?? null,
-        posterUrl: currentAnime?.posterUrl ?? anime.posterUrl ?? null,
-        averageScore: currentAnime?.averageScore ?? anime.averageScore ?? null,
-        startDate: currentAnime?.startDate ?? anime.startDate ?? null,
-        ...(currentAnime?.releaseStatus ?? anime.releaseStatus
-          ? { releaseStatus: currentAnime?.releaseStatus ?? anime.releaseStatus! }
-          : {}),
       };
 
       await repository.saveAnime(mergedAnime);
@@ -3250,7 +3223,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                 </div>
                 <div className="filter-section">
                   <h3>Тип</h3><div className="filter-options">
-                    {([["TV","Сериал"],["MOVIE","Фильм"],["SPECIAL","Спешл"],["OVA","OVA"],["ONA","ONA"]] as const).map(([value,label]) => <label key={value}><input type="checkbox" checked={filters.formats.includes(value)} onChange={() => toggleArrayFilter("formats", value)} /> {label}</label>)}
+                    {([["TV","Сериал"],["TV_SHORT","Короткий сериал"],["TV_SPECIAL","ТВ-спецвыпуск"],["MOVIE","Фильм"],["SPECIAL","Спешл"],["OVA","OVA"],["ONA","ONA"],["CM","Реклама"],["PV","Промо"],["MUSIC","Музыкальное"]] as const).map(([value,label]) => <label key={value}><input type="checkbox" checked={filters.formats.includes(value)} onChange={() => toggleArrayFilter("formats", value)} /> {label}</label>)}
                   </div>
                 </div>
                 <div className="filter-section">
@@ -3261,7 +3234,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                 </div>
                 <div className="filter-section">
                   <h3>Возрастной рейтинг <span title="G: без ограничений. PG: рекомендуется присутствие родителей. PG-13: не рекомендуется детям до 13 лет. R-17: до 17 лет только со взрослым. R+: просмотр до 17 лет запрещён.">ⓘ</span></h3>
-                  <div className="filter-options">{(["G","PG","PG13","R17","R+"] as const).map((value) => <label key={value}><input type="checkbox" checked={filters.ageRatings.includes(value)} onChange={() => toggleArrayFilter("ageRatings", value)} /> {value === "PG13" ? "PG-13" : value === "R17" ? "R-17" : value}</label>)}</div>
+                  <div className="filter-options">{(["G","PG","PG13","R17","R+","RX"] as const).map((value) => <label key={value}><input type="checkbox" checked={filters.ageRatings.includes(value)} onChange={() => toggleArrayFilter("ageRatings", value)} /> {value === "PG13" ? "PG-13" : value === "R17" ? "R-17" : value}</label>)}</div>
                 </div>
                 <div className="filter-section">
                   <h3>Количество эпизодов <span title="Короткие: до 13. Средние: 14–26. Длинные: 27–100. Очень длинные: более 100.">ⓘ</span></h3>
@@ -3325,8 +3298,32 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                         <h3>{title}</h3>
                         <p className="anime-subtitle">{anime.titles.romaji ?? " "}</p>
                         <div className="anime-catalog-meta">
-                          {[anime.format, anime.year, anime.ageRating, anime.startDate, releaseStatusLabel, anime.episodes != null ? `${anime.episodes} эп.` : null, ...(anime.genres ?? [])].filter(Boolean).join(" · ") || "Метаданные пока не добавлены"}
+                          {[anime.format, anime.year, anime.season ? `${anime.season} ${anime.seasonYear ?? ""}`.trim() : null, anime.ageRating, anime.startDate, anime.endDate, releaseStatusLabel, anime.episodes != null ? `${anime.episodes} эп.` : null, anime.episodesAired != null ? `${anime.episodesAired} вышло` : null, anime.durationMinutes != null ? `${anime.durationMinutes} мин.` : null, anime.countryOfOrigin, anime.sourceMaterial, ...(anime.genres ?? [])].filter(Boolean).join(" · ") || "Метаданные пока не добавлены"}
                         </div>
+                        {Object.entries(anime.providerScores ?? {}).some(([, metrics]) => metrics.averageScore || metrics.meanScore) && (
+                          <div className="anime-catalog-meta">
+                            {Object.entries(anime.providerScores ?? {}).flatMap(([provider, metrics]) => {
+                              const label = ({ myanimelist: "MAL", anilist: "AniList", shikimori: "Shikimori", animego: "AnimeGO", anixart: "AnixART", yummyanime: "YummyAnime" } as Record<string, string>)[provider] ?? provider;
+                              return [
+                                ...(metrics.averageScore ? [`${label} avg: ${metrics.averageScore.value} / ${metrics.averageScore.scale}${metrics.averageScore.voteCount != null ? ` (голосов: ${metrics.averageScore.voteCount})` : ""}`] : []),
+                                ...(metrics.meanScore ? [`${label} mean: ${metrics.meanScore.value} / ${metrics.meanScore.scale}${metrics.meanScore.voteCount != null ? ` (голосов: ${metrics.meanScore.voteCount})` : ""}`] : []),
+                              ];
+                            }).join(" · ")}
+                          </div>
+                        )}
+                        {(anime.themes?.length || anime.demographics?.length || anime.studios?.length || anime.producers?.length || anime.licensors?.length || anime.tags?.length || anime.staff?.length) ? (
+                          <div className="anime-catalog-meta">
+                            {[
+                              anime.themes?.length ? `Темы: ${anime.themes.join(", ")}` : null,
+                              anime.demographics?.length ? `Демография: ${anime.demographics.join(", ")}` : null,
+                              anime.studios?.length ? `Студии: ${anime.studios.map((studio) => studio.name).join(", ")}` : null,
+                              anime.producers?.length ? `Продюсеры: ${anime.producers.map((producer) => producer.name).join(", ")}` : null,
+                              anime.licensors?.length ? `Лицензии: ${anime.licensors.map((licensor) => licensor.name).join(", ")}` : null,
+                              anime.tags?.length ? `Теги: ${anime.tags.slice(0, 5).map((tag) => tag.name).join(", ")}` : null,
+                              anime.staff?.length ? `Участники: ${anime.staff.slice(0, 3).map((person) => person.name).join(", ")}` : null,
+                            ].filter(Boolean).join(" · ")}
+                          </div>
+                        ) : null}
 
                         {entry && (
                           <>
@@ -3629,7 +3626,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                 Тип аниме
                 <select value={form.format} onChange={(event) => setForm({ ...form, format: event.target.value as AnimeFormat | "" })}>
                   <option value="">Не указан</option>
-                  <option value="TV">Сериал</option><option value="MOVIE">Фильм</option><option value="SPECIAL">Спешл</option><option value="OVA">OVA</option><option value="ONA">ONA</option><option value="MUSIC">Музыкальное</option>
+                  <option value="TV">Сериал</option><option value="TV_SHORT">Короткий сериал</option><option value="TV_SPECIAL">ТВ-спецвыпуск</option><option value="MOVIE">Фильм</option><option value="SPECIAL">Спешл</option><option value="OVA">OVA</option><option value="ONA">ONA</option><option value="CM">Реклама</option><option value="PV">Промо</option><option value="MUSIC">Музыкальное</option>
                 </select>
               </label>
             </div>
@@ -3643,7 +3640,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
               <label>
                 Возрастной рейтинг
                 <select value={form.ageRating} onChange={(event) => setForm({ ...form, ageRating: event.target.value as AnimeAgeRating | "" })}>
-                  <option value="">Не указан</option><option value="G">G</option><option value="PG">PG</option><option value="PG13">PG-13</option><option value="R17">R-17</option><option value="R+">R+</option>
+                  <option value="">Не указан</option><option value="G">G</option><option value="PG">PG</option><option value="PG13">PG-13</option><option value="R17">R-17</option><option value="R+">R+</option><option value="RX">RX</option>
                 </select>
               </label>
               <label>

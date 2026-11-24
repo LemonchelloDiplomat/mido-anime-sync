@@ -13,6 +13,21 @@ interface MalApiEntry {
     mean?: number;
     genres?: Array<{ id: number; name: string }>;
     rating?: string;
+    end_date?: string;
+    start_season?: { season?: string; year?: number };
+    broadcast?: { day_of_the_week?: string; start_time?: string };
+    rank?: number;
+    popularity?: number;
+    num_list_users?: number;
+    num_scoring_users?: number;
+    themes?: Array<{ id: number; name: string }>;
+    demographics?: Array<{ id: number; name: string }>;
+    studios?: Array<{ id: number; name: string }>;
+    producers?: Array<{ id: number; name: string }>;
+    licensors?: Array<{ id: number; name: string }>;
+    source?: string;
+    synopsis?: string;
+    background?: string;
   };
   list_status: {
     status: string;
@@ -33,6 +48,10 @@ interface MalApiEntry {
 function mapFormat(value?: string): AnimeFormat | undefined {
   switch (value) {
     case "tv": return "TV";
+    case "tv_short": return "TV_SHORT";
+    case "tv_special": return "TV_SPECIAL";
+    case "cm": return "CM";
+    case "pv": return "PV";
     case "movie": return "MOVIE";
     case "ova": return "OVA";
     case "special": return "SPECIAL";
@@ -58,6 +77,7 @@ function mapAgeRating(value?: string): AnimeAgeRating | undefined {
     case "pg_13": return "PG13";
     case "r": return "R17";
     case "r+": return "R+";
+    case "rx": return "RX";
     default: return undefined;
   }
 }
@@ -113,11 +133,62 @@ export function parseMyAnimeListApiList(
       },
       externalIds: { myanimelist: String(node.id) },
       ...(startDate ? { startDate, year: Number(startDate.slice(0, 4)) } : {}),
+      ...(node.start_date ? { startDateParts: {
+        year: Number(node.start_date.slice(0, 4)),
+        ...(node.start_date.length >= 7 ? { month: Number(node.start_date.slice(5, 7)) } : {}),
+        ...(node.start_date.length >= 10 ? { day: Number(node.start_date.slice(8, 10)) } : {}),
+      } } : {}),
       ...(mapFormat(node.media_type) ? { format: mapFormat(node.media_type)! } : {}),
       ...(Number.isInteger(node.num_episodes) ? { episodes: node.num_episodes } : {}),
       ...(node.genres ? { genres: node.genres.map((genre) => genre.name).filter(Boolean) } : {}),
       posterUrl: node.main_picture?.large || node.main_picture?.medium || null,
       averageScore: typeof node.mean === "number" ? node.mean : null,
+      endDate: safeDate(node.end_date),
+      ...(node.end_date ? { endDateParts: {
+        year: Number(node.end_date.slice(0, 4)),
+        ...(node.end_date.length >= 7 ? { month: Number(node.end_date.slice(5, 7)) } : {}),
+        ...(node.end_date.length >= 10 ? { day: Number(node.end_date.slice(8, 10)) } : {}),
+      } } : {}),
+      season: node.start_season?.season ? ({
+        winter: "WINTER", spring: "SPRING", summer: "SUMMER", fall: "FALL",
+      } as const)[node.start_season.season as "winter" | "spring" | "summer" | "fall"] ?? null : null,
+      seasonYear: Number.isInteger(node.start_season?.year) ? node.start_season!.year! : null,
+      sourceMaterial: node.source ?? null,
+      synopsis: node.synopsis ?? null,
+      background: node.background ?? null,
+      themes: (node.themes ?? []).map((item) => item.name).filter(Boolean),
+      demographics: (node.demographics ?? []).map((item) => item.name).filter(Boolean),
+      studios: (node.studios ?? []).map((item) => ({ name: item.name, externalId: String(item.id) })),
+      producers: (node.producers ?? []).map((item) => ({ name: item.name, externalId: String(item.id) })),
+      licensors: (node.licensors ?? []).map((item) => ({ name: item.name, externalId: String(item.id) })),
+      providerScores: {
+        myanimelist: {
+          ...(typeof node.mean === "number" ? { meanScore: {
+            value: node.mean, scale: 10, normalizedValue: Math.round(node.mean * 1000) / 100, kind: "mean" as const,
+            voteCount: Number.isSafeInteger(node.num_scoring_users) ? node.num_scoring_users! : null,
+          } } : {}),
+          ...(Number.isSafeInteger(node.rank) ? { rank: node.rank } : {}),
+          ...(Number.isSafeInteger(node.popularity) ? { popularity: node.popularity } : {}),
+          ...(Number.isSafeInteger(node.num_list_users) ? { members: node.num_list_users } : {}),
+        },
+      },
+      providerMetadata: {
+        myanimelist: {
+          rating: node.rating ?? null,
+          broadcast: node.broadcast ?? null,
+          startSeason: node.start_season ?? null,
+          source: node.source ?? null,
+          numScoringUsers: node.num_scoring_users ?? null,
+          numListUsers: node.num_list_users ?? null,
+          genres: node.genres ?? [],
+          themes: node.themes ?? [],
+          demographics: node.demographics ?? [],
+          studios: node.studios ?? [],
+          producers: node.producers ?? [],
+          licensors: node.licensors ?? [],
+          raw: node,
+        },
+      },
       ...(mapAgeRating(node.rating) ? { ageRating: mapAgeRating(node.rating)! } : {}),
       ...(mapReleaseStatus(node.status) ? { releaseStatus: mapReleaseStatus(node.status)! } : {}),
     };

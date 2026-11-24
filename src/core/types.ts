@@ -18,6 +18,10 @@ export type AnimeStatus =
 
 export type AnimeFormat =
   | "TV"
+  | "TV_SHORT"
+  | "TV_SPECIAL"
+  | "CM"
+  | "PV"
   | "MOVIE"
   | "OVA"
   | "ONA"
@@ -25,8 +29,56 @@ export type AnimeFormat =
   | "MUSIC"
   | "UNKNOWN";
 
-export type AnimeAgeRating = "G" | "PG" | "PG13" | "R17" | "R+";
+export type AnimeAgeRating = "G" | "PG" | "PG13" | "R17" | "R+" | "RX";
 export type AnimeReleaseStatus = "ONGOING" | "ANNOUNCED" | "RELEASED";
+
+export type AnimeSeason = "WINTER" | "SPRING" | "SUMMER" | "FALL";
+
+export interface AnimeFuzzyDate {
+  year?: number | null;
+  month?: number | null;
+  day?: number | null;
+}
+
+/** A provider-native score. The original value and scale are never discarded. */
+export interface AnimeProviderScore {
+  value: number;
+  scale: number;
+  normalizedValue: number;
+  kind?: "average" | "mean" | "site";
+  voteCount?: number | null;
+  updatedAt?: string | null;
+}
+
+export interface AnimeProviderMetrics {
+  averageScore?: AnimeProviderScore | null;
+  meanScore?: AnimeProviderScore | null;
+  rank?: number | null;
+  popularity?: number | null;
+  members?: number | null;
+  favorites?: number | null;
+}
+
+export interface AnimeTag {
+  name: string;
+  category?: string | null;
+  rank?: number | null;
+  isSpoiler?: boolean;
+  isAdult?: boolean;
+}
+
+export interface AnimeCompany {
+  name: string;
+  externalId?: string | null;
+  role?: string | null;
+}
+
+export interface AnimeStaffMember {
+  name: string;
+  externalId?: string | null;
+  role?: string | null;
+  language?: string | null;
+}
 
 export interface AnimeIdentity {
   id: string;
@@ -40,11 +92,33 @@ export interface AnimeIdentity {
   };
   externalIds: Partial<Record<ServiceId, string>>;
   episodes?: number | null;
+  episodesAired?: number | null;
+  durationMinutes?: number | null;
+  endDate?: string | null;
+  season?: AnimeSeason | null;
+  seasonYear?: number | null;
+  sourceMaterial?: string | null;
+  countryOfOrigin?: string | null;
+  synopsis?: string | null;
+  background?: string | null;
+  bannerUrl?: string | null;
   genres?: string[];
+  themes?: string[];
+  demographics?: string[];
+  tags?: AnimeTag[];
+  studios?: AnimeCompany[];
+  producers?: AnimeCompany[];
+  licensors?: AnimeCompany[];
+  staff?: AnimeStaffMember[];
+  providerScores?: Partial<Record<ServiceId, AnimeProviderMetrics>>;
+  /** Bounded JSON-safe provider payloads retain fields not yet mapped to the common model. */
+  providerMetadata?: Partial<Record<ServiceId, Record<string, unknown>>>;
   ageRating?: AnimeAgeRating | null;
   posterUrl?: string | null;
   averageScore?: number | null;
   startDate?: string | null;
+  startDateParts?: AnimeFuzzyDate | null;
+  endDateParts?: AnimeFuzzyDate | null;
   releaseStatus?: AnimeReleaseStatus;
 }
 

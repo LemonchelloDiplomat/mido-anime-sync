@@ -141,8 +141,20 @@ function identityFrom(rawValue: unknown): AnimeIdentity | null {
     ...(mapFormat(raw.type) ? { format: mapFormat(raw.type)! } : {}),
     episodes: title.episodeCount ?? null,
     genres,
+    synopsis: title.description ?? null,
     posterUrl: title.posterUrl ?? null,
     averageScore: rating,
+    ...(rating !== null ? { providerScores: { yummyanime: {
+      averageScore: { value: rating, scale: 10, normalizedValue: Math.round(rating * 1000) / 100, kind: "average" as const },
+    } } } : {}),
+    providerMetadata: {
+      yummyanime: {
+        type: raw.type ?? null,
+        animeStatus: record(raw.anime_status)?.alias ?? null,
+        remoteIds: ids,
+        rawRating: record(raw.rating)?.average ?? raw.rating ?? null,
+      },
+    },
     ...(mapStatus(record(raw.anime_status)?.alias) ? { releaseStatus: mapStatus(record(raw.anime_status)?.alias)! } : {}),
   };
 }
@@ -290,7 +302,11 @@ export function parseYummyAccountSnapshot(
       favorite: Boolean(userList.is_fav),
       updatedAt,
       source: "yummyanime",
-      sourceMetadata: { yummyanimeListId: statusId },
+      sourceMetadata: {
+        yummyanimeListId: statusId,
+        originalScore: user.rate ?? null,
+        scoreScale: 10,
+      },
     };
     anime.push(identity);
     entries.push(entry);

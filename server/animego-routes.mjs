@@ -475,6 +475,10 @@ export function parseAnimeGoDetail(html, url) {
       ageRating,
       posterUrl: poster,
       averageScore: rating,
+      ...(typeof rating === "number" ? { providerScores: { animego: {
+        averageScore: { value: rating, scale: 10, normalizedValue: Math.round(rating * 1000) / 100, kind: "average" },
+      } } } : {}),
+      providerMetadata: { animego: { rawAgeRating: ageRating ?? null, releaseStatus: releaseStatus ?? null } },
       startDate,
       ...(releaseStatus ? { releaseStatus } : {}),
     },

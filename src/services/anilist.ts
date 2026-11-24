@@ -28,6 +28,19 @@ const SEARCH_QUERY = `
           day
         }
         averageScore
+        description
+        endDate { year month day }
+        season
+        duration
+        countryOfOrigin
+        source
+        bannerImage
+        meanScore
+        popularity
+        favourites
+        tags { name rank isGeneralSpoiler isAdultSpoiler category }
+        studios { nodes { id name isAnimationStudio } }
+        staff { edges { role node { id name { full } } } }
         genres
         coverImage {
           extraLarge
@@ -57,6 +70,19 @@ interface AniListMedia {
     day: number | null;
   };
   averageScore: number | null;
+  meanScore?: number | null;
+  popularity?: number | null;
+  favourites?: number | null;
+  description?: string | null;
+  endDate?: { year: number | null; month: number | null; day: number | null };
+  season?: string | null;
+  duration?: number | null;
+  countryOfOrigin?: string | null;
+  source?: string | null;
+  bannerImage?: string | null;
+  tags?: Array<{ name: string; rank: number; isGeneralSpoiler: boolean; isAdultSpoiler: boolean; category: string }>;
+  studios?: { nodes?: Array<{ id: number; name: string; isAnimationStudio: boolean }> };
+  staff?: { edges?: Array<{ role: string; node: { id: number; name: { full: string } } }> };
   genres: string[];
   coverImage: {
     extraLarge: string | null;
@@ -76,8 +102,9 @@ interface AniListSearchResponse {
 function mapFormat(value: string | null): AnimeFormat | undefined {
   switch (value) {
     case "TV":
-    case "TV_SHORT":
       return "TV";
+    case "TV_SHORT":
+      return "TV_SHORT";
     case "MOVIE":
       return "MOVIE";
     case "SPECIAL":
@@ -137,8 +164,26 @@ const GENRE_TRANSLATIONS: Record<string, string> = {
   Thriller: "Триллер",
 };
 
+function mapFuzzyDate(value: { year: number | null; month: number | null; day: number | null } | undefined): string | null {
+  if (!value?.year || !value.month || !value.day) return null;
+  const year = String(value.year).padStart(4, "0");
+  const month = String(value.month).padStart(2, "0");
+  return year + "-" + month + "-" + String(value.day).padStart(2, "0");
+}
+
 function mapMedia(media: AniListMedia): AnimeIdentity {
   const startDate = mapStartDate(media.startDate);
+  const endDate = mapFuzzyDate(media.endDate);
+  const startDateParts = media.startDate?.year ? {
+    year: media.startDate.year,
+    ...(media.startDate.month ? { month: media.startDate.month } : {}),
+    ...(media.startDate.day ? { day: media.startDate.day } : {}),
+  } : null;
+  const endDateParts = media.endDate?.year ? {
+    year: media.endDate.year,
+    ...(media.endDate.month ? { month: media.endDate.month } : {}),
+    ...(media.endDate.day ? { day: media.endDate.day } : {}),
+  } : null;
   const synonyms = [...new Set(
     (media.synonyms ?? [])
       .map((title) => title.trim())
@@ -166,6 +211,52 @@ function mapMedia(media: AniListMedia): AnimeIdentity {
     posterUrl: media.coverImage.extraLarge ?? media.coverImage.large,
     averageScore:
       media.averageScore == null ? null : media.averageScore / 10,
+    ...(endDate ? { endDate } : {}),
+    ...(startDateParts ? { startDateParts } : {}),
+    ...(endDateParts ? { endDateParts } : {}),
+    ...(media.season ? { season: media.season as "WINTER" | "SPRING" | "SUMMER" | "FALL" } : {}),
+    ...(media.seasonYear ? { seasonYear: media.seasonYear } : {}),
+    ...(media.duration != null ? { durationMinutes: media.duration } : {}),
+    ...(media.countryOfOrigin ? { countryOfOrigin: media.countryOfOrigin } : {}),
+    ...(media.source ? { sourceMaterial: media.source } : {}),
+    ...(media.description ? { synopsis: media.description } : {}),
+    ...(media.bannerImage ? { bannerUrl: media.bannerImage } : {}),
+    tags: (media.tags ?? []).map((tag) => ({
+      name: tag.name,
+      category: tag.category,
+      rank: tag.rank,
+      isSpoiler: Boolean(tag.isGeneralSpoiler || tag.isAdultSpoiler),
+      isAdult: Boolean(tag.isAdultSpoiler),
+    })),
+    studios: (media.studios?.nodes ?? []).map((studio) => ({
+      name: studio.name,
+      externalId: String(studio.id),
+      role: studio.isAnimationStudio ? "animation" : "production",
+    })),
+    staff: (media.staff?.edges ?? []).map((edge) => ({
+      name: edge.node.name.full,
+      externalId: String(edge.node.id),
+      role: edge.role,
+    })),
+    providerScores: {
+      anilist: {
+        ...(media.averageScore != null ? { averageScore: {
+          value: media.averageScore, scale: 100, normalizedValue: media.averageScore, kind: "average" as const,
+        } } : {}),
+        ...(media.meanScore != null ? { meanScore: {
+          value: media.meanScore, scale: 100, normalizedValue: media.meanScore, kind: "mean" as const,
+        } } : {}),
+        ...(media.popularity != null ? { popularity: media.popularity } : {}),
+        ...(media.favourites != null ? { favorites: media.favourites } : {}),
+      },
+    },
+    providerMetadata: {
+      anilist: {
+        popularity: media.popularity ?? null,
+        favourites: media.favourites ?? null,
+        meanScore: media.meanScore ?? null,
+      },
+    },
     startDate,
     ...(mapReleaseStatus(media.status)
       ? { releaseStatus: mapReleaseStatus(media.status)! }
@@ -251,6 +342,19 @@ const MAL_METADATA_FRAGMENT = `
     seasonYear
     startDate { year month day }
     averageScore
+    description
+    endDate { year month day }
+    season
+    duration
+    countryOfOrigin
+    source
+    bannerImage
+    meanScore
+    popularity
+    favourites
+    tags { name rank isGeneralSpoiler isAdultSpoiler category }
+    studios { nodes { id name isAnimationStudio } }
+    staff { edges { role node { id name { full } } } }
     genres
     coverImage { extraLarge large }
   }

@@ -2,6 +2,7 @@ import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { detectMaxProgressStatusConflicts } from "../core/conflicts.js";
 import { getProviderServiceId } from "../core/provider-capabilities.js";
 import { findExactIdentityDuplicatePairs } from "../core/identity-reconciliation.js";
+import { mergeAnimeMetadata } from "../core/anime-metadata.js";
 
 import type {
   AnimeIdentity,
@@ -109,6 +110,7 @@ function mergeAnimeIdentity(
   const releaseStatus = incoming.releaseStatus ?? existing.releaseStatus;
 
   return {
+    ...mergeAnimeMetadata(existing, incoming),
     id: existing.id,
 
     titles: {
@@ -179,6 +181,7 @@ function mergeAnimeForReconciliation(
   const native = target.titles.native || source.titles.native;
 
   return {
+    ...mergeAnimeMetadata(target, source, { preferIncoming: false }),
     id: target.id,
 
     titles: {

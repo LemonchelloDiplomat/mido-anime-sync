@@ -22,11 +22,15 @@ const VALID_STATUSES = [
   "REWATCHING",
 ] as const;
 
-const VALID_AGE_RATINGS = ["G", "PG", "PG13", "R17", "R+"] as const;
+const VALID_AGE_RATINGS = ["G", "PG", "PG13", "R17", "R+", "RX"] as const;
 const VALID_RELEASE_STATUSES = ["ONGOING", "ANNOUNCED", "RELEASED"] as const;
 
 const VALID_FORMATS = [
   "TV",
+  "TV_SHORT",
+  "TV_SPECIAL",
+  "CM",
+  "PV",
   "MOVIE",
   "OVA",
   "ONA",
@@ -170,6 +174,154 @@ function validateAnimeList(value: unknown): AnimeIdentity[] {
     if (item.releaseStatus !== undefined &&
       !VALID_RELEASE_STATUSES.includes(item.releaseStatus as (typeof VALID_RELEASE_STATUSES)[number])) {
       throw new Error(`Invalid anime release status: ${item.id}`);
+    }
+
+    const validCalendarDate = (value: unknown): boolean => {
+      if (typeof value !== "string") return false;
+      const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+      if (!match) return false;
+      const date = new Date(value + "T00:00:00.000Z");
+      return Number.isFinite(date.getTime()) &&
+        date.getUTCFullYear() === Number(match[1]) &&
+        date.getUTCMonth() + 1 === Number(match[2]) &&
+        date.getUTCDate() === Number(match[3]);
+    };
+    for (const [field, dateValue] of [["endDate", item.endDate]] as const) {
+      if (dateValue !== undefined && dateValue !== null && !validCalendarDate(dateValue)) {
+        throw new Error(`Invalid anime ${field}: ${item.id}`);
+      }
+    }
+    for (const [field, parts] of [
+      ["startDateParts", item.startDateParts],
+      ["endDateParts", item.endDateParts],
+    ] as const) {
+      if (parts === undefined || parts === null) continue;
+      if (!parts || typeof parts !== "object" ||
+        !Number.isInteger(parts.year) || parts.year! < 1900 || parts.year! > 2100 ||
+        (parts.month !== undefined && parts.month !== null &&
+          (!Number.isInteger(parts.month) || parts.month < 1 || parts.month > 12)) ||
+        (parts.day !== undefined && parts.day !== null &&
+          (!Number.isInteger(parts.day) || parts.day < 1 || parts.day > 31 || parts.month == null)) ||
+        (parts.month != null && parts.day != null &&
+          parts.day > new Date(Date.UTC(parts.year!, parts.month, 0)).getUTCDate())) {
+        throw new Error(`Invalid anime ${field}: ${item.id}`);
+      }
+    }
+    if (item.season !== undefined && item.season !== null &&
+      !["WINTER", "SPRING", "SUMMER", "FALL"].includes(item.season)) {
+      throw new Error(`Invalid anime season: ${item.id}`);
+    }
+    for (const [field, numberValue] of [
+      ["episodesAired", item.episodesAired],
+      ["durationMinutes", item.durationMinutes],
+      ["seasonYear", item.seasonYear],
+    ] as const) {
+      if (numberValue !== undefined && numberValue !== null &&
+        (!Number.isSafeInteger(numberValue) || numberValue < 0 || numberValue > 10000)) {
+        throw new Error(`Invalid anime ${field}: ${item.id}`);
+      }
+    }
+    for (const [field, stringValue] of [
+      ["sourceMaterial", item.sourceMaterial],
+      ["countryOfOrigin", item.countryOfOrigin],
+      ["synopsis", item.synopsis],
+      ["background", item.background],
+      ["bannerUrl", item.bannerUrl],
+    ] as const) {
+      if (stringValue !== undefined && stringValue !== null &&
+        (typeof stringValue !== "string" || stringValue.length > (field === "synopsis" || field === "background" ? 50000 : 2048))) {
+        throw new Error(`Invalid anime ${field}: ${item.id}`);
+      }
+    }
+    for (const [field, values] of [
+      ["themes", item.themes],
+      ["demographics", item.demographics],
+    ] as const) {
+      if (values !== undefined && (!Array.isArray(values) ||
+        values.length > 500 || values.some((value) => typeof value !== "string" || !value.trim() || value.length > 200))) {
+        throw new Error(`Invalid anime ${field}: ${item.id}`);
+      }
+    }
+    if (item.tags !== undefined && (!Array.isArray(item.tags) || item.tags.length > 1000 ||
+      item.tags.some((tag) => !tag || typeof tag !== "object" || typeof tag.name !== "string" ||
+        !tag.name.trim() || tag.name.length > 200 ||
+        (tag.category != null && (typeof tag.category !== "string" || tag.category.length > 200)) ||
+        (tag.rank != null && (!Number.isFinite(tag.rank) || tag.rank < 0 || tag.rank > 100)) ||
+        (tag.isSpoiler !== undefined && typeof tag.isSpoiler !== "boolean") ||
+        (tag.isAdult !== undefined && typeof tag.isAdult !== "boolean")))) {
+      throw new Error(`Invalid anime tags: ${item.id}`);
+    }
+    for (const [field, values] of [
+      ["studios", item.studios],
+      ["producers", item.producers],
+      ["licensors", item.licensors],
+    ] as const) {
+      if (values !== undefined && (!Array.isArray(values) || values.length > 1000 ||
+        values.some((value) => !value || typeof value !== "object" ||
+          typeof value.name !== "string" || !value.name.trim() || value.name.length > 300 ||
+          (value.externalId != null && (typeof value.externalId !== "string" || value.externalId.length > 200)) ||
+          (value.role != null && (typeof value.role !== "string" || value.role.length > 200))))) {
+        throw new Error(`Invalid anime ${field}: ${item.id}`);
+      }
+    }
+    if (item.staff !== undefined && (!Array.isArray(item.staff) || item.staff.length > 5000 ||
+      item.staff.some((person) => !person || typeof person !== "object" ||
+        typeof person.name !== "string" || !person.name.trim() || person.name.length > 300 ||
+        (person.externalId != null && (typeof person.externalId !== "string" || person.externalId.length > 200)) ||
+        (person.role != null && (typeof person.role !== "string" || person.role.length > 200)) ||
+        (person.language != null && (typeof person.language !== "string" || person.language.length > 100))))) {
+      throw new Error(`Invalid anime staff: ${item.id}`);
+    }
+    if (item.providerScores !== undefined) {
+      if (!item.providerScores || typeof item.providerScores !== "object" || Array.isArray(item.providerScores)) {
+        throw new Error(`Invalid anime provider scores: ${item.id}`);
+      }
+      for (const [provider, metrics] of Object.entries(item.providerScores)) {
+        if (!VALID_SOURCES.includes(provider as (typeof VALID_SOURCES)[number]) ||
+          provider === "local" || !metrics || typeof metrics !== "object" || Array.isArray(metrics)) {
+          throw new Error(`Invalid anime provider score source: ${item.id}`);
+        }
+        for (const key of ["averageScore", "meanScore"] as const) {
+          const score = metrics[key];
+          if (score == null) continue;
+          if (typeof score !== "object" || !Number.isFinite(score.value) ||
+            !Number.isFinite(score.scale) || score.scale <= 0 || score.scale > 1000 ||
+            score.value < 0 || score.value > score.scale ||
+            !Number.isFinite(score.normalizedValue) || score.normalizedValue < 0 ||
+            score.normalizedValue > 100 ||
+            Math.abs(score.normalizedValue - score.value / score.scale * 100) > 0.11 ||
+            (score.voteCount != null && (!Number.isSafeInteger(score.voteCount) || score.voteCount < 0)) ||
+            (score.kind !== undefined && !["average", "mean", "site"].includes(score.kind)) ||
+            (score.updatedAt != null && (typeof score.updatedAt !== "string" || !Number.isFinite(Date.parse(score.updatedAt))))) {
+            throw new Error(`Invalid anime provider score value: ${item.id}`);
+          }
+        }
+        for (const key of ["rank", "popularity", "members", "favorites"] as const) {
+          const count = metrics[key];
+          if (count != null && (!Number.isSafeInteger(count) || count < 0)) {
+            throw new Error(`Invalid anime provider metric ${key}: ${item.id}`);
+          }
+        }
+      }
+    }
+    if (item.providerMetadata !== undefined) {
+      if (!item.providerMetadata || typeof item.providerMetadata !== "object" || Array.isArray(item.providerMetadata)) {
+        throw new Error(`Invalid anime provider metadata: ${item.id}`);
+      }
+      let totalBytes = 0;
+      for (const [provider, payload] of Object.entries(item.providerMetadata)) {
+        if (!VALID_SOURCES.includes(provider as (typeof VALID_SOURCES)[number]) ||
+          provider === "local" || !payload || typeof payload !== "object" || Array.isArray(payload)) {
+          throw new Error(`Invalid anime provider metadata source: ${item.id}`);
+        }
+        let serialized: string;
+        try { serialized = JSON.stringify(payload); } catch { throw new Error(`Invalid anime provider metadata JSON: ${item.id}`); }
+        if (serialized === undefined || serialized.length > 131072) {
+          throw new Error(`Anime provider metadata is too large: ${item.id}`);
+        }
+        totalBytes += serialized.length;
+      }
+      if (totalBytes > 262144) throw new Error(`Anime provider metadata exceeds the storage limit: ${item.id}`);
     }
 
     if (ids.has(item.id)) {

@@ -1,4 +1,5 @@
 import type { AnimeIdentity, AnimeListEntry, AnimeStatus } from "../core/types.js";
+import { mergeAnimeMetadata } from "../core/anime-metadata.js";
 
 export interface AnimeGoAccountRawEntry {
   animeId: string;
@@ -72,7 +73,7 @@ export function mergeAnimeGoTitleMetadata(
   const currentPoster = isUsablePoster(current.posterUrl) ? current.posterUrl : null;
   const incomingPoster = isUsablePoster(incoming.posterUrl) ? incoming.posterUrl : null;
   return {
-    ...current,
+    ...mergeAnimeMetadata(current, incoming),
     titles: {
       ...incoming.titles,
       ...current.titles,
@@ -151,6 +152,8 @@ export function normalizeAnimeGoAccountList(
         progressKnown,
         episodesTotal,
         scoreKnown,
+        originalScore: raw.score ?? null,
+        scoreScale: 10,
         favoriteKnown: false,
       },
     };
