@@ -51,6 +51,45 @@ describe("provider-aware anime metadata", () => {
     });
   });
 
+  it("preserves existing named metadata when preferIncoming is false while retaining new values", () => {
+    const existing: AnimeIdentity = {
+      ...base,
+      tags: [{ name: "Space", category: "Setting", rank: 90 }],
+      studios: [{ name: "Sunrise", externalId: "14", role: "animation" }],
+      staff: [{ name: "Director A", externalId: "5", role: "Director", language: "Japanese" }],
+    };
+    const incoming: AnimeIdentity = {
+      ...base,
+      tags: [
+        { name: "Space", category: "Setting", rank: 40 },
+        { name: "Found Family", category: "Theme", rank: 80 },
+      ],
+      studios: [
+        { name: "Sunrise", externalId: "14", role: "animation" },
+        { name: "New Studio", externalId: "15", role: "production" },
+      ],
+      staff: [
+        { name: "Director A", externalId: "5", role: "Director", language: "Japanese" },
+        { name: "Director B", externalId: "6", role: "Director", language: "Japanese" },
+      ],
+    };
+
+    const merged = mergeAnimeMetadata(existing, incoming, { preferIncoming: false });
+
+    expect(merged.tags).toEqual([
+      { name: "Space", category: "Setting", rank: 90 },
+      { name: "Found Family", category: "Theme", rank: 80 },
+    ]);
+    expect(merged.studios).toEqual([
+      { name: "Sunrise", externalId: "14", role: "animation" },
+      { name: "New Studio", externalId: "15", role: "production" },
+    ]);
+    expect(merged.staff).toEqual([
+      { name: "Director A", externalId: "5", role: "Director", language: "Japanese" },
+      { name: "Director B", externalId: "6", role: "Director", language: "Japanese" },
+    ]);
+  });
+
   it("accepts expanded provider metadata in a legacy V4 snapshot without migration loss", () => {
     const snapshot = validateSnapshot({
       schemaVersion: 4,
