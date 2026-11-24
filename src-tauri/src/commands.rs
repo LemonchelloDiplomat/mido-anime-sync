@@ -907,16 +907,29 @@ pub async fn animego_account_list_fetch() -> Result<AnimeGoAccountListResponse, 
 
         let mut page_count = 0usize;
         let mut item_count = 0usize;
+        let mut visited_next_urls = std::collections::HashSet::new();
+        let mut page_signatures = std::collections::HashSet::new();
         loop {
-            if page_count >= 50 {
-                return Err("AnimeGO: достигнут лимит 50 страниц в одной категории списка.".to_string());
-            }
             let base_url = reqwest::Url::parse(ANIMEGO_ORIGIN)
                 .map_err(|_| "Некорректный адрес AnimeGO.".to_string())?;
             let parsed = parse_animego_mylist_page(&page.text, &base_url, list_type)?;
-            page_count += 1;
+
+            // A valid page may contain overlapping entries, but an identical
+            // page payload repeated in the same category means pagination is stuck.
+            let mut page_signature = parsed.items.iter()
+                .map(|item| item.list_entry_id.clone())
+                .collect::<Vec<_>>();
+            page_signature.sort_unstable();
+            if !page_signatures.insert(page_signature) {
+                return Err(format!(
+                    "AnimeGO повторил содержимое страницы категории {}. Загрузка остановлена, чтобы не зациклиться.",
+                    list_type
+                ));
+            }
+
+            page_count = page_count.saturating_add(1);
+            item_count += parsed.items.len();
             for item in parsed.items {
-                item_count += 1;
                 if seen.insert(item.list_entry_id.clone()) {
                     all_items.push(item);
                     if all_items.len() > 3000 {
@@ -926,6 +939,12 @@ pub async fn animego_account_list_fetch() -> Result<AnimeGoAccountListResponse, 
             }
 
             let Some(next_url) = parsed.next_page_url else { break; };
+            if !visited_next_urls.insert(next_url.clone()) {
+                return Err(format!(
+                    "AnimeGO повторил ссылку следующей страницы категории {}. Загрузка остановлена, чтобы не зациклиться.",
+                    list_type
+                ));
+            }
             tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
             page = animego_fetch_account_page(
                 &client,
