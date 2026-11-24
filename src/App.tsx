@@ -769,15 +769,16 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
         identity.averageScore == null,
       ].filter(Boolean).length;
       const posterUrl = identity.posterUrl;
-      const posterMissing = !posterUrl || (() => {
+      let posterMissing = !posterUrl;
+      if (posterUrl) {
         try {
           const url = new URL(posterUrl);
-          return (url.protocol !== "https:" && url.protocol !== "http:") || url.pathname.length <= 1;
+          posterMissing = (url.protocol !== "https:" && url.protocol !== "http:") || url.pathname.length <= 1;
         } catch {
-          return true;
+          posterMissing = true;
         }
-      })();
-      return slug && (posterMissing || missingCoreFields >= 2) ? [{ row, slug }] : [];
+      }
+      return slug && (posterMissing || missingCoreFields >= 1) ? [{ row, slug }] : [];
     });
 
     let metadataCompleted = 0;
