@@ -39,7 +39,7 @@ No guessed route, payload, token selector, or response interpretation may be use
 
 ## Current implementation checkpoint
 
-Branch 59 includes the native read-only command `animego_account_write_inspect`, registered in the Tauri command handler and exposed through the Windows account manager panel after a list preview has been loaded. The panel inspects the first imported title as a sample. It reports form methods, same-origin action paths, safe encoding metadata, field names/types/required flags, coarse purpose labels, relevant DOM controls, same-origin script paths, and static inline-script keyword hints. It never returns field values, inline source code, cookies, or tokens, and performs no POST/PUT/DELETE requests.
+Branch 59 includes the native read-only command `animego_account_write_inspect`, registered in the Tauri command handler and exposed through the Windows account manager panel after a list preview has been loaded. The panel inspects the first imported title as a sample. It reports form methods, same-origin action paths, safe encoding metadata, field names/types/required flags, coarse purpose labels, relevant DOM controls, same-origin script paths, and static inline-script keyword hints. It also fetches at most eight same-origin `/build/` JavaScript bundles, with a 2 MB per-response limit and a short delay, and statically extracts sanitized relative route candidates plus coarse method/capability/field hints. It never executes scripts or returns source code, field values, cookies, or tokens, and performs no POST/PUT/DELETE requests.
 
 
 ## Windows live inspection checkpoint (25 November 2026)
@@ -73,8 +73,9 @@ The native parser now also reports:
 - A coarse form purpose (`logout`, `rating`, `list`, or `unknown`) derived only from the same-origin action path. This is descriptive metadata, not authorization to write.
 - Relevant controls whose identifiers suggest status, progress, episodes, list membership, rating, vote, or watch actions. Only sanitized identifiers and boolean handler-presence flags are returned.
 - Same-origin script paths and a fixed vocabulary of inline-script keyword hints. Script source and handler bodies are never returned.
+- A bounded static scan of up to eight same-origin `/build/` bundles. It reports sanitized relative route candidates, nearby HTTP-method hints, capability keywords, and a fixed allowlist of possible field names. It does not execute JavaScript, evaluate handlers, or send discovered requests. Method hints are heuristic and must be independently verified.
 
-Static HTML cannot reveal event listeners attached later by external JavaScript or prove what a handler sends at runtime. These hints are leads for further read-only investigation, not evidence of a working write operation. Off-origin forms and script URLs remain excluded. The inspection still performs no mutation requests.
+Static HTML cannot reveal event listeners attached later by external JavaScript or prove what a handler sends at runtime. The bundle scanner is deliberately heuristic: it can miss dynamically assembled routes, and nearby text can cause a method or field hint to be associated with the wrong route. Returned paths are candidates only, not confirmed endpoints or payload contracts. Script bodies are analyzed in Rust and discarded; only sanitized path literals and fixed vocabulary hints reach the UI. Off-origin forms and script URLs remain excluded. The inspection still performs no mutation requests.
 
 ## Implementation sequence
 
