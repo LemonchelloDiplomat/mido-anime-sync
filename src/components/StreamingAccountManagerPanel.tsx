@@ -365,6 +365,22 @@ export function StreamingAccountManagerPanel({
               {writeInspection.inlineScriptHints.length > 0 && (
                 <p><strong>Подсказки из inline JS:</strong><small>{writeInspection.inlineScriptHints.join(", ")}</small></p>
               )}
+              <p>
+                <strong>Анализ JavaScript-бандлов:</strong>
+                <small>Изучено: {writeInspection.scriptsInspected} · пропущено: {writeInspection.scriptsSkipped}</small>
+              </p>
+              {writeInspection.scriptRouteCandidates.length > 0 && (
+                <div>
+                  <strong>Кандидаты запросов из скриптов (не подтверждённые API)</strong>
+                  {writeInspection.scriptRouteCandidates.map((candidate, index) => (
+                    <p key={index}>
+                      <strong>{candidate.path}</strong>
+                      <small>Методы: {candidate.methods.join(", ")} · Возможности: {candidate.capabilities.join(", ") || "не определены"}</small>
+                      <small>Поля: {candidate.fieldHints.join(", ") || "не обнаружены"}{candidate.signals.length ? " · Сигналы: " + candidate.signals.join(", ") : ""}</small>
+                    </p>
+                  ))}
+                </div>
+              )}
               <small>{writeInspection.note}</small>
             </div>
           )}
