@@ -23,14 +23,15 @@ const STRUCTURED_FIELDS = new Set([
   "providerScores", "providerMetadata",
 ]);
 
-function mergeNonNullRecord<T extends Record<string, unknown>>(
+function mergeNonNullRecord<T extends object>(
   fallback: T | undefined,
   preferred: T | undefined,
 ): T {
-  const result: Record<string, unknown> = { ...(fallback ?? {}), ...(preferred ?? {}) };
+  const fallbackRecord = (fallback ?? {}) as Record<string, unknown>;
+  const result: Record<string, unknown> = { ...fallbackRecord, ...((preferred ?? {}) as Record<string, unknown>) };
   for (const [key, value] of Object.entries(result)) {
     if (value === null || value === undefined) {
-      const fallbackValue = fallback?.[key];
+      const fallbackValue = fallbackRecord[key];
       if (fallbackValue !== null && fallbackValue !== undefined) result[key] = fallbackValue;
     }
   }
