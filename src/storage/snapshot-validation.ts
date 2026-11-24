@@ -187,6 +187,22 @@ function validateAnimeList(value: unknown): AnimeIdentity[] {
         throw new Error(`Invalid anime ${field}: ${item.id}`);
       }
     }
+    for (const [field, parts] of [
+      ["startDateParts", item.startDateParts],
+      ["endDateParts", item.endDateParts],
+    ] as const) {
+      if (parts === undefined || parts === null) continue;
+      if (!parts || typeof parts !== "object" ||
+        !Number.isInteger(parts.year) || parts.year! < 1900 || parts.year! > 2100 ||
+        (parts.month !== undefined && parts.month !== null &&
+          (!Number.isInteger(parts.month) || parts.month < 1 || parts.month > 12)) ||
+        (parts.day !== undefined && parts.day !== null &&
+          (!Number.isInteger(parts.day) || parts.day < 1 || parts.day > 31 || parts.month == null)) ||
+        (parts.month != null && parts.day != null &&
+          parts.day > new Date(Date.UTC(parts.year!, parts.month, 0)).getUTCDate())) {
+        throw new Error(`Invalid anime ${field}: ${item.id}`);
+      }
+    }
     if (item.season !== undefined && item.season !== null &&
       !["WINTER", "SPRING", "SUMMER", "FALL"].includes(item.season)) {
       throw new Error(`Invalid anime season: ${item.id}`);
