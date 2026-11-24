@@ -48,6 +48,10 @@ interface MalApiEntry {
 function mapFormat(value?: string): AnimeFormat | undefined {
   switch (value) {
     case "tv": return "TV";
+    case "tv_short": return "TV_SHORT";
+    case "tv_special": return "TV_SPECIAL";
+    case "cm": return "CM";
+    case "pv": return "PV";
     case "movie": return "MOVIE";
     case "ova": return "OVA";
     case "special": return "SPECIAL";
@@ -73,6 +77,7 @@ function mapAgeRating(value?: string): AnimeAgeRating | undefined {
     case "pg_13": return "PG13";
     case "r": return "R17";
     case "r+": return "R+";
+    case "rx": return "RX";
     default: return undefined;
   }
 }
