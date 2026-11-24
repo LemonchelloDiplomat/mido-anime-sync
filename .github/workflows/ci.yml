@@ -10,6 +10,7 @@ on:
       - feat/provider-adapter-architecture
       - feat/streaming-site-bridge
       - feat/streaming-site-bridge-stacked
+      - feature/unified-anime-metadata
       - feat/kodik-watch-tracking
       - feature/full-tracker-sync
   pull_request:
