@@ -165,7 +165,7 @@ export function parseMyAnimeListApiList(
         myanimelist: {
           ...(typeof node.mean === "number" ? { meanScore: {
             value: node.mean, scale: 10, normalizedValue: Math.round(node.mean * 1000) / 100, kind: "mean" as const,
-            voteCount: Number.isSafeInteger(node.num_scoring_users) ? node.num_scoring_users : null,
+            voteCount: Number.isSafeInteger(node.num_scoring_users) ? node.num_scoring_users! : null,
           } } : {}),
           ...(Number.isSafeInteger(node.rank) ? { rank: node.rank } : {}),
           ...(Number.isSafeInteger(node.popularity) ? { popularity: node.popularity } : {}),
