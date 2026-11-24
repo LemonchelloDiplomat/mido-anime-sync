@@ -32,6 +32,7 @@ export interface AnimeGoAccountListResponse {
     episodesWatched: number | null;
     episodesTotal: number | null;
     progressText: string | null;
+    score: number | null;
   }>;
 }
 
