@@ -85,6 +85,21 @@ The native parser now also reports:
 
 Static HTML cannot reveal event listeners attached later by external JavaScript or prove what a handler sends at runtime. The bundle scanner is deliberately heuristic: it can miss dynamically assembled routes, and nearby text can cause a method or field hint to be associated with the wrong route. Returned paths are candidates only, not confirmed endpoints or payload contracts. Script bodies are analyzed in Rust and discarded; only sanitized path literals and fixed vocabulary hints reach the UI. Off-origin forms and script URLs remain excluded. The inspection still performs no mutation requests.
 
+## Passive Windows WebView2 network inspection
+
+The Windows account panel now provides a separate passive network observer for the authenticated AnimeGO WebView2 session. The user reopens the existing session window, navigates to a title page, and starts a 90-second capture while manually using the site's controls.
+
+The observer temporarily wraps the page's `fetch`, `XMLHttpRequest`, `navigator.sendBeacon`, and form-submit paths. It records only:
+- HTTP method;
+- same-origin pathname with query and fragment removed;
+- transport type (`fetch`, `xhr`, `form`, or `beacon`);
+- field names only, never field values;
+- HTTP status when available.
+
+The observer excludes `/logout`, rejects off-origin URLs, bounds the queue to 100 events, validates the active WebView account against the saved account identity, and restores the original browser functions when capture ends. The Rust command does not initiate, replay, modify, or retry any website request. It does not read response bodies, request bodies, cookies, CSRF values, authorization headers, or query parameters. For JSON-string request bodies it intentionally does not parse keys, so some field names may be absent.
+
+This is runtime observation, not permission to write. A captured request still needs manual interpretation and read-back verification before any write implementation is enabled. A 90-second capture can end early if the user navigates away or the WebView stops responding.
+
 ## Implementation sequence
 
 ### Phase A: inspect and validate
