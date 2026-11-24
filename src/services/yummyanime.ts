@@ -143,6 +143,17 @@ function identityFrom(rawValue: unknown): AnimeIdentity | null {
     genres,
     posterUrl: title.posterUrl ?? null,
     averageScore: rating,
+    ...(rating !== null ? { providerScores: { yummyanime: {
+      averageScore: { value: rating, scale: 10, normalizedValue: rating * 10, kind: "average" as const },
+    } } } : {}),
+    providerMetadata: {
+      yummyanime: {
+        type: raw.type ?? null,
+        animeStatus: record(raw.anime_status)?.alias ?? null,
+        remoteIds: ids,
+        rawRating: record(raw.rating)?.average ?? raw.rating ?? null,
+      },
+    },
     ...(mapStatus(record(raw.anime_status)?.alias) ? { releaseStatus: mapStatus(record(raw.anime_status)?.alias)! } : {}),
   };
 }
