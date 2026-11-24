@@ -51,6 +51,22 @@ export interface AnimeGoScriptRouteCandidateInspection {
   signals: string[];
 }
 
+export interface AnimeGoNetworkEventInspection {
+  method: string;
+  path: string;
+  transport: "fetch" | "xhr" | "form" | "beacon";
+  fieldNames: string[];
+  status: number | null;
+}
+
+export interface AnimeGoNetworkInspection {
+  provider: "animego";
+  pagePath: string;
+  durationSeconds: number;
+  events: AnimeGoNetworkEventInspection[];
+  note: string;
+}
+
 export interface AnimeGoWriteInspection {
   provider: "animego";
   titleUrl: string;
@@ -76,6 +92,8 @@ export interface StreamingAccountManagerPort {
   beginConnect?(provider: StreamingProviderId): Promise<void>;
   completeConnect?(provider: StreamingProviderId): Promise<StreamingAccountStatus>;
   /** Optional read-only provider list fetch; secrets remain inside the trusted adapter. */
+  openSessionWindow?(provider: StreamingProviderId): Promise<void>;
+  inspectNetwork?(provider: StreamingProviderId): Promise<AnimeGoNetworkInspection>;
   fetchList?(provider: StreamingProviderId): Promise<unknown>;
   inspectWriteCapabilities?(provider: StreamingProviderId, titleUrl: string): Promise<AnimeGoWriteInspection>;
 }
@@ -96,6 +114,8 @@ export interface StreamingAccountAdapter {
   completeConnect?(): Promise<StreamingAccountConnectResult>;
   getSessionInfo?(): Promise<{ accountLabel?: string | null; expiresAt?: string | null }>;
   /** Read-only account-list import. The adapter must keep session material native. */
+  openSessionWindow?(): Promise<void>;
+  inspectNetwork?(): Promise<AnimeGoNetworkInspection>;
   fetchList?(): Promise<unknown>;
   inspectWriteCapabilities?(titleUrl: string): Promise<AnimeGoWriteInspection>;
 }
@@ -215,6 +235,20 @@ export class StreamingAccountManager {
     const status = await this.restore(provider);
     if (!status.connected) throw new Error(`Сначала подключи аккаунт ${provider}.`);
     return adapter.inspectWriteCapabilities(titleUrl);
+  }
+
+  async openSessionWindow(provider: StreamingProviderId): Promise<void> {
+    const adapter = this.requireAdapter(provider);
+    if (!adapter.openSessionWindow) throw new Error(`Opening the provider session window is unavailable for ${provider}.`);
+    await adapter.openSessionWindow();
+  }
+
+  async inspectNetwork(provider: StreamingProviderId): Promise<AnimeGoNetworkInspection> {
+    const adapter = this.requireAdapter(provider);
+    if (!adapter.inspectNetwork) throw new Error(`Network inspection is unavailable for ${provider}.`);
+    const status = await this.restore(provider);
+    if (!status.connected) throw new Error(`Сначала подключи аккаунт ${provider}.`);
+    return adapter.inspectNetwork();
   }
 
   async fetchList(provider: StreamingProviderId): Promise<unknown> {
