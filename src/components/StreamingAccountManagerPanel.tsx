@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { StreamingProviderId } from "../services/streaming-provider.js";
-import type { AnimeGoWriteInspection, StreamingAccountStatus } from "../services/streaming-account-manager.js";
+import type { AnimeGoNetworkInspection, AnimeGoWriteInspection, StreamingAccountStatus } from "../services/streaming-account-manager.js";
 import type { StreamingRuntime } from "../services/platform/streaming-runtime.js";
 import type { AnimeGoAccountListResponse } from "../services/platform/web-streaming-account-manager.js";
 
@@ -52,6 +52,9 @@ export function StreamingAccountManagerPanel({
   const [listPreview, setListPreview] = useState<AnimeGoAccountListResponse | null>(null);
   const [writeInspection, setWriteInspection] = useState<AnimeGoWriteInspection | null>(null);
   const [inspectionLoading, setInspectionLoading] = useState(false);
+  const [networkInspection, setNetworkInspection] = useState<AnimeGoNetworkInspection | null>(null);
+  const [networkInspectionLoading, setNetworkInspectionLoading] = useState(false);
+  const [networkWindowOpening, setNetworkWindowOpening] = useState(false);
   const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
@@ -165,6 +168,36 @@ export function StreamingAccountManagerPanel({
     }
   }
 
+  async function openAnimeGoSessionWindow() {
+    if (!runtime?.accounts.openSessionWindow) return;
+    setNetworkWindowOpening(true);
+    setError("");
+    setNetworkInspection(null);
+    try {
+      await runtime.accounts.openSessionWindow("animego");
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось открыть окно AnimeGO.");
+    } finally {
+      setNetworkWindowOpening(false);
+    }
+  }
+
+  async function inspectAnimeGoNetwork() {
+    if (!runtime?.accounts.inspectNetwork) return;
+    setNetworkInspectionLoading(true);
+    setError("");
+    setNetworkInspection(null);
+    try {
+      const result = await runtime.accounts.inspectNetwork("animego");
+      setNetworkInspection(result);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось собрать сетевые метаданные AnimeGO.");
+    } finally {
+      setNetworkInspectionLoading(false);
+    }
+  }
+
   async function importAnimeGoList() {
     if (!listPreview || !onImportAnimeGoList) return;
     setListImporting(true);
@@ -273,6 +306,26 @@ export function StreamingAccountManagerPanel({
 
               {connected && runtime ? (
                 <div className="native-account-actions">
+                  {provider.id === "animego" && runtime.platform === "windows-native" && runtime.accounts.openSessionWindow && (
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => void openAnimeGoSessionWindow()}
+                      disabled={networkWindowOpening || networkInspectionLoading || disconnecting !== null}
+                    >
+                      {networkWindowOpening ? "Открываем..." : "Открыть окно AnimeGO"}
+                    </button>
+                  )}
+                  {provider.id === "animego" && runtime.platform === "windows-native" && runtime.accounts.inspectNetwork && (
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => void inspectAnimeGoNetwork()}
+                      disabled={networkInspectionLoading || networkWindowOpening || disconnecting !== null}
+                    >
+                      {networkInspectionLoading ? "Наблюдаем 90 секунд..." : "Начать пассивное наблюдение"}
+                    </button>
+                  )}
                   {provider.id === "animego" && runtime.accounts.fetchList && (
                     <button
                       className="secondary-button"
@@ -385,6 +438,23 @@ export function StreamingAccountManagerPanel({
             </div>
           )}
           {listImportMessage && <p role="status">{listImportMessage}</p>}
+        </div>
+      )}
+      {networkInspection && (
+        <div className="native-account-write-inspection" role="status">
+          <strong>Пассивное наблюдение завершено. Запросы не отправлялись инспектором.</strong>
+          <p>Страница: {networkInspection.pagePath} · Окно наблюдения: {networkInspection.durationSeconds} сек. · Событий: {networkInspection.events.length}</p>
+          {networkInspection.events.length === 0 ? (
+            <p>Подходящих запросов не поймано. Убедись, что окно AnimeGO открыто на странице тайтла, затем повтори наблюдение и выполни обычное действие на сайте.</p>
+          ) : (
+            networkInspection.events.map((event, index) => (
+              <p key={index}>
+                <strong>{event.method} {event.path}</strong>
+                <small>Транспорт: {event.transport} · HTTP: {event.status ?? "не получен"} · Поля: {event.fieldNames.join(", ") || "не определены"}</small>
+              </p>
+            ))
+          )}
+          <small>{networkInspection.note}</small>
         </div>
       )}
     </section>
