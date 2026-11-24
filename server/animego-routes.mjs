@@ -4,6 +4,8 @@ import { get as httpsGet } from "node:https";
 const SITE = "https://animego.me";
 const DNS_SERVERS = ["1.1.1.1", "8.8.8.8"];
 const DNS_CACHE_TTL_MS = 5 * 60 * 1000;
+const TITLE_METADATA_CACHE_TTL_MS = 15 * 60 * 1000;
+const titleMetadataCache = new Map();
 let cachedAddress = null;
 let cachedAddressUntil = 0;
 
@@ -315,19 +317,25 @@ export function parseAnimeGoSearch(html) {
 function animeGoDetailField(html, label) {
   const heading = html.search(/<h1\b/i);
   const source = heading >= 0 ? html.slice(heading) : html;
-  const labels = ["Тип", "Эпизоды", "Статус", "Жанр", "Темы", "Первоисточник", "Сезон", "Выпуск", "Рейтинг MPAA", "Возрастные ограничения", "Длительность", "Студия"];
-  const match = new RegExp("(?:>|\s)" + label + "\s*:?\s*", "i").exec(source);
+  const match = new RegExp("(?:^|[>\\s])" + label + "\\s*:?\\s*", "i").exec(source);
   if (!match) return "";
   const valueStart = match.index + match[0].length;
-  let valueEnd = source.length;
-  for (const nextLabel of labels) {
-    if (nextLabel.toLowerCase() === label.toLowerCase()) continue;
-    const next = new RegExp("(?:>|\s)" + nextLabel + "\s*:?\s*", "i").exec(source.slice(valueStart));
-    if (next) valueEnd = Math.min(valueEnd, valueStart + next.index);
+  const openTagEnd = source.lastIndexOf(">", match.index);
+  const openTagStart = source.lastIndexOf("<", openTagEnd);
+  const openTag = source.slice(openTagStart + 1, openTagEnd).match(/^([a-z][\w:-]*)/i)?.[1];
+  if (openTag) {
+    const closePattern = new RegExp("</" + openTag + "\\s*>", "ig");
+    closePattern.lastIndex = valueStart;
+    const close = closePattern.exec(source);
+    if (close) return stripTags(source.slice(valueStart, close.index)).replace(/^[\s:,-]+|[\s,;]+$/g, "").trim();
   }
-  return stripTags(source.slice(valueStart, valueEnd)).replace(/^[\s:,-]+|[\s,;]+$/g, "").trim();
+  const nextLabel = /(?:>|\\s)(?:Тип|Эпизоды|Статус|Жанр|Темы|Первоисточник|Сезон|Выпуск|Рейтинг MPAA|Возрастные ограничения|Длительность|Студия)\\s*:?\\s*/ig;
+  nextLabel.lastIndex = valueStart;
+  const next = nextLabel.exec(source);
+  const valueEnd = next ? source.lastIndexOf("<", next.index) : source.length;
+  return stripTags(source.slice(valueStart, valueEnd >= valueStart ? valueEnd : source.length))
+    .replace(/^[\s:,-]+|[\s,;]+$/g, "").trim();
 }
-
 function animeGoFormat(value) {
   const text = String(value || "").toLowerCase();
   if (/фильм|movie/.test(text)) return "MOVIE";
@@ -378,11 +386,11 @@ function animeGoAverageScore(html, jsonLd) {
   const jsonRating = Number(jsonLd?.aggregateRating?.ratingValue);
   if (Number.isFinite(jsonRating) && jsonRating > 0 && jsonRating <= 10) return jsonRating;
   const candidates = [];
-  for (const match of html.matchAll(/<(?:span|div|meta)\b([^>]*)>([\s\S]*?)<\/(?:span|div)>/gi)) {
-    const tag = match[1] || "";
-    if (!/(?:rating__value|rating-value|anime-rating|score-value)/i.test(attr(tag, "class")) &&
-        attr(tag, "itemprop").toLowerCase() !== "ratingvalue") continue;
-    const value = Number(stripTags(match[2]).replace(",", "."));
+  for (const match of html.matchAll(/<(span|div)\b([^>]*)>([^<]{1,24})<\/\1>/gi)) {
+    const classes = attr(match[2], "class");
+    if (!/(?:rating__value|rating-value|anime-rating|score-value)/i.test(classes) &&
+        attr(match[2], "itemprop").toLowerCase() !== "ratingvalue") continue;
+    const value = Number(stripTags(match[3]).replace(",", "."));
     if (Number.isFinite(value) && value > 0 && value <= 10) candidates.push(value);
   }
   for (const match of html.matchAll(/<meta\b[^>]*itemprop\s*=\s*["']ratingValue["'][^>]*>/gi)) {
@@ -391,7 +399,6 @@ function animeGoAverageScore(html, jsonLd) {
   }
   return candidates[0] ?? null;
 }
-
 export function parseAnimeGoDetail(html, url) {
   const canonicalTag = html.match(/<link\b[^>]*rel\s*=\s*(['"])canonical\1[^>]*>/i)?.[0] || "";
   const ogTitleTag = html.match(/<meta\b[^>]*property\s*=\s*(['"])og:title\1[^>]*>/i)?.[0] || "";
@@ -592,6 +599,21 @@ export async function handleAnimeGoRequest(request, response, url, deps) {
       const payload = typeof player.json === "function" ? await player.json() : JSON.parse(await player.text());
       const voices = parseAnimeGoVoices(payload);
       return sendJson(response, 200, { voices });
+    }
+    const metadataMatch = url.pathname.match(/^\/api\/animego\/anime\/([^/]+)\/metadata$/);
+    if (metadataMatch) {
+      const slug = decodeURIComponent(metadataMatch[1]);
+      if (!/^[\p{L}\p{N}-]+$/u.test(slug)) return sendJson(response, 400, { error: "Некорректный AnimeGO slug." });
+      const cached = titleMetadataCache.get(slug);
+      if (cached && Date.now() - cached.fetchedAt < TITLE_METADATA_CACHE_TTL_MS) {
+        return sendJson(response, 200, cached.value);
+      }
+      const page = await requestAnimeGoImpl(SITE + "/anime/" + encodeURIComponent(slug), { headers });
+      if (!page.ok) throw new Error("AnimeGO: HTTP " + page.status);
+      const detail = parseAnimeGoDetail(await page.text(), SITE + "/anime/" + encodeURIComponent(slug));
+      const value = { ...detail, seasons: [], voices: [] };
+      titleMetadataCache.set(slug, { fetchedAt: Date.now(), value });
+      return sendJson(response, 200, value);
     }
     const match = url.pathname.match(/^\/api\/animego\/anime\/([^/]+)$/);
     if (match) {
