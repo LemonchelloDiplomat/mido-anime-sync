@@ -556,7 +556,7 @@ async function handleRequest(request, response) {
     if (!process.env.MAL_CLIENT_ID) return sendJson(response, 400, { error: "MyAnimeList API не настроен." });
     const tokens = await readTokens();
     try {
-      let next = MAL_API + "/users/@me/animelist?fields=list_status,alternative_titles,start_date,media_type,status,num_episodes,mean,genres,rating&limit=1000&nsfw=true";
+      let next = MAL_API + "/users/@me/animelist?fields=list_status,alternative_titles,start_date,end_date,start_season,broadcast,media_type,status,num_episodes,mean,rank,popularity,num_list_users,num_scoring_users,genres,themes,demographics,studios,producers,licensors,source,rating,synopsis,background&limit=1000&nsfw=true";
       const items = [];
       let pages = 0;
       while (next && pages < 100) {
