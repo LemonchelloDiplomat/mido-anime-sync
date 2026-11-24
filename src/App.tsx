@@ -3311,7 +3311,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                             }).join(" · ")}
                           </div>
                         )}
-                        {(anime.themes?.length || anime.demographics?.length || anime.studios?.length) ? (
+                        {(anime.themes?.length || anime.demographics?.length || anime.studios?.length || anime.producers?.length || anime.licensors?.length || anime.tags?.length || anime.staff?.length) ? (
                           <div className="anime-catalog-meta">
                             {[
                               anime.themes?.length ? `Темы: ${anime.themes.join(", ")}` : null,
@@ -3320,6 +3320,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                               anime.producers?.length ? `Продюсеры: ${anime.producers.map((producer) => producer.name).join(", ")}` : null,
                               anime.licensors?.length ? `Лицензии: ${anime.licensors.map((licensor) => licensor.name).join(", ")}` : null,
                               anime.tags?.length ? `Теги: ${anime.tags.slice(0, 5).map((tag) => tag.name).join(", ")}` : null,
+                              anime.staff?.length ? `Участники: ${anime.staff.slice(0, 3).map((person) => person.name).join(", ")}` : null,
                             ].filter(Boolean).join(" · ")}
                           </div>
                         ) : null}
