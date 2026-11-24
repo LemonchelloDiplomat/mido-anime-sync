@@ -22,7 +22,7 @@ export interface StreamingAccountManagerPort {
   /** Optional two-step sign-in flow for providers that authenticate in a native WebView. */
   beginConnect?(provider: StreamingProviderId): Promise<void>;
   completeConnect?(provider: StreamingProviderId): Promise<StreamingAccountStatus>;
-  /** Optional read-only provider list fetch exposed by server-backed web adapters. */
+  /** Optional read-only provider list fetch; secrets remain inside the trusted adapter. */
   fetchList?(provider: StreamingProviderId): Promise<unknown>;
 }
 
