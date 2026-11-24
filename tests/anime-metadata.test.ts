@@ -90,6 +90,47 @@ describe("provider-aware anime metadata", () => {
     ]);
   });
 
+  it("does not erase known metadata when an incoming provider returns null", () => {
+    const existing: AnimeIdentity = {
+      ...base,
+      synopsis: "Known synopsis",
+      background: "Known production background",
+      bannerUrl: "https://example.com/banner.jpg",
+      providerScores: {
+        myanimelist: {
+          averageScore: createAnimeProviderScore(8.5, 10, { kind: "average", voteCount: 1200 }),
+        },
+      },
+      providerMetadata: {
+        myanimelist: { rank: 42, rating: "pg_13", synopsis: "Provider synopsis" },
+      },
+    };
+    const incoming: AnimeIdentity = {
+      ...base,
+      synopsis: null,
+      background: null,
+      bannerUrl: null,
+      providerScores: {
+        myanimelist: { averageScore: null },
+      },
+      providerMetadata: {
+        myanimelist: { rank: null, rating: null, synopsis: null },
+      },
+    };
+
+    const merged = mergeAnimeMetadata(existing, incoming);
+
+    expect(merged.synopsis).toBe("Known synopsis");
+    expect(merged.background).toBe("Known production background");
+    expect(merged.bannerUrl).toBe("https://example.com/banner.jpg");
+    expect(merged.providerScores?.myanimelist?.averageScore?.value).toBe(8.5);
+    expect(merged.providerMetadata?.myanimelist).toEqual({
+      rank: 42,
+      rating: "pg_13",
+      synopsis: "Provider synopsis",
+    });
+  });
+
   it("accepts expanded provider metadata in a legacy V4 snapshot without migration loss", () => {
     const snapshot = validateSnapshot({
       schemaVersion: 4,
