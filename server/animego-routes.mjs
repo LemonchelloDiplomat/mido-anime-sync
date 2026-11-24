@@ -145,6 +145,8 @@ function posterFromCard(card) {
       // AnimeGO cards sometimes publish protocol-relative or plain HTTP CDN
       // URLs. The local poster proxy intentionally accepts HTTPS only.
       const parsed = new URL(url);
+      // A CDN origin by itself is not a poster. AnimeGO can emit it as a lazy-load placeholder.
+      if (parsed.pathname.length <= 1) continue;
       const trustedImageHost = ["cdngos.com", "animego.me", "animego.org", "animego.online"]
         .some((domain) => parsed.hostname === domain || parsed.hostname.endsWith("." + domain));
       if (trustedImageHost && parsed.protocol === "http:") parsed.protocol = "https:";
@@ -355,7 +357,7 @@ function animeGoDetailField(html, label) {
       .replace(/^[\s:,-]+|[\s,;]+$/g, "").trim();
     if (value) return value;
   }
-  const nextLabel = /(?:>|\\s)(?:Тип|Эпизоды|Статус|Жанр|Темы|Первоисточник|Сезон|Выпуск|Рейтинг MPAA|Возрастные ограничения|Длительность|Студия)\\s*:?\\s*/ig;
+  const nextLabel = /(?:>|\s)(?:Тип|Эпизоды|Статус|Жанр|Темы|Первоисточник|Сезон|Выпуск|Рейтинг MPAA|Возрастные ограничения|Возрастной рейтинг|Возрастное ограничение|Длительность|Студия)\s*:?\s*/ig;
   nextLabel.lastIndex = valueStart;
   const next = nextLabel.exec(source);
   const valueEnd = next ? source.lastIndexOf("<", next.index) : source.length;
@@ -428,7 +430,13 @@ export function parseAnimeGoDetail(html, url) {
   try { jsonLd = JSON.parse(jsonLdRaw); } catch {}
   const typeText = animeGoDetailField(html, "Тип");
   const statusText = animeGoDetailField(html, "Статус");
-  const ageText = animeGoDetailField(html, "Возрастные ограничения") || animeGoDetailField(html, "Рейтинг MPAA");
+  const ageText = [
+    "Возрастные ограничения",
+    "Возрастное ограничение",
+    "Возрастной рейтинг",
+    "Рейтинг MPAA",
+    "MPAA",
+  ].map((label) => animeGoDetailField(html, label)).find(Boolean) || "";
   const releaseText = animeGoDetailField(html, "Выпуск");
   const yearFromJsonLd = Number(String(jsonLd.datePublished || "").slice(0, 4)) || null;
   const yearFromRelease = Number(releaseText.match(/\b(?:19|20)\d{2}\b/)?.[0]) || null;
