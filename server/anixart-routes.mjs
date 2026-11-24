@@ -59,7 +59,7 @@ function decodeHtml(value) {
 }
 
 function attr(tag, name) {
-  const match = String(tag).match(new RegExp("\\b" + name + "\\s*=\\s*(['\"])(.*?)\\1", "i"));
+  const match = String(tag).match(new RegExp("\\b" + name + "\s*=\s*(['\"])(.*?)\\1", "i"));
   return match ? decodeHtml(match[2]) : "";
 }
 
@@ -168,7 +168,7 @@ export function parseAnixArtSearch(html) {
 }
 
 function sectionLinks(html, label) {
-  const match = html.match(new RegExp(label + "\\s*:?([\\s\\S]{0,3500}?)<\\/li>", "i"));
+  const match = html.match(new RegExp(label + "\s*:?([\s\\S]{0,3500}?)<\\/li>", "i"));
   if (!match) return [];
   const values = [];
   const pattern = /<a\b[^>]*>([\s\S]*?)<\/a>/gi;
@@ -201,18 +201,18 @@ export function parseAnixArtDetail(html, requestedUrl) {
   const bodyText = stripTags(html);
   const yearMatch = bodyText.match(/(?:Год|Год выпуска)\s*:\s*(20\d{2}|19\d{2})/i);
   const year = yearMatch ? Number(yearMatch[1]) : null;
-  const scoreMatch = bodyText.match(/(?:Средний рейтинг|Рейтинг|Оценка)\\s*:?\\s*(10(?:[.,]\\d+)?|[0-9](?:[.,]\\d+)?)/i);
+  const scoreMatch = bodyText.match(/(?:Средний рейтинг|Рейтинг|Оценка)\s*:?\s*(10(?:[.,]\d+)?|[0-9](?:[.,]\d+)?)/i);
   const averageScore = scoreMatch ? Number(scoreMatch[1].replace(",", ".")) : null;
-  const ageMatch = bodyText.match(/(?:Возрастной рейтинг|Возрастные ограничения|Рейтинг MPAA)\\s*:?\\s*(G|PG-13|PG|R\\+|R-17|R-18|RX|18\\+)/i);
+  const ageMatch = bodyText.match(/(?:Возрастной рейтинг|Возрастные ограничения|Рейтинг MPAA)\s*:?\s*(G|PG-13|PG|R\\+|R-17|R-18|RX|18\\+)/i);
   const rawAgeRating = ageMatch?.[1]?.toUpperCase() || null;
   const ageRating = rawAgeRating === "G" ? "G" : rawAgeRating === "PG" ? "PG"
     : rawAgeRating === "PG-13" ? "PG13" : rawAgeRating === "R+" ? "R+"
     : rawAgeRating === "RX" ? "RX" : rawAgeRating ? "R17" : null;
-  const episodeMatch = bodyText.match(/Эпизоды\\s*:?\\s*(\\d+)/i);
-  const durationMatch = bodyText.match(/Длительность эпизода\\s*:?\\s*(\\d+)\\s*мин/i);
+  const episodeMatch = bodyText.match(/Эпизоды\s*:?\s*(\d+)/i);
+  const durationMatch = bodyText.match(/Длительность эпизода\s*:?\s*(\d+)\s*мин/i);
   const studios = sectionLinks(html, "Студия");
   const themes = sectionLinks(html, "Тема");
-  const originMatch = bodyText.match(/Первоисточник\\s*:?\\s*([^\\n|]+)/i);
+  const originMatch = bodyText.match(/Первоисточник\s*:?\s*([^\\n|]+)/i);
   const voices = sectionLinks(html, "Озвучка").map((name, index) => ({
     externalId: "voice:" + index + ":" + name.toLocaleLowerCase(),
     name,
