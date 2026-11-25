@@ -29,6 +29,17 @@ describe("durable provider write queue", () => {
     expect(saved.lastError).toBe("offline");
   });
 
+  it("coalesces superseded pending writes for the same title and operation", async () => {
+    const queue = new DurableProviderWriteQueue();
+    const first = await queue.enqueue(sample);
+    const second = await queue.enqueue({ ...sample, payload: { progress: 8 } });
+    const jobs = await queue.list();
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.id).toBe(second.id);
+    expect(jobs[0]?.payload.progress).toBe(8);
+    expect(jobs[0]?.id).not.toBe(first.id);
+  });
+
   it("removes a job after successful execution", async () => {
     const queue = new DurableProviderWriteQueue();
     await queue.enqueue(sample);
