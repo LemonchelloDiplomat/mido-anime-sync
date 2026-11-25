@@ -16,12 +16,14 @@ import type {
   StreamingVoice,
 } from "../services/streaming-provider.js";
 import { sortStreamingTitles } from "../services/streaming-provider.js";
+import type { StreamingAccountManagerPort } from "../services/streaming-account-manager.js";
 
 type Props = {
   query: string;
   onImport: (anime: AnimeIdentity) => Promise<void>;
   onImportSnapshot: (snapshot: AnimeSnapshotV4) => Promise<void>;
   locale?: AppLocale;
+  accountManager?: StreamingAccountManagerPort | null;
 };
 
 const animeGo = new AnimeGoCatalogProvider();
@@ -35,7 +37,7 @@ const providerLabels: Record<StreamingProviderId, string> = {
 
 const providerNotes: Record<StreamingProviderId, string> = {
   yummyanime: "Каталог, карточки, серии, озвучки и API аккаунта. Для входа нужен личный X-Application token.",
-  animego: "Публичный каталог, карточки, серии и озвучки. Личный список импортируется отдельно через защищённую авторизацию Windows; запись на сайт не поддерживается.",
+  animego: "Каталог, карточки, серии и озвучки AnimeGO. При подключённом аккаунте можно записывать личную оценку.",
   anixart: "Каталог и озвучки загружаются сервером AnixART; видео воспроизводится во встроенном плеере через локальный потоковый прокси.",
 };
 
@@ -61,7 +63,7 @@ async function loadDetails(provider: StreamingProviderId, title: StreamingTitle,
   return anixArt.getTitle(title.externalId, signal);
 }
 
-export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, locale = "ru" }: Props) {
+export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, locale = "ru", accountManager }: Props) {
   const [provider, setProvider] = useState<StreamingProviderId>("yummyanime");
   const [sort, setSort] = useState<StreamingCatalogSort>("source");
   const [results, setResults] = useState<StreamingTitle[]>([]);
@@ -86,6 +88,9 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
   const [accountPassword, setAccountPassword] = useState("");
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountMessage, setAccountMessage] = useState("");
+  const [animeGoRating, setAnimeGoRating] = useState("8");
+  const [animeGoRatingBusy, setAnimeGoRatingBusy] = useState(false);
+  const [animeGoRatingMessage, setAnimeGoRatingMessage] = useState("");
 
   const normalizedQuery = useMemo(() => normalizeCatalogQuery(query), [query]);
   const sortedResults = useMemo(() => sortStreamingTitles(results, sort, locale), [results, sort, locale]);
@@ -249,6 +254,20 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
     }
   }
 
+  async function saveAnimeGoRating() {
+    if (!selected || provider !== "animego" || !accountManager?.setRating || animeGoRatingBusy) return;
+    setAnimeGoRatingBusy(true);
+    setAnimeGoRatingMessage("");
+    try {
+      const result = await accountManager.setRating("animego", selected.url, Number(animeGoRating));
+      setAnimeGoRatingMessage(result.verified
+        ? "Оценка " + result.verifiedRating + "/10 записана и подтверждена повторным чтением AnimeGO."
+        : "Запрос отправлен (HTTP " + result.httpStatus + "), но повторное чтение не подтвердило оценку. Проверь страницу AnimeGO, повторять запрос пока не нужно.");
+    } catch (reason) {
+      setAnimeGoRatingMessage(reason instanceof Error ? reason.message : "Не удалось записать оценку AnimeGO.");
+    } finally { setAnimeGoRatingBusy(false); }
+  }
+
   async function importSelected() {
     if (!details?.identity || importing) return;
     setImporting(true);
@@ -376,6 +395,15 @@ export function StreamingCatalogPanel({ query, onImport, onImportSnapshot, local
                     </div>
                   </section>)}
                 </div> : <p className="catalog-hint">{t(locale, "noEpisodes")}</p>}
+
+                {provider === "animego" && accountManager?.setRating && <div className="streaming-account-panel" data-testid="animego-rating-write">
+                  <strong>Моя оценка AnimeGO</strong>
+                  <div className="streaming-account-actions">
+                    <select aria-label="Оценка AnimeGO" value={animeGoRating} onChange={(event) => setAnimeGoRating(event.target.value)} disabled={animeGoRatingBusy}>{Array.from({ length: 10 }, (_, index) => index + 1).map((value) => <option key={value} value={String(value)}>{value}/10</option>)}</select>
+                    <button type="button" disabled={animeGoRatingBusy} onClick={() => void saveAnimeGoRating()}>{animeGoRatingBusy ? "Записываем..." : "Записать оценку в AnimeGO"}</button>
+                  </div>
+                  {animeGoRatingMessage && <p className="streaming-account-message" role="status">{animeGoRatingMessage}</p>}
+                </div>}
 
                 <div className="streaming-detail-actions">
                   <a href={details.url} target="_blank" rel="noreferrer">Открыть на сайте ↗</a>
