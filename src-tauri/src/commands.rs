@@ -2689,4 +2689,31 @@ mod animego_episode_progress_tests {
     fn rejects_empty_or_unrecognized_episode_lists() {
         assert!(animego_parse_episode_items("<div>no episode data</div>").is_err());
     }
+
+    #[test]
+    fn reads_the_active_visible_translation_and_player_routes() {
+        let html = r#"
+          <div class="player-video"
+            data-anime-player-anime-id-value="3803"
+            data-anime-player-episodes-url-value="/player/3803/episodes"
+            data-anime-episode-watched-url-value="/anime/episode/watched"></div>
+          <div class="d-none"><button class="active" data-translation-id="99"></button></div>
+          <div><button class="active" data-translation-id="81"></button></div>
+        "#;
+        let parsed = super::animego_parse_player_metadata(html, "3803").expect("player metadata");
+        assert_eq!(parsed.0, "3803");
+        assert_eq!(parsed.1, "/player/3803/episodes");
+        assert_eq!(parsed.2, "/anime/episode/watched");
+        assert_eq!(parsed.3, "81");
+    }
+
+    #[test]
+    fn rejects_a_player_for_a_different_anime() {
+        let html = r#"<div class="player-video"
+          data-anime-player-anime-id-value="999"
+          data-anime-player-episodes-url-value="/player/999/episodes"
+          data-anime-episode-watched-url-value="/anime/episode/watched"></div>
+          <button class="active" data-translation-id="81"></button>"#;
+        assert!(super::animego_parse_player_metadata(html, "3803").is_err());
+    }
 }

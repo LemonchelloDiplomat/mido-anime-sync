@@ -44,6 +44,7 @@ describe("durable provider write queue", () => {
     const queue = new DurableProviderWriteQueue();
     await queue.enqueue({ ...sample, kind: "rating", payload: { rating: 8 } });
     await queue.enqueue({ ...sample, kind: "status", payload: { status: "WATCHING" } });
+    await queue.enqueue({ ...sample, kind: "progress", payload: { progress: 6 } });
     const deletion = await queue.enqueue({ ...sample, kind: "delete", payload: {} });
     expect(await queue.list()).toEqual([expect.objectContaining({ id: deletion.id, kind: "delete" })]);
   });
