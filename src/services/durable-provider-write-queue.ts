@@ -62,10 +62,10 @@ type NewProviderWriteJob = Pick<ProviderWriteJob, "provider" | "kind" | "externa
 
 function validate(input: NewProviderWriteJob): void {
   if (input.provider !== "animego") throw new Error("Unsupported provider.");
-  if (!/^\\d+$/.test(input.externalId)) throw new Error("AnimeGO external ID must be numeric.");
+  if (!/^\d+$/.test(input.externalId)) throw new Error("AnimeGO external ID must be numeric.");
   let url: URL;
   try { url = new URL(input.titleUrl); } catch { throw new Error("AnimeGO title URL is invalid."); }
-  if (url.protocol !== "https:" || url.hostname !== "animego.me" || !/^\\/anime\\/[^/]+-\\d+\\/?$/.test(url.pathname)) {
+  if (url.protocol !== "https:" || url.hostname !== "animego.me" || !/^\\/anime\\/[^/]+-\d+\\/?$/.test(url.pathname)) {
     throw new Error("AnimeGO title URL is invalid.");
   }
   if (input.kind === "rating" && (!Number.isInteger(input.payload.rating) || input.payload.rating! < 1 || input.payload.rating! > 10)) {
@@ -80,7 +80,7 @@ function validate(input: NewProviderWriteJob): void {
 
 function safeError(error: unknown): string {
   const message = error instanceof Error ? error.message : "Provider write failed.";
-  return message.replace(/(token|cookie|authorization|password)\\s*[:=]\\s*[^\\s&]+/gi, "$1=[redacted]").slice(0, 500);
+  return message.replace(/(token|cookie|authorization|password)\s*[:=]\s*[^\s&]+/gi, "$1=[redacted]").slice(0, 500);
 }
 
 export class DurableProviderWriteQueue {
