@@ -1026,6 +1026,8 @@ pub struct AnimeGoInteractiveControlInspection {
     name: Option<String>,
     input_type: Option<String>,
     id: Option<String>,
+    href_path: Option<String>,
+    ajax_url_path: Option<String>,
     class_names: Vec<String>,
     controller_names: Vec<String>,
     action_hints: Vec<String>,
@@ -1188,6 +1190,19 @@ fn parse_animego_write_forms(
             .filter_map(safe_identifier)
             .take(12)
             .collect::<Vec<_>>();
+        let safe_same_origin_path = |raw: &str| -> Option<String> {
+            let url = base_url.join(raw).ok()?;
+            if url.scheme() != "https" || url.host_str() != Some("animego.me") {
+                return None;
+            }
+            let path = url.path();
+            if path.len() > 180 || path.chars().any(char::is_control) {
+                return None;
+            }
+            Some(path.to_string())
+        };
+        let href_path = control.value().attr("href").and_then(safe_same_origin_path);
+        let ajax_url_path = control.value().attr("data-ajax-url").and_then(safe_same_origin_path);
         let controller_names = control.value().attr("data-controller").unwrap_or("")
             .split_whitespace()
             .filter_map(safe_identifier)
@@ -1205,12 +1220,14 @@ fn parse_animego_write_forms(
             .take(12)
             .collect::<Vec<_>>();
         let searchable = format!(
-            "{} {} {} {} {}",
+            "{} {} {} {} {} {} {}",
             name.as_deref().unwrap_or(""),
             id.as_deref().unwrap_or(""),
             class_names.join(" "),
             controller_names.join(" "),
-            action_hints.join(" ")
+            action_hints.join(" "),
+            href_path.as_deref().unwrap_or(""),
+            ajax_url_path.as_deref().unwrap_or("")
         ).to_ascii_lowercase();
         if !relevant_words.iter().any(|word| searchable.contains(word)) { continue; }
         let input_type = if tag == "input" {
@@ -1221,6 +1238,8 @@ fn parse_animego_write_forms(
             name,
             input_type,
             id,
+            href_path,
+            ajax_url_path,
             class_names,
             controller_names,
             action_hints,
@@ -1842,6 +1861,7 @@ mod animego_account_list_tests {
         let status_control = controls.iter().find(|control| control.name.as_deref() == Some("status")).unwrap();
         assert!(status_control.controller_names.iter().any(|name| name == "mylist-status"));
         assert!(status_control.action_hints.iter().any(|action| action == "change->list#status"));
+        assert_eq!(status_control.href_path, None);
         assert_eq!(script_paths, vec!["/assets/title-controls.js"]);
         assert!(script_hints.contains(&"addEventListener".to_string()));
         assert!(script_hints.contains(&"fetch".to_string()));
@@ -1872,6 +1892,26 @@ mod animego_account_list_tests {
         ));
         let serialized = serde_json::to_string(&controls).unwrap();
         assert!(!serialized.contains("Watch</"));
+    }
+
+    #[test]
+    fn exposes_only_same_origin_action_paths_without_query_values() {
+        use super::parse_animego_write_forms;
+        let html = r#"<html><body>
+          <a class="mylist-action" href="/mylist/anime/123/1/add?token=SECRET">Add</a>
+          <button class="mylist-statistics" data-ajax-url="/mylist/anime/123/statistics?user=private">Stats</button>
+          <a href="https://evil.example/steal">External</a>
+        </body></html>"#;
+        let base = reqwest::Url::parse("https://animego.me/anime/example-123").unwrap();
+        let (_, _, controls, _, _) = parse_animego_write_forms(html, &base).unwrap();
+        let add = controls.iter().find(|control| control.href_path.is_some()).unwrap();
+        assert_eq!(add.href_path.as_deref(), Some("/mylist/anime/123/1/add"));
+        let stats = controls.iter().find(|control| control.ajax_url_path.is_some()).unwrap();
+        assert_eq!(stats.ajax_url_path.as_deref(), Some("/mylist/anime/123/statistics"));
+        let serialized = serde_json::to_string(&controls).unwrap();
+        assert!(!serialized.contains("SECRET"));
+        assert!(!serialized.contains("private"));
+        assert!(!serialized.contains("evil.example"));
     }
 
     #[test]

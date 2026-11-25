@@ -37,6 +37,8 @@ export interface AnimeGoInteractiveControlInspection {
   name: string | null;
   inputType: string | null;
   id: string | null;
+  hrefPath: string | null;
+  ajaxUrlPath: string | null;
   classNames: string[];
   controllerNames: string[];
   actionHints: string[];

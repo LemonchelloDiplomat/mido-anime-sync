@@ -413,6 +413,8 @@ export function StreamingAccountManagerPanel({
                     <p key={index}>
                       {control.tag}{control.name ? ` name=${control.name}` : ""}{control.id ? ` #${control.id}` : ""}
                       <small>{control.classNames.join(" ")}{control.required ? " · обязательно" : ""}{control.hasInlineEventHandler ? " · inline JS" : ""}{control.hasDataAction ? " · data-action" : ""}</small>
+                      {control.hrefPath && <small>Ссылка действия: {control.hrefPath}</small>}
+                      {control.ajaxUrlPath && <small>AJAX-путь: {control.ajaxUrlPath}</small>}
                       {control.controllerNames.length > 0 && <small>Контроллеры: {control.controllerNames.join(", ")}</small>}
                       {control.actionHints.length > 0 && <small>Действия: {control.actionHints.join(" · ")}</small>}
                     </p>
