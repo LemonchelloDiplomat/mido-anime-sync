@@ -32,7 +32,7 @@ interface Props {
   runtimeRefreshing?: boolean;
   runtimeRefreshError?: string;
   onImportAnimeGoList?: (result: AnimeGoAccountListResponse) => Promise<void>;
-  onSyncAnimeGo?: () => Promise<{ imported: number; queued: number; conflicts?: number }>;
+  onSyncAnimeGo?: () => Promise<{ imported: number; queued: number; deleted?: number; conflicts?: number }>;
 }
 
 export function StreamingAccountManagerPanel({
@@ -51,6 +51,7 @@ export function StreamingAccountManagerPanel({
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncMessage, setSyncMessage] = useState("");
   const syncCallbackRef = useRef(onSyncAnimeGo);
+  const syncInFlightRef = useRef(false);
   const [listImporting, setListImporting] = useState(false);
   const [listImportMessage, setListImportMessage] = useState("");
   const [authWindowOpened, setAuthWindowOpened] = useState(false);
@@ -204,18 +205,20 @@ export function StreamingAccountManagerPanel({
   }
 
   async function syncAnimeGo() {
-    if (!onSyncAnimeGo || syncLoading) return;
+    if (!onSyncAnimeGo || syncInFlightRef.current) return;
+    syncInFlightRef.current = true;
     setSyncLoading(true);
     setError("");
     setSyncMessage("");
     try {
       const result = await onSyncAnimeGo();
       setSyncMessage(
-        `Синхронизация завершена. Получено/обновлено: ${result.imported}. В очереди отправки: ${result.queued}. Конфликты: ${result.conflicts === undefined ? "пока не проверяются" : result.conflicts}.`,
+        `Синхронизация завершена. Получено/обновлено: ${result.imported}. Удалено из библиотеки: ${result.deleted ?? 0}. В очереди отправки: ${result.queued}. Конфликты: ${result.conflicts === undefined ? "пока не проверяются" : result.conflicts}.`,
       );
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Не удалось синхронизировать AnimeGO.");
     } finally {
+      syncInFlightRef.current = false;
       setSyncLoading(false);
     }
   }
@@ -228,11 +231,14 @@ export function StreamingAccountManagerPanel({
     let timer: ReturnType<typeof setInterval> | null = null;
     const run = () => {
       if (disposed || document.visibilityState !== "visible" || !navigator.onLine) return;
-      void syncCallbackRef.current?.().catch(() => undefined);
+      if (syncInFlightRef.current) return;
+      syncInFlightRef.current = true;
+      void syncCallbackRef.current?.().catch(() => undefined).finally(() => { syncInFlightRef.current = false; });
     };
     timer = setInterval(run, 5 * 60 * 1000);
     window.addEventListener("online", run);
     document.addEventListener("visibilitychange", run);
+    run();
     return () => {
       disposed = true;
       if (timer) clearInterval(timer);
