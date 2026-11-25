@@ -822,7 +822,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
     const metadataTargets = options.enrichMetadata === false ? [] : uniqueRows.flatMap((row) => {
       const externalId = row.anime.externalIds.animego;
       const slug = externalId ? itemByAnimeId.get(externalId)?.animeSlug : undefined;
-      const identity = (externalId ? localByAnimeGoId.get(externalId) : undefined) ?? row.anime;
+      const identity = (externalId ? localByAnimeGoId.get(externalId)?.anime : undefined) ?? row.anime;
       const missingCoreFields = [
         identity.year == null,
         identity.format == null,
