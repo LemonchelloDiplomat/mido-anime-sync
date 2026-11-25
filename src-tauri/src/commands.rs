@@ -1954,6 +1954,30 @@ mod animego_auth_tests {
     }
 
     #[test]
+    fn accepts_only_the_expected_first_party_rating_form_and_keeps_token_private() {
+        use super::animego_rating_form_data;
+        let title = reqwest::Url::parse("https://animego.me/anime/example-123").unwrap();
+        let html = r#"<form method="post" action="/rating/anime/123/vote">
+            <input type="hidden" name="token" value="private-csrf-value">
+            <select name="rate"><option value="8">8</option><option value="9" selected>9</option></select>
+        </form>"#;
+        let (path, token, selected) = animego_rating_form_data(html, &title, "123").unwrap();
+        assert_eq!(path, "/rating/anime/123/vote");
+        assert_eq!(token, "private-csrf-value");
+        assert_eq!(selected, Some(9));
+    }
+
+    #[test]
+    fn refuses_rating_forms_outside_the_expected_action() {
+        use super::animego_rating_form_data;
+        let title = reqwest::Url::parse("https://animego.me/anime/example-123").unwrap();
+        let html = r#"<form method="post" action="https://evil.example/rating/anime/123/vote">
+            <input type="hidden" name="token" value="private">
+        </form>"#;
+        assert!(animego_rating_form_data(html, &title, "123").is_err());
+    }
+
+    #[test]
     fn rejects_pages_without_authenticated_user_payload() {
         assert_eq!(animego_user_from_html("<html><body>guest</body></html>"), None);
         assert_eq!(animego_user_from_html(r#"<html data-user="{&quot;id&quot;:&quot;not-numeric&quot;}"></html>"#), None);
