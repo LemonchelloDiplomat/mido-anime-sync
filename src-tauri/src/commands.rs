@@ -1349,14 +1349,14 @@ pub async fn animego_account_write_inspect(title_url: String) -> Result<AnimeGoW
     // field names, and sanitized control metadata.
     let mut account_lists = Vec::new();
     for list_type in 1u8..=6u8 {
-        let profile_path = format!("/profile/{}?type={}", session.user_id, list_type);
+        let mut list_path = format!("/profile/{}?type={}", session.user_id, list_type);
         let mut list_page = animego_fetch_account_page(
-            &client, &mut cookies, &profile_path, ANIMEGO_ORIGIN, None
+            &client, &mut cookies, &list_path, ANIMEGO_ORIGIN, None
         ).await?;
         if list_page.status == 404 {
-            let fallback_path = format!("/user/{}?type={}", session.user_id, list_type);
+            list_path = format!("/user/{}?type={}", session.user_id, list_type);
             list_page = animego_fetch_account_page(
-                &client, &mut cookies, &fallback_path, ANIMEGO_ORIGIN, None
+                &client, &mut cookies, &list_path, ANIMEGO_ORIGIN, None
             ).await?;
         }
         if !(200..300).contains(&list_page.status) {
@@ -1375,7 +1375,7 @@ pub async fn animego_account_write_inspect(title_url: String) -> Result<AnimeGoW
         }
         let list_base = reqwest::Url::parse(ANIMEGO_ORIGIN)
             .map_err(|_| "Некорректный адрес AnimeGO.".to_string())?
-            .join(&profile_path)
+            .join(&list_path)
             .map_err(|_| "Некорректный адрес личного списка AnimeGO.".to_string())?;
         let (list_forms, _, list_controls, _, _) = parse_animego_write_forms(&list_page.text, &list_base)?;
         account_lists.push(AnimeGoAccountListWriteInspection {
