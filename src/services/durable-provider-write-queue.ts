@@ -65,7 +65,7 @@ function validate(input: NewProviderWriteJob): void {
   if (!/^\d+$/.test(input.externalId)) throw new Error("AnimeGO external ID must be numeric.");
   let url: URL;
   try { url = new URL(input.titleUrl); } catch { throw new Error("AnimeGO title URL is invalid."); }
-  if (url.protocol !== "https:" || url.hostname !== "animego.me" || !/^\\/anime\\/[^/]+-\d+\\/?$/.test(url.pathname)) {
+  if (url.protocol !== "https:" || url.hostname !== "animego.me" || !/^\/anime\/[^/]+-\d+\/?$/.test(url.pathname)) {
     throw new Error("AnimeGO title URL is invalid.");
   }
   if (input.kind === "rating" && (!Number.isInteger(input.payload.rating) || input.payload.rating! < 1 || input.payload.rating! > 10)) {
