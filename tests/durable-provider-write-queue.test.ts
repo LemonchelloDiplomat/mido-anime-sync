@@ -69,6 +69,35 @@ describe("durable provider write queue", () => {
     expect(recovered.lastError).toContain("restart");
   });
 
+  it("schedules recovery at the end of a processing lease", async () => {
+    const queue = new DurableProviderWriteQueue();
+    const job = await queue.enqueue(sample);
+    const startedAt = Date.now() - 30_000;
+    const db = await import("idb");
+    const handle = await db.openDB("mido-anime-sync-provider-write-queue", 1);
+    await handle.put("jobs", {
+      ...job,
+      state: "processing" as const,
+      updatedAt: new Date(startedAt).toISOString(),
+    });
+    handle.close();
+
+    expect(await queue.nextPendingAt()).toBe(startedAt + 2 * 60 * 1000);
+  });
+
+  it("processes one provider write per runner batch to keep leases short", async () => {
+    const queue = new DurableProviderWriteQueue();
+    await queue.enqueue(sample);
+    await queue.enqueue({ ...sample, externalId: "12346", titleUrl: "https://animego.me/anime/example-12346" });
+    let executions = 0;
+
+    const result = await queue.process(async () => { executions += 1; }, { limit: 1, now: Date.now() + 1 });
+
+    expect(result.succeeded).toBe(1);
+    expect(executions).toBe(1);
+    expect(await queue.list()).toHaveLength(1);
+  });
+
   it("does not recover a fresh processing job owned by another window", async () => {
     const queue = new DurableProviderWriteQueue();
     const job = await queue.enqueue(sample);
