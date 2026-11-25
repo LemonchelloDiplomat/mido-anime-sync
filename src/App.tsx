@@ -713,7 +713,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       animeRelations: [],
     };
     await importStreamingAccountSnapshot(snapshot, "animego");
-    window.alert(
+    if (!options.silent) window.alert(
       "Импорт AnimeGO завершён. Добавлено или обновлено записей: " +
       normalized.rows.length + ". Пропущено некорректных строк: " + normalized.skipped +
       ". Прогресс и избранное не изменялись.",
@@ -721,7 +721,10 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
   }
 
 
-  async function importAnimeGoAccountLists(payload: AnimeGoAccountListResponse) {
+  async function importAnimeGoAccountLists(
+    payload: AnimeGoAccountListResponse,
+    options: { silent?: boolean; enrichMetadata?: boolean } = {},
+  ) {
     const rows: Array<{ anime: AnimeIdentity; entry: AnimeListEntry }> = [];
     let skipped = 0;
     for (const list of payload.lists) {
@@ -767,7 +770,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
         .filter((item) => item.animeId)
         .map((item) => [item.animeId!, item]),
     );
-    const metadataTargets = uniqueRows.flatMap((row) => {
+    const metadataTargets = options.enrichMetadata === false ? [] : uniqueRows.flatMap((row) => {
       const externalId = row.anime.externalIds.animego;
       const slug = externalId ? itemByAnimeId.get(externalId)?.animeSlug : undefined;
       const identity = (externalId ? localByAnimeGoId.get(externalId) : undefined) ?? row.anime;
@@ -872,6 +875,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
         : "") +
       ". Данные на AnimeGO не изменялись.",
     );
+    return { imported: uniqueRows.length, skipped, metadataMatched, metadataFailed };
   }
 
   async function prepareAnixartExportImport(file: File): Promise<{ imported: number; skipped: number }> {
@@ -2230,6 +2234,22 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
         }
       }
 
+      if (animeGoExternalId && typeof animeGoTitleUrl === "string" &&
+          previous?.entry && form.status !== previous.entry.status) {
+        try {
+          await animeGoProviderWriteQueue.enqueue({
+            provider: "animego",
+            kind: "status",
+            externalId: animeGoExternalId,
+            titleUrl: animeGoTitleUrl,
+            payload: { status: form.status },
+          });
+          await animeGoQueueRunnerRef.current?.wake();
+        } catch {
+          setError("Локальный статус сохранён, но не удалось поставить изменение AnimeGO в очередь.");
+        }
+      }
+
       const previousProgress = previous?.entry?.progress ?? 0;
       if (animeGoExternalId && typeof animeGoTitleUrl === "string" && progress !== previousProgress &&
           Number.isSafeInteger(progress) && progress >= 0) {
@@ -2287,6 +2307,19 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       const anime = await repository.getAnime(id);
       if (!anime) throw new Error("Аниме уже отсутствует в библиотеке.");
       const sourceEntries = await repository.getSourceEntries(id);
+      const animeGoTitleUrl = anime.providerMetadata?.animego?.titleUrl;
+      const animeGoExternalId = anime.externalIds.animego;
+      if (animeGoExternalId && typeof animeGoTitleUrl === "string" &&
+          sourceEntries.some((entry) => entry.source === "animego")) {
+        await animeGoProviderWriteQueue.enqueue({
+          provider: "animego",
+          kind: "delete",
+          externalId: animeGoExternalId,
+          titleUrl: animeGoTitleUrl,
+          payload: {},
+        });
+        await animeGoQueueRunnerRef.current?.wake();
+      }
       const createdAt = new Date().toISOString();
       const deletionIntents: SyncDeletionIntent[] = sourceEntries.flatMap((entry) => {
         if (entry.source !== "myanimelist" && entry.source !== "anilist") return [];
@@ -2697,7 +2730,22 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                   </article>
                 );
               })}
-              <StreamingAccountManagerPanel runtime={activeStreamingRuntime} onRetryRuntime={retryStreamingRuntime} runtimeRefreshing={runtimeRefreshing} runtimeRefreshError={runtimeRefreshError} onImportAnimeGoList={importAnimeGoAccountLists} />
+              <StreamingAccountManagerPanel
+                runtime={activeStreamingRuntime}
+                onRetryRuntime={retryStreamingRuntime}
+                runtimeRefreshing={runtimeRefreshing}
+                runtimeRefreshError={runtimeRefreshError}
+                onImportAnimeGoList={async (payload) => { await importAnimeGoAccountLists(payload); }}
+                onSyncAnimeGo={async () => {
+                  const accounts = activeStreamingRuntime?.accounts;
+                  if (!accounts?.fetchList) throw new Error("Нативное подключение AnimeGO недоступно.");
+                  const payload = await accounts.fetchList("animego") as AnimeGoAccountListResponse;
+                  const summary = await importAnimeGoAccountLists(payload, { silent: true, enrichMetadata: false });
+                  await animeGoQueueRunnerRef.current?.wake();
+                  const queued = (await animeGoProviderWriteQueue.list()).filter((job) => job.state === "pending" || job.state === "processing").length;
+                  return { imported: summary.imported, queued };
+                }}
+              />
               <StreamingTrackerPanel
                 items={library}
                 onImportAnixart={prepareAnixartExportImport}
