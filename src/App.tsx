@@ -37,7 +37,7 @@ import { reconcileStreamingAccountSnapshot } from "./services/streaming-account-
 import { mergeAnimeGoTitleMetadata, normalizeAnimeGoAccountList, normalizeAnimeGoFetchedAt, type AnimeGoAccountListPayload } from "./services/animego-account-import.js";
 import { AnimeGoCatalogProvider } from "./services/animego.js";
 import { animeGoProviderWriteQueue, ProviderWriteQueueRunner } from "./services/durable-provider-write-queue.js";
-import { commitAnimeGoWrite, listAnimeGoConflicts, reconcileAnimeGoEntry, resolveAnimeGoConflict, type AnimeGoConflictChoice } from "./services/animego-sync-state.js";
+import { commitAnimeGoWrite, listAnimeGoConflicts, reconcileAnimeGoEntry, resolveAnimeGoConflict, saveAnimeGoBaseline, type AnimeGoConflictChoice } from "./services/animego-sync-state.js";
 import { parseAnixartBookmarkExport } from "./services/anixart-export-import.js";
 import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
 import { suggestTrackerMatches, type TrackerMatchSuggestion } from "./services/streaming-tracker-sync.js";
@@ -770,6 +770,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
         .map((item) => [item.anime.externalIds.animego!, item]),
     );
     const outboundChanges: Array<{ externalId: string; titleUrl: string; field: "status" | "progress" | "score"; value: unknown }> = [];
+    const baselineUpdates: Awaited<ReturnType<typeof reconcileAnimeGoEntry>>["baseline"][] = [];
     let detectedConflicts = 0;
     for (const row of uniqueRows) {
       const externalId = row.anime.externalIds.animego;
@@ -800,6 +801,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
         updatedAt: row.entry.updatedAt,
       });
       detectedConflicts += result.conflicts.length;
+      baselineUpdates.push(result.baseline);
       row.entry.status = result.values.status;
       row.entry.progress = result.values.progress;
       row.entry.score = result.values.score;
@@ -908,6 +910,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       animeRelations: [],
     };
     await importStreamingAccountSnapshot(snapshot, "animego");
+    for (const baseline of baselineUpdates) await saveAnimeGoBaseline(baseline);
     for (const change of outboundChanges) {
       if (change.field === "status") {
         await animeGoProviderWriteQueue.enqueue({ provider: "animego", kind: "status", externalId: change.externalId, titleUrl: change.titleUrl, payload: { status: change.value as AnimeStatus } });
