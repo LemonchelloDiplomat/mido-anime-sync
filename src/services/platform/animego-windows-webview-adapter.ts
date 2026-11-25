@@ -3,6 +3,7 @@ import type {
   StreamingAccountConnectResult,
   AnimeGoWriteInspection,
   AnimeGoNetworkInspection,
+  AnimeGoRatingWriteResult,
 } from "../streaming-account-manager.js";
 import type { NativeInvoke } from "./native-platform-adapters.js";
 
@@ -101,6 +102,10 @@ export class AnimeGoWindowsWebViewAdapter implements StreamingAccountAdapter {
 
   async inspectWriteCapabilities(titleUrl: string): Promise<AnimeGoWriteInspection> {
     return this.invoke<AnimeGoWriteInspection>("animego_account_write_inspect", { titleUrl });
+  }
+
+  async setRating(titleUrl: string, rating: number): Promise<AnimeGoRatingWriteResult> {
+    return this.invoke<AnimeGoRatingWriteResult>("animego_account_rating_write", { titleUrl, rating });
   }
 
   async fetchList(): Promise<AnimeGoAccountListResponse> {
