@@ -3468,7 +3468,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                   })}
               </div>
             )}
-            <StreamingCatalogPanel query={searchQuery} onImport={addCatalogAnime} onImportSnapshot={importYummyAnimeSnapshot} locale={appLocale} />
+            <StreamingCatalogPanel query={searchQuery} onImport={addCatalogAnime} onImportSnapshot={importYummyAnimeSnapshot} locale={appLocale} accountManager={activeStreamingRuntime?.accounts ?? null} />
           </div>
         </div>
       )}
