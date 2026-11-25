@@ -103,6 +103,6 @@ describe("durable provider write queue", () => {
     const failed = (await queue.list()).find(job => job.state === "failed");
     expect(failed).toBeTruthy();
     expect(await queue.retryFailed()).toBe(1);
-    expect((await queue.list())[0]?.state).toBe("pending");
+    expect((await queue.list())[0]).toMatchObject({ state: "pending", attempts: 0, lastError: null });
   });
 });
