@@ -421,6 +421,30 @@ export function StreamingAccountManagerPanel({
                   ))}
                 </div>
               )}
+              {writeInspection.accountLists.length > 0 && (
+                <div>
+                  <strong>Элементы личного списка по категориям AnimeGO</strong>
+                  {writeInspection.accountLists.map((list) => (
+                    <div key={list.listType}>
+                      <p><strong>Категория {list.listType} · HTTP {list.httpStatus}</strong></p>
+                      {list.forms.map((form, index) => (
+                        <p key={index}>
+                          <strong>{form.method} {form.actionPath}</strong>
+                          <small>Поля: {form.fieldNames.join(", ") || "нет"}</small>
+                        </p>
+                      ))}
+                      {list.interactiveControls.map((control, index) => (
+                        <p key={index}>
+                          {control.tag}{control.name ? " name=" + control.name : ""}{control.id ? " #" + control.id : ""}
+                          <small>{control.hrefPath ? "Путь: " + control.hrefPath : ""}{control.ajaxUrlPath ? " · AJAX: " + control.ajaxUrlPath : ""}</small>
+                          {control.controllerNames.length > 0 && <small>Контроллеры: {control.controllerNames.join(", ")}</small>}
+                          {control.actionHints.length > 0 && <small>Действия: {control.actionHints.join(" · ")}</small>}
+                        </p>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
               {writeInspection.sameOriginScriptPaths.length > 0 && (
                 <p><strong>Скрипты AnimeGO:</strong><small>{writeInspection.sameOriginScriptPaths.join(", ")}</small></p>
               )}

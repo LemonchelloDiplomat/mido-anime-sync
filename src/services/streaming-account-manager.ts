@@ -71,6 +71,13 @@ export interface AnimeGoNetworkInspection {
   note: string;
 }
 
+export interface AnimeGoAccountListWriteInspection {
+  listType: number;
+  httpStatus: number;
+  forms: AnimeGoWriteFormInspection[];
+  interactiveControls: AnimeGoInteractiveControlInspection[];
+}
+
 export interface AnimeGoWriteInspection {
   provider: "animego";
   titleUrl: string;
@@ -78,6 +85,7 @@ export interface AnimeGoWriteInspection {
   forms: AnimeGoWriteFormInspection[];
   csrfMetaNames: string[];
   interactiveControls: AnimeGoInteractiveControlInspection[];
+  accountLists: AnimeGoAccountListWriteInspection[];
   sameOriginScriptPaths: string[];
   inlineScriptHints: string[];
   scriptsInspected: number;

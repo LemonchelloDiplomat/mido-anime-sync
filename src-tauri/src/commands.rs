@@ -1038,6 +1038,15 @@ pub struct AnimeGoInteractiveControlInspection {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AnimeGoAccountListWriteInspection {
+    list_type: u8,
+    http_status: u16,
+    forms: Vec<AnimeGoWriteFormInspection>,
+    interactive_controls: Vec<AnimeGoInteractiveControlInspection>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AnimeGoWriteInspection {
     provider: &'static str,
     title_url: String,
@@ -1045,6 +1054,7 @@ pub struct AnimeGoWriteInspection {
     forms: Vec<AnimeGoWriteFormInspection>,
     csrf_meta_names: Vec<String>,
     interactive_controls: Vec<AnimeGoInteractiveControlInspection>,
+    account_lists: Vec<AnimeGoAccountListWriteInspection>,
     same_origin_script_paths: Vec<String>,
     inline_script_hints: Vec<String>,
     scripts_inspected: usize,
@@ -1333,6 +1343,49 @@ pub async fn animego_account_write_inspect(title_url: String) -> Result<AnimeGoW
     let (forms, csrf_meta_names, interactive_controls, same_origin_script_paths, inline_script_hints) =
         parse_animego_write_forms(&page.text, &safe_title)?;
 
+    // Inspect the six authenticated list categories as well as the title page.
+    // Status/progress/delete controls often live on profile cards rather than
+    // the anime detail page. This remains read-only and records only safe paths,
+    // field names, and sanitized control metadata.
+    let mut account_lists = Vec::new();
+    for list_type in 1u8..=6u8 {
+        let profile_path = format!("/profile/{}?type={}", session.user_id, list_type);
+        let mut list_page = animego_fetch_account_page(
+            &client, &mut cookies, &profile_path, ANIMEGO_ORIGIN, None
+        ).await?;
+        if list_page.status == 404 {
+            let fallback_path = format!("/user/{}?type={}", session.user_id, list_type);
+            list_page = animego_fetch_account_page(
+                &client, &mut cookies, &fallback_path, ANIMEGO_ORIGIN, None
+            ).await?;
+        }
+        if !(200..300).contains(&list_page.status) {
+            account_lists.push(AnimeGoAccountListWriteInspection {
+                list_type,
+                http_status: list_page.status,
+                forms: Vec::new(),
+                interactive_controls: Vec::new(),
+            });
+            continue;
+        }
+        if let Some((list_user_id, _)) = animego_user_from_html(&list_page.text) {
+            if list_user_id != session.user_id {
+                return Err("Страница списка AnimeGO принадлежит другому аккаунту. Проверка остановлена.".to_string());
+            }
+        }
+        let list_base = reqwest::Url::parse(ANIMEGO_ORIGIN)
+            .map_err(|_| "Некорректный адрес AnimeGO.".to_string())?
+            .join(&profile_path)
+            .map_err(|_| "Некорректный адрес личного списка AnimeGO.".to_string())?;
+        let (list_forms, _, list_controls, _, _) = parse_animego_write_forms(&list_page.text, &list_base)?;
+        account_lists.push(AnimeGoAccountListWriteInspection {
+            list_type,
+            http_status: list_page.status,
+            forms: list_forms,
+            interactive_controls: list_controls,
+        });
+    }
+
     // Fetch a small, bounded set of first-party bundles. Never execute them and
     // never return their source, response headers, cookies, or token values.
     let mut scripts_inspected = 0usize;
@@ -1380,6 +1433,7 @@ pub async fn animego_account_write_inspect(title_url: String) -> Result<AnimeGoW
         forms,
         csrf_meta_names,
         interactive_controls,
+        account_lists,
         same_origin_script_paths,
         inline_script_hints,
         scripts_inspected,
