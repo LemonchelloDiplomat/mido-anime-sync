@@ -116,8 +116,19 @@ export class DurableProviderWriteQueue {
   }
 
   async nextPendingAt(): Promise<number | null> {
-    const jobs = await (await database()).getAllFromIndex(STORE_NAME, "by-state", "pending");
-    return jobs.length ? Math.min(...jobs.map(job => job.nextAttemptAt)) : null;
+    const db = await database();
+    const [pending, processing] = await Promise.all([
+      db.getAllFromIndex(STORE_NAME, "by-state", "pending"),
+      db.getAllFromIndex(STORE_NAME, "by-state", "processing"),
+    ]);
+    const deadlines = [
+      ...pending.map(job => job.nextAttemptAt),
+      ...processing.map(job => {
+        const startedAt = Date.parse(job.updatedAt);
+        return (Number.isFinite(startedAt) ? startedAt : Date.now()) + PROCESSING_LEASE_MS;
+      }),
+    ];
+    return deadlines.length ? Math.min(...deadlines) : null;
   }
 
   async remove(id: string): Promise<void> {
@@ -224,7 +235,6 @@ export class ProviderWriteQueueRunner {
     this.running = true;
     if (typeof window !== "undefined") window.addEventListener("online", this.onOnline);
     if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.onVisible);
-    await this.queue.recoverInterrupted();
     await this.wake();
   }
 
@@ -251,7 +261,9 @@ export class ProviderWriteQueueRunner {
   private async processAndSchedule(): Promise<void> {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
-    await this.queue.process(this.execute);
+    await this.queue.recoverInterrupted();
+    // Keep the processing lease bounded even when many writes are queued.
+    await this.queue.process(this.execute, { limit: 1 });
     if (!this.running) return;
     const nextAttemptAt = await this.queue.nextPendingAt();
     if (nextAttemptAt !== null) {
