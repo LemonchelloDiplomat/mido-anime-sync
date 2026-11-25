@@ -775,7 +775,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       const externalId = row.anime.externalIds.animego;
       if (!externalId) continue;
       const localItem = localByAnimeGoId.get(externalId);
-      const titleUrl = row.anime.providerMetadata?.animego?.titleUrl;
+      const titleUrl = row.anime.providerMetadata?.animego?.titleUrl ?? localItem?.anime.providerMetadata?.animego?.titleUrl;
       const sourceEntry = localItem && repository
         ? (await repository.getSourceEntries(localItem.anime.id)).find((entry) => entry.source === "animego")
         : undefined;
