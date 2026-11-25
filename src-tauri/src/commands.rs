@@ -1351,6 +1351,173 @@ pub async fn animego_account_write_inspect(title_url: String) -> Result<AnimeGoW
 
 
 
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeGoRatingWriteResult {
+    provider: &'static str,
+    title_url: String,
+    rating: u8,
+    http_status: u16,
+    submitted: bool,
+    verified: bool,
+    verified_rating: Option<u8>,
+    duration_ms: u128,
+}
+
+fn animego_rating_form_data(
+    html: &str,
+    title_url: &reqwest::Url,
+    anime_id: &str,
+) -> Result<(String, String, Option<u8>), String> {
+    use scraper::{Html, Selector};
+    let document = Html::parse_document(html);
+    let forms = Selector::parse("form").map_err(|_| "Не удалось разобрать форму оценки AnimeGO.".to_string())?;
+    let inputs = Selector::parse("input[name]").map_err(|_| "Не удалось разобрать поля формы AnimeGO.".to_string())?;
+    let options = Selector::parse("option").map_err(|_| "Не удалось разобрать варианты оценки AnimeGO.".to_string())?;
+    let expected_path = format!("/rating/anime/{anime_id}/vote");
+    for form in document.select(&forms) {
+        if !form.value().attr("method").unwrap_or("GET").eq_ignore_ascii_case("POST") { continue; }
+        let action = form.value().attr("action").unwrap_or(title_url.path());
+        let Ok(action_url) = title_url.join(action) else { continue; };
+        if action_url.scheme() != "https" || action_url.host_str() != Some("animego.me") ||
+            action_url.path() != expected_path { continue; }
+        let mut token = None;
+        for input in form.select(&inputs) {
+            if input.value().attr("name") == Some("token") &&
+                input.value().attr("type").unwrap_or("hidden").eq_ignore_ascii_case("hidden") {
+                token = input.value().attr("value").filter(|value| !value.trim().is_empty()).map(str::to_string);
+                break;
+            }
+        }
+        let token = token.ok_or_else(|| "В форме оценки AnimeGO отсутствует CSRF-токен. Запись остановлена.".to_string())?;
+        let mut selected_rating = None;
+        if let Ok(selects) = Selector::parse("select[name='rate']") {
+            if let Some(select) = form.select(&selects).next() {
+                for option in select.select(&options) {
+                    if option.value().attr("selected").is_some() {
+                        selected_rating = option.value().attr("value").and_then(|value| value.parse::<u8>().ok());
+                        break;
+                    }
+                }
+            }
+        }
+        return Ok((action_url.path().to_string(), token, selected_rating));
+    }
+    Err("На карточке AnimeGO не найдена ожидаемая POST-форма оценки. Ничего не отправлено.".to_string())
+}
+
+#[tauri::command]
+pub async fn animego_account_rating_write(
+    title_url: String,
+    rating: u8,
+) -> Result<AnimeGoRatingWriteResult, String> {
+    let started = std::time::Instant::now();
+    if !(1..=10).contains(&rating) {
+        return Err("Оценка AnimeGO должна быть числом от 1 до 10.".to_string());
+    }
+    let requested = reqwest::Url::parse(&title_url)
+        .map_err(|_| "Некорректная ссылка на тайтл AnimeGO.".to_string())?;
+    let safe_title = safe_animego_title_url(requested.as_str(), &reqwest::Url::parse(ANIMEGO_ORIGIN).unwrap())
+        .ok_or_else(|| "Для записи оценки нужна прямая ссылка на карточку animego.me/anime/…".to_string())?;
+    let slug = safe_title.path().trim_end_matches('/').rsplit('/').next().unwrap_or("");
+    let anime_id = slug.rsplit_once('-').map(|(_, id)| id)
+        .filter(|id| !id.is_empty() && id.chars().all(|ch| ch.is_ascii_digit()))
+        .ok_or_else(|| "Не удалось определить ID тайтла AnimeGO.".to_string())?;
+
+    let raw = streaming_secret_get(ANIMEGO_SESSION_KEY.to_string())?
+        .ok_or_else(|| "Сначала подключи аккаунт AnimeGO.".to_string())?;
+    let mut session: AnimeGoStoredSession = serde_json::from_str(&raw)
+        .map_err(|_| "Сохранённая сессия AnimeGO повреждена. Подключи аккаунт заново.".to_string())?;
+    if session.cookies.is_empty() || session.user_id.is_empty() ||
+        !session.user_id.chars().all(|ch| ch.is_ascii_digit()) {
+        return Err("Сохранённая сессия AnimeGO неполная. Подключи аккаунт заново.".to_string());
+    }
+    let mut cookies = session.cookies.iter().cloned().collect::<HashMap<_, _>>();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 5 { attempt.stop() }
+            else if attempt.url().scheme() == "https" && attempt.url().host_str() == Some("animego.me") { attempt.follow() }
+            else { attempt.stop() }
+        }))
+        .build()
+        .map_err(|_| "Не удалось запустить защищённый HTTP-клиент AnimeGO.".to_string())?;
+
+    let mut title_path = safe_title.path().to_string();
+    if let Some(query) = safe_title.query() { title_path.push('?'); title_path.push_str(query); }
+    let page = animego_fetch_account_page(&client, &mut cookies, &title_path, ANIMEGO_ORIGIN, None).await?;
+    if !(200..300).contains(&page.status) {
+        eprintln!("[AnimeGO Sync] operation=rating method=GET endpoint=/anime/{anime_id} status={} result=failed durationMs={}", page.status, started.elapsed().as_millis());
+        return Err(format!("AnimeGO не смог открыть карточку тайтла (HTTP {}).", page.status));
+    }
+    let (confirmed_user_id, _) = animego_user_from_html(&page.text)
+        .ok_or_else(|| "AnimeGO не подтвердил авторизованный профиль. Повтори вход.".to_string())?;
+    if confirmed_user_id != session.user_id {
+        return Err("Страница AnimeGO принадлежит другому аккаунту или сессия истекла.".to_string());
+    }
+    let (action_path, token, _) = animego_rating_form_data(&page.text, &safe_title, anime_id)?;
+    let cookie_header = cookies.iter().map(|(name, value)| format!("{name}={value}")).collect::<Vec<_>>().join("; ");
+    if cookie_header.is_empty() || cookie_header.len() > 16 * 1024 {
+        return Err("Сохранённая сессия AnimeGO пуста или превышает допустимый размер.".to_string());
+    }
+    let response = client.post(format!("{ANIMEGO_ORIGIN}{action_path}"))
+        .header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
+        .header(reqwest::header::USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36")
+        .header(reqwest::header::REFERER, safe_title.as_str())
+        .header(reqwest::header::COOKIE, cookie_header)
+        .form(&[("token", token.as_str()), ("rate", rating.to_string().as_str())])
+        .send().await
+        .map_err(|_| "Не удалось отправить оценку в AnimeGO. Проверь соединение.".to_string())?;
+    let status = response.status().as_u16();
+    let final_url = response.url().clone();
+    if final_url.scheme() != "https" || final_url.host_str() != Some("animego.me") {
+        return Err("AnimeGO перенаправил запись за пределы разрешённого домена.".to_string());
+    }
+    update_animego_cookie_jar(&mut cookies, response.headers());
+    if response.content_length().map(|length| length > 2 * 1024 * 1024).unwrap_or(false) {
+        return Err("Ответ AnimeGO превышает допустимый размер.".to_string());
+    }
+    let body = response.bytes().await
+        .map_err(|_| "Не удалось прочитать ответ AnimeGO после отправки оценки.".to_string())?;
+    if body.len() > 2 * 1024 * 1024 {
+        return Err("Ответ AnimeGO превышает допустимый размер.".to_string());
+    }
+    if !(200..300).contains(&status) {
+        eprintln!("[AnimeGO Sync] operation=rating method=POST endpoint=/rating/anime/{anime_id}/vote status={status} result=failed durationMs={}", started.elapsed().as_millis());
+        return Err(format!("AnimeGO отклонил оценку (HTTP {}).", status));
+    }
+
+    // A successful HTTP response is not treated as proof of persistence.
+    // Re-read the same title page and compare the selected value in the rating form.
+    let verify_page = animego_fetch_account_page(&client, &mut cookies, &title_path, ANIMEGO_ORIGIN, None).await;
+    let verified_rating = match verify_page {
+        Ok(refetched) if (200..300).contains(&refetched.status) => {
+            animego_rating_form_data(&refetched.text, &safe_title, anime_id)
+                .ok().and_then(|(_, _, selected)| selected)
+        }
+        _ => None,
+    };
+    let verified = verified_rating == Some(rating);
+    session.cookies = cookies.into_iter().collect();
+    let serialized = serde_json::to_string(&session)
+        .map_err(|_| "Не удалось обновить защищённую сессию AnimeGO.".to_string())?;
+    streaming_secret_set(ANIMEGO_SESSION_KEY.to_string(), serialized)?;
+    eprintln!("[AnimeGO Sync] operation=rating method=POST endpoint=/rating/anime/{anime_id}/vote status={status} result={} durationMs={}",
+        if verified { "verified" } else { "submitted_unverified" }, started.elapsed().as_millis());
+
+    Ok(AnimeGoRatingWriteResult {
+        provider: "animego",
+        title_url: safe_title.to_string(),
+        rating,
+        http_status: status,
+        submitted: true,
+        verified,
+        verified_rating,
+        duration_ms: started.elapsed().as_millis(),
+    })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnimeGoNetworkEvent {
