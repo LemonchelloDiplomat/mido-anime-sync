@@ -1461,12 +1461,13 @@ pub async fn animego_account_rating_write(
     if cookie_header.is_empty() || cookie_header.len() > 16 * 1024 {
         return Err("Сохранённая сессия AnimeGO пуста или превышает допустимый размер.".to_string());
     }
+    let rating_value = rating.to_string();
     let response = client.post(format!("{ANIMEGO_ORIGIN}{action_path}"))
         .header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
         .header(reqwest::header::USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36")
         .header(reqwest::header::REFERER, safe_title.as_str())
         .header(reqwest::header::COOKIE, cookie_header)
-        .form(&[("token", token.as_str()), ("rate", rating.to_string().as_str())])
+        .form(&[("token", token.as_str()), ("rate", rating_value.as_str())])
         .send().await
         .map_err(|_| "Не удалось отправить оценку в AnimeGO. Проверь соединение.".to_string())?;
     let status = response.status().as_u16();
