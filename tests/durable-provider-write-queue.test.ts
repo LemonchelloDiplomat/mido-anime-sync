@@ -43,6 +43,21 @@ describe("durable provider write queue", () => {
     await expect(queue.enqueue({ ...sample, payload: { progress: -1 } })).rejects.toThrow();
   });
 
+  it("recovers jobs left processing by an application crash", async () => {
+    const queue = new DurableProviderWriteQueue();
+    const job = await queue.enqueue(sample);
+    const db = await import("idb");
+    const handle = await db.openDB("mido-anime-sync-provider-write-queue", 1);
+    const interrupted = { ...job, state: "processing" as const };
+    await handle.put("jobs", interrupted);
+    handle.close();
+
+    expect(await queue.recoverInterrupted()).toBe(1);
+    const recovered = (await queue.list())[0]!;
+    expect(recovered.state).toBe("pending");
+    expect(recovered.lastError).toContain("restart");
+  });
+
   it("allows explicitly retrying terminal failures", async () => {
     const queue = new DurableProviderWriteQueue();
     await queue.enqueue(sample);
