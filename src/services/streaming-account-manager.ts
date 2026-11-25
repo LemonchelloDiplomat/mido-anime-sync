@@ -82,6 +82,17 @@ export interface AnimeGoWriteInspection {
   note: string;
 }
 
+export interface AnimeGoRatingWriteResult {
+  provider: "animego";
+  titleUrl: string;
+  rating: number;
+  httpStatus: number;
+  submitted: boolean;
+  verified: boolean;
+  verifiedRating: number | null;
+  durationMs: number;
+}
+
 export interface StreamingAccountManagerPort {
   hasAdapter(provider: StreamingProviderId): boolean;
   getStatus(provider: StreamingProviderId): StreamingAccountStatus;
@@ -97,6 +108,7 @@ export interface StreamingAccountManagerPort {
   /** Optional read-only provider list fetch; secrets remain inside the trusted adapter. */
   fetchList?(provider: StreamingProviderId): Promise<unknown>;
   inspectWriteCapabilities?(provider: StreamingProviderId, titleUrl: string): Promise<AnimeGoWriteInspection>;
+  setRating?(provider: StreamingProviderId, titleUrl: string, rating: number): Promise<AnimeGoRatingWriteResult>;
 }
 
 export interface StreamingAccountConnectResult {
@@ -120,6 +132,8 @@ export interface StreamingAccountAdapter {
   /** Read-only account-list import. The adapter must keep session material native. */
   fetchList?(): Promise<unknown>;
   inspectWriteCapabilities?(titleUrl: string): Promise<AnimeGoWriteInspection>;
+  /** Explicit user-triggered write. The adapter must keep credentials native. */
+  setRating?(titleUrl: string, rating: number): Promise<AnimeGoRatingWriteResult>;
 }
 
 /**
@@ -229,6 +243,16 @@ export class StreamingAccountManager {
       this.states.set(provider, status);
       return { ...status };
     }
+  }
+
+  async setRating(provider: StreamingProviderId, titleUrl: string, rating: number): Promise<AnimeGoRatingWriteResult> {
+    if (provider !== "animego") throw new Error(`Rating writes are not supported for ${provider}.`);
+    if (!Number.isInteger(rating) || rating < 1 || rating > 10) throw new Error("Оценка должна быть целым числом от 1 до 10.");
+    const adapter = this.requireAdapter(provider);
+    if (!adapter.setRating) throw new Error(`Rating writes are unavailable for ${provider}.`);
+    const status = await this.restore(provider);
+    if (!status.connected) throw new Error(`Сначала подключи аккаунт ${provider}.`);
+    return adapter.setRating(titleUrl, rating);
   }
 
   async inspectWriteCapabilities(provider: StreamingProviderId, titleUrl: string): Promise<AnimeGoWriteInspection> {
