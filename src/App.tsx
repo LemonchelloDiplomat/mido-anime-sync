@@ -718,7 +718,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       animeRelations: [],
     };
     await importStreamingAccountSnapshot(snapshot, "animego");
-    if (!options.silent) window.alert(
+    window.alert(
       "Импорт AnimeGO завершён. Добавлено или обновлено записей: " +
       normalized.rows.length + ". Пропущено некорректных строк: " + normalized.skipped +
       ". Прогресс и избранное не изменялись.",
