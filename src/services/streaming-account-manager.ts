@@ -38,6 +38,8 @@ export interface AnimeGoInteractiveControlInspection {
   inputType: string | null;
   id: string | null;
   classNames: string[];
+  controllerNames: string[];
+  actionHints: string[];
   required: boolean;
   hasInlineEventHandler: boolean;
   hasDataAction: boolean;

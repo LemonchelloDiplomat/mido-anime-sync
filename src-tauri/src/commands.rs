@@ -1027,6 +1027,8 @@ pub struct AnimeGoInteractiveControlInspection {
     input_type: Option<String>,
     id: Option<String>,
     class_names: Vec<String>,
+    controller_names: Vec<String>,
+    action_hints: Vec<String>,
     required: bool,
     has_inline_event_handler: bool,
     has_data_action: bool,
@@ -1186,12 +1188,29 @@ fn parse_animego_write_forms(
             .filter_map(safe_identifier)
             .take(12)
             .collect::<Vec<_>>();
+        let controller_names = control.value().attr("data-controller").unwrap_or("")
+            .split_whitespace()
+            .filter_map(safe_identifier)
+            .take(12)
+            .collect::<Vec<_>>();
+        let action_hints = control.value().attr("data-action").unwrap_or("")
+            .split_whitespace()
+            .filter_map(|action| {
+                let safe = action.chars()
+                    .filter(|ch| ch.is_ascii_alphanumeric() || "_-.#@>:".contains(*ch))
+                    .take(160)
+                    .collect::<String>();
+                if safe.is_empty() { None } else { Some(safe) }
+            })
+            .take(12)
+            .collect::<Vec<_>>();
         let searchable = format!(
-            "{} {} {} {}",
+            "{} {} {} {} {}",
             name.as_deref().unwrap_or(""),
             id.as_deref().unwrap_or(""),
             class_names.join(" "),
-            control.value().attr("data-action").unwrap_or("")
+            controller_names.join(" "),
+            action_hints.join(" ")
         ).to_ascii_lowercase();
         if !relevant_words.iter().any(|word| searchable.contains(word)) { continue; }
         let input_type = if tag == "input" {
@@ -1203,6 +1222,8 @@ fn parse_animego_write_forms(
             input_type,
             id,
             class_names,
+            controller_names,
+            action_hints,
             required: control.value().attr("required").is_some(),
             has_inline_event_handler: ["onclick", "onchange", "oninput", "onsubmit"]
                 .iter().any(|name| control.value().attr(name).is_some()),
@@ -1818,6 +1839,9 @@ mod animego_account_list_tests {
         assert!(forms[0].fields[1].required);
         assert!(forms[0].has_inline_event_handler);
         assert!(controls.iter().any(|control| control.name.as_deref() == Some("status") && control.has_data_action));
+        let status_control = controls.iter().find(|control| control.name.as_deref() == Some("status")).unwrap();
+        assert!(status_control.controller_names.iter().any(|name| name == "mylist-status"));
+        assert!(status_control.action_hints.iter().any(|action| action == "change->list#status"));
         assert_eq!(script_paths, vec!["/assets/title-controls.js"]);
         assert!(script_hints.contains(&"addEventListener".to_string()));
         assert!(script_hints.contains(&"fetch".to_string()));
@@ -1826,6 +1850,28 @@ mod animego_account_list_tests {
         assert!(!serialized.contains("DO_NOT_RETURN"));
         assert!(!serialized.contains("sendVote"));
         assert!(!serialized.contains("updateProgress"));
+    }
+
+    #[test]
+    fn exposes_sanitized_controller_and_action_hints_for_dynamic_controls() {
+        use super::parse_animego_write_forms;
+        let html = r#"<html><body>
+          <button class="schedule-episodes-table__watched" data-controller="anime-episode-watched"
+            data-action="click->anime-episode-watched#toggleSchedule">Watch</button>
+          <span data-controller="anime-watched-progress"
+            data-action="anime-watched:changed@document->anime-watched-progress#update">0 / 12</span>
+        </body></html>"#;
+        let base = reqwest::Url::parse("https://animego.me/anime/example-694").unwrap();
+        let (_, _, controls, _, _) = parse_animego_write_forms(html, &base).unwrap();
+        assert!(controls.iter().any(|control|
+            control.controller_names.iter().any(|name| name == "anime-episode-watched")
+            && control.action_hints.iter().any(|action| action == "click->anime-episode-watched#toggleSchedule")
+        ));
+        assert!(controls.iter().any(|control|
+            control.action_hints.iter().any(|action| action == "anime-watched:changed@document->anime-watched-progress#update")
+        ));
+        let serialized = serde_json::to_string(&controls).unwrap();
+        assert!(!serialized.contains("Watch</"));
     }
 
     #[test]
