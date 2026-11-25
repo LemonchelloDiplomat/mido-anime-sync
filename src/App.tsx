@@ -164,11 +164,12 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
   useEffect(() => {
     const accounts = activeStreamingRuntime?.accounts;
     if (!accounts?.setRating) return;
+    const setRating = accounts.setRating.bind(accounts);
     const runner = new ProviderWriteQueueRunner(animeGoProviderWriteQueue, async (job) => {
       if (job.kind !== "rating" || typeof job.payload.rating !== "number") {
         throw new Error("This AnimeGO write operation is not enabled yet.");
       }
-      const result = await accounts.setRating("animego", job.titleUrl, job.payload.rating);
+      const result = await setRating("animego", job.titleUrl, job.payload.rating);
       if (!result.verified) throw new Error("AnimeGO has not confirmed the saved rating yet.");
     });
     animeGoQueueRunnerRef.current = runner;
