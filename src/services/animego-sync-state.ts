@@ -171,3 +171,17 @@ export async function reconcileAnimeGoEntry(input: {
   await saveAnimeGoBaseline(baseline);
   return { values, outbound, conflicts, baseline };
 }
+
+export async function commitAnimeGoWrite(
+  externalId: string,
+  field: AnimeGoSyncField,
+  value: unknown,
+): Promise<void> {
+  const current = await getAnimeGoBaseline(externalId);
+  if (!current) return;
+  await saveAnimeGoBaseline({
+    ...current,
+    [field]: value,
+    updatedAt: new Date().toISOString(),
+  });
+}
