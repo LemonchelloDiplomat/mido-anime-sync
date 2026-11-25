@@ -3,6 +3,7 @@ import type { StreamingProviderId } from "../services/streaming-provider.js";
 import type { AnimeGoNetworkInspection, AnimeGoWriteInspection, StreamingAccountStatus } from "../services/streaming-account-manager.js";
 import type { StreamingRuntime } from "../services/platform/streaming-runtime.js";
 import type { AnimeGoAccountListResponse } from "../services/platform/web-streaming-account-manager.js";
+import type { AnimeGoConflictChoice, AnimeGoSyncConflict } from "../services/animego-sync-state.js";
 
 interface ProviderCard {
   id: StreamingProviderId;
@@ -33,6 +34,8 @@ interface Props {
   runtimeRefreshError?: string;
   onImportAnimeGoList?: (result: AnimeGoAccountListResponse) => Promise<void>;
   onSyncAnimeGo?: () => Promise<{ imported: number; queued: number; deleted?: number; conflicts?: number }>;
+  onGetAnimeGoConflicts?: () => Promise<AnimeGoSyncConflict[]>;
+  onResolveAnimeGoConflict?: (conflictId: string, choice: AnimeGoConflictChoice) => Promise<AnimeGoSyncConflict[]>;
 }
 
 export function StreamingAccountManagerPanel({
@@ -42,6 +45,8 @@ export function StreamingAccountManagerPanel({
   runtimeRefreshError = "",
   onImportAnimeGoList,
   onSyncAnimeGo,
+  onGetAnimeGoConflicts,
+  onResolveAnimeGoConflict,
 }: Props) {
   const [statuses, setStatuses] = useState<Partial<Record<StreamingProviderId, StreamingAccountStatus>>>({});
   const [loading, setLoading] = useState(false);
@@ -50,6 +55,8 @@ export function StreamingAccountManagerPanel({
   const [listLoading, setListLoading] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncMessage, setSyncMessage] = useState("");
+  const [syncConflicts, setSyncConflicts] = useState<AnimeGoSyncConflict[]>([]);
+  const [resolvingConflict, setResolvingConflict] = useState<string | null>(null);
   const syncCallbackRef = useRef(onSyncAnimeGo);
   const syncInFlightRef = useRef(false);
   const [listImporting, setListImporting] = useState(false);
@@ -212,6 +219,7 @@ export function StreamingAccountManagerPanel({
     setSyncMessage("");
     try {
       const result = await onSyncAnimeGo();
+      if (onGetAnimeGoConflicts) setSyncConflicts(await onGetAnimeGoConflicts());
       setSyncMessage(
         `Синхронизация завершена. Получено/обновлено: ${result.imported}. Удалено из библиотеки: ${result.deleted ?? 0}. В очереди отправки: ${result.queued}. Конфликты: ${result.conflicts === undefined ? "пока не проверяются" : result.conflicts}.`,
       );
@@ -224,6 +232,27 @@ export function StreamingAccountManagerPanel({
   }
 
   useEffect(() => { syncCallbackRef.current = onSyncAnimeGo; }, [onSyncAnimeGo]);
+
+  useEffect(() => {
+    if (!onGetAnimeGoConflicts) return;
+    void onGetAnimeGoConflicts().then(setSyncConflicts).catch(() => undefined);
+  }, [onGetAnimeGoConflicts]);
+
+  async function resolveConflict(conflictId: string, choice: AnimeGoConflictChoice) {
+    if (!onResolveAnimeGoConflict || resolvingConflict) return;
+    setResolvingConflict(conflictId);
+    setError("");
+    try {
+      setSyncConflicts(await onResolveAnimeGoConflict(conflictId, choice));
+      setSyncMessage(choice === "local"
+        ? "Выбрана локальная версия. Изменение отправлено в очередь AnimeGO."
+        : "Применена версия AnimeGO к локальной библиотеке.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось разрешить конфликт.");
+    } finally {
+      setResolvingConflict(null);
+    }
+  }
 
   useEffect(() => {
     if (!onSyncAnimeGo || !statuses.animego?.connected) return;
@@ -406,6 +435,28 @@ export function StreamingAccountManagerPanel({
                   </button>
                 </div>
                 {provider.id === "animego" && syncMessage && <small role="status">{syncMessage}</small>}
+                {provider.id === "animego" && syncConflicts.length > 0 && (
+                  <div className="animego-sync-conflicts" aria-live="polite">
+                    <h4>Конфликты синхронизации ({syncConflicts.length})</h4>
+                    {syncConflicts.map((conflict) => (
+                      <div className="animego-sync-conflict" key={conflict.id}>
+                        <strong>{conflict.title}</strong>
+                        <small>
+                          {conflict.field === "status" ? "Статус" : conflict.field === "progress" ? "Прогресс" : "Оценка"}:
+                          {" "}локально: {String(conflict.localValue ?? "нет")}; AnimeGO: {String(conflict.remoteValue ?? "нет")}
+                        </small>
+                        <div className="native-account-actions">
+                          <button className="secondary-button" type="button" onClick={() => void resolveConflict(conflict.id, "local")} disabled={resolvingConflict !== null}>
+                            {resolvingConflict === conflict.id ? "Сохраняем..." : "Оставить локальную"}
+                          </button>
+                          <button className="secondary-button" type="button" onClick={() => void resolveConflict(conflict.id, "remote")} disabled={resolvingConflict !== null}>
+                            {resolvingConflict === conflict.id ? "Сохраняем..." : "Принять AnimeGO"}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {provider.id === "animego" && runtime.platform === "windows-native" && (
                   <small>Автосинхронизация выполняется при открытом приложении: каждые 5 минут, при возвращении в окно и после восстановления сети. Очередь локальных изменений сохраняется офлайн.</small>
                 )}
