@@ -84,7 +84,10 @@ export async function resolveAnimeGoConflict(
     await tx.done;
     throw new Error("Не найдено базовое состояние синхронизации. Повтори получение списка AnimeGO.");
   }
-  const value = choice === "local" ? conflict.localValue : conflict.remoteValue;
+  // When keeping the local value, leave the baseline at the remote value.
+  // This makes the local side remain a pending outbound change until the
+  // verified write runner advances the baseline after AnimeGO confirms it.
+  const value = conflict.remoteValue;
   const updated = { ...baseline, [conflict.field]: value, updatedAt: new Date().toISOString() };
   await Promise.all([
     tx.objectStore("baselines").put(updated),
