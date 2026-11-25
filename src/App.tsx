@@ -2795,6 +2795,33 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                 runtimeRefreshing={runtimeRefreshing}
                 runtimeRefreshError={runtimeRefreshError}
                 onImportAnimeGoList={async (payload) => { await importAnimeGoAccountLists(payload); }}
+                onGetAnimeGoConflicts={listAnimeGoConflicts}
+                onResolveAnimeGoConflict={async (conflictId, choice) => {
+                  const conflict = await resolveAnimeGoConflict(conflictId, choice);
+                  if (!repository) throw new Error("Локальная библиотека ещё не готова.");
+                  const sourceEntries = await repository.getSourceEntries(conflict.animeId);
+                  const sourceEntry = sourceEntries.find((entry) => entry.source === "animego");
+                  if (!sourceEntry) throw new Error("Запись AnimeGO не найдена в локальной библиотеке.");
+                  if (choice === "remote") {
+                    if (conflict.field === "status") sourceEntry.status = conflict.remoteValue as AnimeStatus;
+                    else if (conflict.field === "progress") sourceEntry.progress = Number(conflict.remoteValue);
+                    else sourceEntry.score = conflict.remoteValue == null ? null : Number(conflict.remoteValue);
+                    sourceEntry.updatedAt = new Date().toISOString();
+                    await repository.saveSourceEntry(sourceEntry);
+                  } else {
+                    if (!conflict.titleUrl) throw new Error("Не удалось определить ссылку тайтла AnimeGO для отправки локальной версии.");
+                    if (conflict.field === "status") {
+                      await animeGoProviderWriteQueue.enqueue({ provider: "animego", kind: "status", externalId: conflict.externalId, titleUrl: conflict.titleUrl, payload: { status: conflict.localValue as AnimeStatus } });
+                    } else if (conflict.field === "progress") {
+                      await animeGoProviderWriteQueue.enqueue({ provider: "animego", kind: "progress", externalId: conflict.externalId, titleUrl: conflict.titleUrl, payload: { progress: Number(conflict.localValue) } });
+                    } else if (typeof conflict.localValue === "number" && conflict.localValue > 0) {
+                      await animeGoProviderWriteQueue.enqueue({ provider: "animego", kind: "rating", externalId: conflict.externalId, titleUrl: conflict.titleUrl, payload: { rating: Math.max(1, Math.min(10, Math.round(conflict.localValue / 10))) } });
+                    }
+                    await animeGoQueueRunnerRef.current?.wake();
+                  }
+                  await refreshLibrary();
+                  return listAnimeGoConflicts();
+                }}
                 onSyncAnimeGo={async () => {
                   const accounts = activeStreamingRuntime?.accounts;
                   if (!accounts?.fetchList) throw new Error("Нативное подключение AnimeGO недоступно.");
