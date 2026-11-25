@@ -1,5 +1,5 @@
 import "fake-indexeddb/auto";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DurableProviderWriteQueue, ProviderWriteQueueRunner } from "../src/services/durable-provider-write-queue.js";
 
 const sample = {
@@ -70,6 +70,7 @@ describe("durable provider write queue", () => {
   });
 
   it("serializes overlapping runner wakeups into one queue execution", async () => {
+    vi.stubGlobal("navigator", { onLine: true });
     const queue = new DurableProviderWriteQueue();
     await queue.enqueue(sample);
     let executions = 0;
@@ -90,6 +91,7 @@ describe("durable provider write queue", () => {
     expect(executions).toBe(1);
     expect(await queue.list()).toHaveLength(0);
     runner.stop();
+    vi.unstubAllGlobals();
   });
 
   it("allows explicitly retrying terminal failures", async () => {
