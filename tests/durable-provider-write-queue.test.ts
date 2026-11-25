@@ -40,6 +40,14 @@ describe("durable provider write queue", () => {
     expect(jobs[0]?.id).not.toBe(first.id);
   });
 
+  it("a queued delete supersedes older pending writes for the same AnimeGO title", async () => {
+    const queue = new DurableProviderWriteQueue();
+    await queue.enqueue({ ...sample, kind: "rating", payload: { rating: 8 } });
+    await queue.enqueue({ ...sample, kind: "status", payload: { status: "WATCHING" } });
+    const deletion = await queue.enqueue({ ...sample, kind: "delete", payload: {} });
+    expect(await queue.list()).toEqual([expect.objectContaining({ id: deletion.id, kind: "delete" })]);
+  });
+
   it("removes a job after successful execution", async () => {
     const queue = new DurableProviderWriteQueue();
     await queue.enqueue(sample);
