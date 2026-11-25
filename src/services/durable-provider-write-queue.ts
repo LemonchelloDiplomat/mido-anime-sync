@@ -128,6 +128,7 @@ export class DurableProviderWriteQueue {
     const now = new Date().toISOString();
     for (const job of jobs) {
       job.state = "pending";
+      job.attempts = 0;
       job.nextAttemptAt = Date.now();
       job.updatedAt = now;
       job.lastError = null;
