@@ -138,6 +138,37 @@ describe("streaming account manager", () => {
     expect(inspectedUrl).toBe(expected.titleUrl);
   });
 
+  it("writes an AnimeGO rating only through a connected adapter and returns verification state", async () => {
+    const manager = new StreamingAccountManager(new StreamingAccountSessionVault(createStore()));
+    const expected = {
+      provider: "animego" as const,
+      titleUrl: "https://animego.me/anime/example-123",
+      rating: 9,
+      httpStatus: 200,
+      submitted: true,
+      verified: true,
+      verifiedRating: 9,
+      durationMs: 42,
+    };
+    let written = 0;
+    manager.register({
+      provider: "animego",
+      async connect() { return { sessionPayload: "native-session" }; },
+      async validateSession() { return true; },
+      async setRating(titleUrl, rating) {
+        expect(titleUrl).toBe(expected.titleUrl);
+        expect(rating).toBe(9);
+        written += 1;
+        return expected;
+      },
+    });
+    await manager.connect("animego", {});
+    await expect(manager.setRating("animego", expected.titleUrl, 9)).resolves.toEqual(expected);
+    expect(written).toBe(1);
+    await expect(manager.setRating("animego", expected.titleUrl, 11)).rejects.toThrow("от 1 до 10");
+    expect(written).toBe(1);
+  });
+
   it("fetches a read-only provider list only through the registered native adapter", async () => {
     const manager = new StreamingAccountManager(new StreamingAccountSessionVault(createStore()));
     const expected = {
