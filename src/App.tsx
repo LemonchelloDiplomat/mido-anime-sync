@@ -861,7 +861,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
     await importStreamingAccountSnapshot(snapshot, "animego");
     const progressCount = uniqueRows.filter((row) => row.entry.sourceMetadata?.progressKnown === true).length;
     const scoreCount = uniqueRows.filter((row) => row.entry.sourceMetadata?.scoreKnown === true).length;
-    window.alert(
+    if (!options.silent) window.alert(
       "Импорт AnimeGO завершён. Добавлено или обновлено записей: " +
       uniqueRows.length + ". Пропущено некорректных или повторных строк: " + skipped +
       ". Прогресс эпизодов получен для " + progressCount + " записей, личные оценки для " + scoreCount +
