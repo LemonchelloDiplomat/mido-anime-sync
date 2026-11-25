@@ -123,6 +123,7 @@ describe("streaming account manager", () => {
       scriptsInspected: 2,
       scriptsSkipped: 1,
       scriptRouteCandidates: [{ path: "/mylist/anime/", methods: ["POST"], capabilities: ["list-membership"], fieldHints: ["token"], signals: ["fetch"] }],
+      accountLists: [],
       note: "read-only",
     };
     let inspectedUrl = "";
