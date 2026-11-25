@@ -101,3 +101,73 @@ export function sameAnimeGoValue(field: AnimeGoSyncField, left: unknown, right: 
   }
   return left === right;
 }
+
+export interface AnimeGoReconcileResult {
+  values: AnimeGoSyncValues;
+  outbound: AnimeGoSyncField[];
+  conflicts: AnimeGoSyncConflict[];
+  baseline: AnimeGoSyncBaseline;
+}
+
+export async function reconcileAnimeGoEntry(input: {
+  externalId: string;
+  animeId: string;
+  title: string;
+  titleUrl: string;
+  local: AnimeGoSyncValues | null;
+  remote: AnimeGoSyncValues;
+  updatedAt: string;
+}): Promise<AnimeGoReconcileResult> {
+  const previous = await getAnimeGoBaseline(input.externalId);
+  const values: AnimeGoSyncValues = { ...input.remote };
+  const outbound: AnimeGoSyncField[] = [];
+  const conflicts: AnimeGoSyncConflict[] = [];
+  const now = new Date().toISOString();
+
+  if (!previous || !input.local) {
+    const baseline = { externalId: input.externalId, ...input.remote, updatedAt: input.updatedAt || now };
+    await saveAnimeGoBaseline(baseline);
+    return { values, outbound, conflicts, baseline };
+  }
+
+  const baseline = { ...previous };
+  for (const field of ["status", "progress", "score"] as const) {
+    const localValue = input.local[field];
+    const remoteValue = input.remote[field];
+    const baseValue = previous[field];
+    const localChanged = !sameAnimeGoValue(field, localValue, baseValue);
+    const remoteChanged = !sameAnimeGoValue(field, remoteValue, baseValue);
+
+    if (localChanged && remoteChanged && !sameAnimeGoValue(field, localValue, remoteValue)) {
+      const conflict: AnimeGoSyncConflict = {
+        id: input.externalId + ":" + field,
+        externalId: input.externalId,
+        animeId: input.animeId,
+        title: input.title,
+        titleUrl: input.titleUrl,
+        field,
+        baselineValue: baseValue,
+        localValue,
+        remoteValue,
+        detectedAt: now,
+      };
+      conflicts.push(conflict);
+      values[field] = localValue as never;
+      await saveAnimeGoConflict(conflict);
+      continue;
+    }
+
+    if (localChanged && !remoteChanged) {
+      values[field] = localValue as never;
+      outbound.push(field);
+      continue;
+    }
+
+    baseline[field] = remoteValue as never;
+    values[field] = remoteValue as never;
+  }
+
+  baseline.updatedAt = input.updatedAt || now;
+  await saveAnimeGoBaseline(baseline);
+  return { values, outbound, conflicts, baseline };
+}
