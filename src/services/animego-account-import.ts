@@ -132,10 +132,12 @@ export function normalizeAnimeGoAccountList(
     const episodesTotal = typeof raw.episodesTotal === "number" &&
       Number.isSafeInteger(raw.episodesTotal) && raw.episodesTotal >= 0
       ? raw.episodesTotal : null;
+    const titleUrl = typeof raw.href === "string" ? (() => { try { const url = new URL(raw.href); return url.protocol === "https:" && url.hostname === "animego.me" && /^\/anime\/[^/]+-\d+\/?$/.test(url.pathname) ? url.href : null; } catch { return null; } })() : null;
     const anime: AnimeIdentity = {
       id: "animego:" + animeId,
       titles: { romaji: title, synonyms: originalTitle && originalTitle !== title ? [originalTitle] : [] },
       externalIds: { animego: animeId },
+      ...(titleUrl ? { providerMetadata: { animego: { titleUrl } } } : {}),
       ...(episodesTotal !== null ? { episodes: episodesTotal } : {}),
       posterUrl,
     };
