@@ -102,7 +102,10 @@ export class DurableProviderWriteQueue {
     const tx = db.transaction(STORE_NAME, "readwrite");
     const pending = await tx.store.index("by-state").getAll("pending");
     for (const previous of pending) {
-      if (previous.provider === job.provider && previous.externalId === job.externalId && previous.kind === job.kind) {
+      if (previous.provider === job.provider && previous.externalId === job.externalId &&
+          (previous.kind === job.kind || job.kind === "delete")) {
+        // A confirmed local delete supersedes every pending write for the same
+        // remote title. Never replay progress/status/rating after deletion.
         await tx.store.delete(previous.id);
       }
     }
