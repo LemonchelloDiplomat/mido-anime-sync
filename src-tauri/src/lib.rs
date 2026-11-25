@@ -15,6 +15,7 @@ pub fn run() {
             commands::animego_auth_disconnect,
             commands::animego_account_list_fetch,
             commands::animego_account_write_inspect,
+            commands::animego_account_rating_write,
             commands::animego_network_inspect
         ])
         .run(tauri::generate_context!())
