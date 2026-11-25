@@ -16,7 +16,7 @@ const PROVIDERS: ProviderCard[] = [
     id: "animego",
     name: "AnimeGO",
     description: "Аккаунт и личный список просмотра",
-    limitation: "Вход через встроенное окно Windows. Личный список читается через защищённую нативную сессию. Запись оценки поддерживается с проверкой результата и офлайн-очередью; статус, прогресс и удаление пока не записываются.",
+    limitation: "Вход через встроенное окно Windows. Список читается через защищённую нативную сессию. Доступны автоматический импорт и очередь отправки оценок, статусов, прогресса и локальных удалений. Разрешение конфликтов изменений пока не реализовано.",
   },
   {
     id: "anixart",
@@ -428,7 +428,7 @@ export function StreamingAccountManagerPanel({
       {listPreview && (
         <div className="native-account-list-preview">
           <h3>Личный список AnimeGO получен</h3>
-          <p>Найдено записей: <strong>{listPreview.total}</strong>. Проверь результат перед импортом. Удаления из локальной библиотеки не выполняются.</p>
+          <p>Найдено записей: <strong>{listPreview.total}</strong>. Это снимок личного списка для проверки и ручного импорта.</p>
           <div className="native-account-list-counts">
             {listPreview.lists.map((list) => (
               <span key={list.listType}>Тип {list.listType}: {list.itemCount}</span>
