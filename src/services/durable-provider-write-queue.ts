@@ -39,6 +39,9 @@ const STORE_NAME = "jobs";
 const MAX_ATTEMPTS = 12;
 const BASE_RETRY_MS = 5_000;
 const MAX_RETRY_MS = 6 * 60 * 60 * 1000;
+// A second app window must not steal work from a tab that is still executing it.
+// A two-minute lease recovers jobs left behind by a crash or forced shutdown.
+const PROCESSING_LEASE_MS = 2 * 60 * 1000;
 let databasePromise: Promise<IDBPDatabase<QueueSchema>> | null = null;
 
 function database(): Promise<IDBPDatabase<QueueSchema>> {
@@ -138,20 +141,24 @@ export class DurableProviderWriteQueue {
     return jobs.length;
   }
 
-  async recoverInterrupted(): Promise<number> {
+  async recoverInterrupted(nowMs = Date.now()): Promise<number> {
     const db = await database();
     const tx = db.transaction(STORE_NAME, "readwrite");
     const jobs = await tx.store.index("by-state").getAll("processing");
-    const now = new Date().toISOString();
-    for (const job of jobs) {
+    const now = new Date(nowMs).toISOString();
+    const stale = jobs.filter(job => {
+      const processingSince = Date.parse(job.updatedAt);
+      return !Number.isFinite(processingSince) || nowMs - processingSince >= PROCESSING_LEASE_MS;
+    });
+    for (const job of stale) {
       job.state = "pending";
-      job.nextAttemptAt = Date.now();
+      job.nextAttemptAt = nowMs;
       job.updatedAt = now;
       job.lastError = "Recovered after application restart; remote state must be checked before replay.";
       await tx.store.put(job);
     }
     await tx.done;
-    return jobs.length;
+    return stale.length;
   }
 
   async process(
