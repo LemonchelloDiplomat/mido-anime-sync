@@ -91,7 +91,18 @@ export class DurableProviderWriteQueue {
       ...structuredClone(input), id: crypto.randomUUID(), state: "pending", attempts: 0,
       createdAt: now, updatedAt: now, nextAttemptAt: Date.now(), lastError: null,
     };
-    await (await database()).put(STORE_NAME, job);
+    const db = await database();
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const pending = await tx.store.index("by-state").getAll("pending");
+    // Keep only the newest pending intent for the same title and operation.
+    // In-flight work is left untouched and will be reconciled before retry.
+    for (const previous of pending) {
+      if (previous.provider === job.provider && previous.externalId === job.externalId && previous.kind === job.kind) {
+        await tx.store.delete(previous.id);
+      }
+    }
+    await tx.store.put(job);
+    await tx.done;
     return job;
   }
 
