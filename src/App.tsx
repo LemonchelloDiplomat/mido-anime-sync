@@ -36,6 +36,7 @@ import { initializeStreamingRuntimeFromHost } from "./services/platform/runtime-
 import { reconcileStreamingAccountSnapshot } from "./services/streaming-account-import.js";
 import { mergeAnimeGoTitleMetadata, normalizeAnimeGoAccountList, normalizeAnimeGoFetchedAt, type AnimeGoAccountListPayload } from "./services/animego-account-import.js";
 import { AnimeGoCatalogProvider } from "./services/animego.js";
+import { animeGoProviderWriteQueue, ProviderWriteQueueRunner } from "./services/durable-provider-write-queue.js";
 import { parseAnixartBookmarkExport } from "./services/anixart-export-import.js";
 import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
 import { suggestTrackerMatches, type TrackerMatchSuggestion } from "./services/streaming-tracker-sync.js";
@@ -158,6 +159,25 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
   const [activeStreamingRuntime, setActiveStreamingRuntime] = useState(streamingRuntime);
   const [runtimeRefreshing, setRuntimeRefreshing] = useState(false);
   const [runtimeRefreshError, setRuntimeRefreshError] = useState("");
+  const animeGoQueueRunnerRef = useRef<ProviderWriteQueueRunner | null>(null);
+
+  useEffect(() => {
+    const accounts = activeStreamingRuntime?.accounts;
+    if (!accounts?.setRating) return;
+    const runner = new ProviderWriteQueueRunner(animeGoProviderWriteQueue, async (job) => {
+      if (job.kind !== "rating" || typeof job.payload.rating !== "number") {
+        throw new Error("This AnimeGO write operation is not enabled yet.");
+      }
+      const result = await accounts.setRating("animego", job.titleUrl, job.payload.rating);
+      if (!result.verified) throw new Error("AnimeGO has not confirmed the saved rating yet.");
+    });
+    animeGoQueueRunnerRef.current = runner;
+    void runner.start();
+    return () => {
+      runner.stop();
+      if (animeGoQueueRunnerRef.current === runner) animeGoQueueRunnerRef.current = null;
+    };
+  }, [activeStreamingRuntime]);
 
   async function retryStreamingRuntime() {
     if (runtimeRefreshing || activeStreamingRuntime) return;
@@ -2156,19 +2176,40 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       await repository.saveAnime(anime);
       await repository.saveEntry(entry);
 
-      // Persist the local edit first. A provider outage must never roll back the library.
-      const animeGoTitleUrl = (anime.providerMetadata?.animego?.titleUrl);
+      // Persist the local edit first, then durably enqueue the remote rating.
+      // Offline/expired sessions never roll back the local library.
+      const animeGoTitleUrl = anime.providerMetadata?.animego?.titleUrl;
+      const animeGoExternalId = anime.externalIds.animego;
       const previousScore = previous?.entry?.score ?? null;
-      if (anime.externalIds.animego && typeof animeGoTitleUrl === "string" && score !== previousScore && score !== null) {
+      if (animeGoExternalId && typeof animeGoTitleUrl === "string" && score !== previousScore && score !== null) {
         const animeGoRating = Math.round(score / 10);
-        if (animeGoRating >= 1 && animeGoRating <= 10 && activeStreamingRuntime?.accounts?.setRating) {
+        if (animeGoRating >= 1 && animeGoRating <= 10) {
           try {
-            const result = await activeStreamingRuntime.accounts.setRating("animego", animeGoTitleUrl, animeGoRating);
-            if (!result.verified) setError("Локальная оценка сохранена, но AnimeGO не подтвердил запись. Повтори синхронизацию после проверки аккаунта.");
-          } catch (writeError) {
-            setError("Локальная оценка сохранена. Не удалось отправить её в AnimeGO: " + (writeError instanceof Error ? writeError.message : "ошибка соединения"));
+            await animeGoProviderWriteQueue.enqueue({
+              provider: "animego",
+              kind: "rating",
+              externalId: animeGoExternalId,
+              titleUrl: animeGoTitleUrl,
+              payload: { rating: animeGoRating },
+            });
+            if (activeStreamingRuntime?.accounts?.setRating) {
+              const result = await animeGoProviderWriteQueue.process(async (job) => {
+                if (job.kind !== "rating" || typeof job.payload.rating !== "number") {
+                  throw new Error("Unsupported AnimeGO write operation.");
+                }
+                const write = await activeStreamingRuntime.accounts.setRating!("animego", job.titleUrl, job.payload.rating);
+                if (!write.verified) throw new Error("AnimeGO has not confirmed the saved rating yet.");
+              });
+              if (result.failed > 0 || result.deferred > 0) {
+                setError("Локальная оценка сохранена. Запись в AnimeGO поставлена в очередь и будет повторена автоматически.");
+              }
+            } else {
+              setError("Локальная оценка сохранена. Запись в AnimeGO сохранена в очереди до подключения аккаунта.");
+            }
+          } catch {
+            setError("Локальная оценка сохранена, но не удалось поставить запись AnimeGO в очередь.");
           }
-        } else if (animeGoRating < 1 || animeGoRating > 10) {
+        } else {
           setError("Локальная оценка сохранена, но AnimeGO принимает оценки только от 1 до 10. Значение не отправлено.");
         }
       }
