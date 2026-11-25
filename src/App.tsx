@@ -2740,10 +2740,36 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                   const accounts = activeStreamingRuntime?.accounts;
                   if (!accounts?.fetchList) throw new Error("Нативное подключение AnimeGO недоступно.");
                   const payload = await accounts.fetchList("animego") as AnimeGoAccountListResponse;
+                  const currentItems = repository ? await repository.getAll() : [];
+                  const remoteIds = new Set(payload.items.map((item) => item.animeId).filter((id): id is string => Boolean(id)));
+                  const countsMatch = payload.lists.every((list) =>
+                    payload.items.filter((item) => item.listType === list.listType).length === list.itemCount
+                  );
+                  const allListsPresent = [1, 2, 3, 4, 5, 6].every((type) =>
+                    payload.lists.some((list) => list.listType === type)
+                  );
+                  const completeSnapshot = payload.total === payload.items.length && countsMatch && allListsPresent;
+                  const missingAnimeGoEntries: string[] = [];
+                  if (completeSnapshot && repository) {
+                    for (const item of currentItems) {
+                      const externalId = item.anime.externalIds.animego;
+                      if (!externalId || remoteIds.has(externalId)) continue;
+                      const sourceEntries = await repository.getSourceEntries(item.anime.id);
+                      if (sourceEntries.some((entry) => entry.source === "animego")) {
+                        missingAnimeGoEntries.push(item.anime.id);
+                      }
+                    }
+                  }
                   const summary = await importAnimeGoAccountLists(payload, { silent: true, enrichMetadata: false });
+                  if (completeSnapshot && repository) {
+                    for (const animeId of missingAnimeGoEntries) {
+                      await repository.deleteSourceEntry(animeId, "animego");
+                    }
+                    if (missingAnimeGoEntries.length) await refreshLibrary();
+                  }
                   await animeGoQueueRunnerRef.current?.wake();
                   const queued = (await animeGoProviderWriteQueue.list()).filter((job) => job.state === "pending" || job.state === "processing").length;
-                  return { imported: summary.imported, queued };
+                  return { imported: summary.imported, queued, deleted: missingAnimeGoEntries.length };
                 }}
               />
               <StreamingTrackerPanel
