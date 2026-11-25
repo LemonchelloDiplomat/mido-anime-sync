@@ -124,6 +124,33 @@ export async function reconcileAnimeGoEntry(input: {
   const conflicts: AnimeGoSyncConflict[] = [];
   const now = new Date().toISOString();
 
+  if (!previous && input.local) {
+    const baseline: AnimeGoSyncBaseline = {
+      externalId: input.externalId,
+      ...input.remote,
+      updatedAt: input.updatedAt || now,
+    };
+    for (const field of ["status", "progress", "score"] as const) {
+      if (sameAnimeGoValue(field, input.local[field], input.remote[field])) continue;
+      conflicts.push({
+        id: input.externalId + ":" + field,
+        externalId: input.externalId,
+        animeId: input.animeId,
+        title: input.title,
+        titleUrl: input.titleUrl,
+        field,
+        baselineValue: undefined,
+        localValue: input.local[field],
+        remoteValue: input.remote[field],
+        detectedAt: now,
+      });
+      values[field] = input.local[field] as never;
+      await saveAnimeGoConflict(conflicts[conflicts.length - 1]!);
+    }
+    await saveAnimeGoBaseline(baseline);
+    return { values, outbound, conflicts, baseline };
+  }
+
   if (!previous || !input.local) {
     const baseline = { externalId: input.externalId, ...input.remote, updatedAt: input.updatedAt || now };
     await saveAnimeGoBaseline(baseline);
