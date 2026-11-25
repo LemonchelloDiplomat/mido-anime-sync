@@ -192,7 +192,8 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       throw new Error("This AnimeGO write operation is unavailable in the current runtime.");
     });
     animeGoQueueRunnerRef.current = runner;
-    void runner.start();
+    // Do not flush pending local writes until the first remote snapshot has
+    // been reconciled against the persisted baseline. The sync callback starts it.
     return () => {
       runner.stop();
       if (animeGoQueueRunnerRef.current === runner) animeGoQueueRunnerRef.current = null;
@@ -2856,6 +2857,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                     }
                     if (missingAnimeGoEntries.length) await refreshLibrary();
                   }
+                  await animeGoQueueRunnerRef.current?.start();
                   await animeGoQueueRunnerRef.current?.wake();
                   const queued = (await animeGoProviderWriteQueue.list()).filter((job) => job.state === "pending" || job.state === "processing").length;
                   const conflicts = (await listAnimeGoConflicts()).length;
