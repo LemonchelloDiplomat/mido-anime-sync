@@ -66,6 +66,22 @@ describe("AnimeGO account-list import", () => {
   });
 
 
+  it("retains a validated AnimeGO title URL for authenticated write operations", () => {
+    const valid = normalizeAnimeGoAccountList({
+      listType: 1,
+      sourceUrl: "https://animego.me/profile/test?type=1",
+      entries: [{ animeId: "321", title: "Example", href: "https://animego.me/anime/example-title-321" }],
+    });
+    expect(valid.rows[0]?.anime.providerMetadata?.animego).toEqual({ titleUrl: "https://animego.me/anime/example-title-321" });
+
+    const invalid = normalizeAnimeGoAccountList({
+      listType: 1,
+      sourceUrl: "https://animego.me/profile/test?type=1",
+      entries: [{ animeId: "322", title: "Unsafe", href: "https://evil.example/anime/unsafe-322" }],
+    });
+    expect(invalid.rows[0]?.anime.providerMetadata?.animego).toBeUndefined();
+  });
+
   it("imports episode progress only when AnimeGO explicitly provides it", () => {
     const result = normalizeAnimeGoAccountList({
       listType: 1,
