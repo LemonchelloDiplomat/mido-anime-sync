@@ -1,0 +1,103 @@
+import { openDB, type IDBPDatabase } from "idb";
+import type { AnimeStatus } from "../core/types.js";
+
+export type AnimeGoSyncField = "status" | "progress" | "score";
+export type AnimeGoConflictChoice = "local" | "remote";
+
+export interface AnimeGoSyncValues {
+  status: AnimeStatus;
+  progress: number;
+  score: number | null;
+}
+
+export interface AnimeGoSyncBaseline extends AnimeGoSyncValues {
+  externalId: string;
+  updatedAt: string;
+}
+
+export interface AnimeGoSyncConflict {
+  id: string;
+  externalId: string;
+  animeId: string;
+  title: string;
+  titleUrl: string;
+  field: AnimeGoSyncField;
+  baselineValue: unknown;
+  localValue: unknown;
+  remoteValue: unknown;
+  detectedAt: string;
+}
+
+interface StateSchema {
+  baselines: { key: string; value: AnimeGoSyncBaseline };
+  conflicts: { key: string; value: AnimeGoSyncConflict };
+}
+
+const DB_NAME = "mido-anime-sync-animego-state";
+const DB_VERSION = 1;
+let dbPromise: Promise<IDBPDatabase<StateSchema>> | null = null;
+
+function database(): Promise<IDBPDatabase<StateSchema>> {
+  if (!dbPromise) {
+    dbPromise = openDB<StateSchema>(DB_NAME, DB_VERSION, {
+      upgrade(db) {
+        if (!db.objectStoreNames.contains("baselines")) db.createObjectStore("baselines", { keyPath: "externalId" });
+        if (!db.objectStoreNames.contains("conflicts")) db.createObjectStore("conflicts", { keyPath: "id" });
+      },
+      blocked() { dbPromise = null; },
+      terminated() { dbPromise = null; },
+    });
+  }
+  return dbPromise;
+}
+
+export async function getAnimeGoBaseline(externalId: string): Promise<AnimeGoSyncBaseline | undefined> {
+  const value = await (await database()).get("baselines", externalId);
+  return value ? structuredClone(value) : undefined;
+}
+
+export async function saveAnimeGoBaseline(value: AnimeGoSyncBaseline): Promise<void> {
+  await (await database()).put("baselines", structuredClone(value));
+}
+
+export async function listAnimeGoConflicts(): Promise<AnimeGoSyncConflict[]> {
+  return (await database()).getAll("conflicts");
+}
+
+export async function saveAnimeGoConflict(value: AnimeGoSyncConflict): Promise<void> {
+  await (await database()).put("conflicts", structuredClone(value));
+}
+
+export async function resolveAnimeGoConflict(
+  conflictId: string,
+  choice: AnimeGoConflictChoice,
+): Promise<AnimeGoSyncConflict> {
+  const db = await database();
+  const tx = db.transaction(["conflicts", "baselines"], "readwrite");
+  const conflict = await tx.objectStore("conflicts").get(conflictId);
+  if (!conflict) {
+    await tx.done;
+    throw new Error("Конфликт AnimeGO уже разрешён или больше не существует.");
+  }
+  const baseline = await tx.objectStore("baselines").get(conflict.externalId);
+  if (!baseline) {
+    await tx.done;
+    throw new Error("Не найдено базовое состояние синхронизации. Повтори получение списка AnimeGO.");
+  }
+  const value = choice === "local" ? conflict.localValue : conflict.remoteValue;
+  const updated = { ...baseline, [conflict.field]: value, updatedAt: new Date().toISOString() };
+  await Promise.all([
+    tx.objectStore("baselines").put(updated),
+    tx.objectStore("conflicts").delete(conflictId),
+  ]);
+  await tx.done;
+  return structuredClone(conflict);
+}
+
+export function sameAnimeGoValue(field: AnimeGoSyncField, left: unknown, right: unknown): boolean {
+  if (field === "score") {
+    const normalize = (value: unknown) => value == null || value === 0 ? null : Math.max(10, Math.min(100, Math.round(Number(value) / 10) * 10));
+    return normalize(left) === normalize(right);
+  }
+  return left === right;
+}
