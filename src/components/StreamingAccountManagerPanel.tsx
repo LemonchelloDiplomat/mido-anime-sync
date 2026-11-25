@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { StreamingProviderId } from "../services/streaming-provider.js";
 import type { AnimeGoNetworkInspection, AnimeGoWriteInspection, StreamingAccountStatus } from "../services/streaming-account-manager.js";
 import type { StreamingRuntime } from "../services/platform/streaming-runtime.js";
@@ -32,7 +32,7 @@ interface Props {
   runtimeRefreshing?: boolean;
   runtimeRefreshError?: string;
   onImportAnimeGoList?: (result: AnimeGoAccountListResponse) => Promise<void>;
-  onSyncAnimeGo?: () => Promise<{ imported: number; queued: number; conflicts: number }>;
+  onSyncAnimeGo?: () => Promise<{ imported: number; queued: number; conflicts?: number }>;
 }
 
 export function StreamingAccountManagerPanel({
@@ -50,6 +50,7 @@ export function StreamingAccountManagerPanel({
   const [listLoading, setListLoading] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncMessage, setSyncMessage] = useState("");
+  const syncCallbackRef = useRef(onSyncAnimeGo);
   const [listImporting, setListImporting] = useState(false);
   const [listImportMessage, setListImportMessage] = useState("");
   const [authWindowOpened, setAuthWindowOpened] = useState(false);
@@ -210,7 +211,7 @@ export function StreamingAccountManagerPanel({
     try {
       const result = await onSyncAnimeGo();
       setSyncMessage(
-        `Синхронизация завершена. Получено/обновлено: ${result.imported}. В очереди отправки: ${result.queued}. Конфликтов: ${result.conflicts}.`,
+        `Синхронизация завершена. Получено/обновлено: ${result.imported}. В очереди отправки: ${result.queued}. Конфликты: ${result.conflicts === undefined ? "пока не проверяются" : result.conflicts}.`,
       );
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Не удалось синхронизировать AnimeGO.");
@@ -219,13 +220,15 @@ export function StreamingAccountManagerPanel({
     }
   }
 
+  useEffect(() => { syncCallbackRef.current = onSyncAnimeGo; }, [onSyncAnimeGo]);
+
   useEffect(() => {
     if (!onSyncAnimeGo || !statuses.animego?.connected) return;
     let disposed = false;
     let timer: ReturnType<typeof setInterval> | null = null;
     const run = () => {
       if (disposed || document.visibilityState !== "visible" || !navigator.onLine) return;
-      void onSyncAnimeGo().catch(() => undefined);
+      void syncCallbackRef.current?.().catch(() => undefined);
     };
     timer = setInterval(run, 5 * 60 * 1000);
     window.addEventListener("online", run);
@@ -236,7 +239,7 @@ export function StreamingAccountManagerPanel({
       window.removeEventListener("online", run);
       document.removeEventListener("visibilitychange", run);
     };
-  }, [onSyncAnimeGo, statuses.animego?.connected]);
+  }, [Boolean(onSyncAnimeGo), statuses.animego?.connected]);
 
   async function importAnimeGoList() {
     if (!listPreview || !onImportAnimeGoList) return;
