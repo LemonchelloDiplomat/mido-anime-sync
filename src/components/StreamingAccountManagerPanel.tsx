@@ -262,7 +262,12 @@ export function StreamingAccountManagerPanel({
       if (disposed || document.visibilityState !== "visible" || !navigator.onLine) return;
       if (syncInFlightRef.current) return;
       syncInFlightRef.current = true;
-      void syncCallbackRef.current?.().catch(() => undefined).finally(() => { syncInFlightRef.current = false; });
+      void syncCallbackRef.current?.()
+        .then(async () => {
+          if (onGetAnimeGoConflicts) setSyncConflicts(await onGetAnimeGoConflicts());
+        })
+        .catch(() => undefined)
+        .finally(() => { syncInFlightRef.current = false; });
     };
     timer = setInterval(run, 5 * 60 * 1000);
     window.addEventListener("online", run);
@@ -274,7 +279,7 @@ export function StreamingAccountManagerPanel({
       window.removeEventListener("online", run);
       document.removeEventListener("visibilitychange", run);
     };
-  }, [Boolean(onSyncAnimeGo), statuses.animego?.connected]);
+  }, [Boolean(onSyncAnimeGo), statuses.animego?.connected, onGetAnimeGoConflicts]);
 
   async function importAnimeGoList() {
     if (!listPreview || !onImportAnimeGoList) return;
