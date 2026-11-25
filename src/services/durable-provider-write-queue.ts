@@ -200,6 +200,7 @@ export class DurableProviderWriteQueue {
 export class ProviderWriteQueueRunner {
   private running = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private wakePromise: Promise<void> | null = null;
   private readonly onOnline = () => { void this.wake(); };
   private readonly onVisible = () => {
     if (typeof document !== "undefined" && document.visibilityState === "visible") void this.wake();
@@ -229,6 +230,17 @@ export class ProviderWriteQueueRunner {
 
   async wake(): Promise<void> {
     if (!this.running || (typeof navigator !== "undefined" && !navigator.onLine)) return;
+    if (this.wakePromise) return this.wakePromise;
+
+    this.wakePromise = this.processAndSchedule();
+    try {
+      await this.wakePromise;
+    } finally {
+      this.wakePromise = null;
+    }
+  }
+
+  private async processAndSchedule(): Promise<void> {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     await this.queue.process(this.execute);
