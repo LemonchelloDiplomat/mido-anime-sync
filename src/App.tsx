@@ -2193,16 +2193,16 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
               titleUrl: animeGoTitleUrl,
               payload: { rating: animeGoRating },
             });
-            if (activeStreamingRuntime?.accounts?.setRating) {
-              const result = await animeGoProviderWriteQueue.process(async (job) => {
-                if (job.kind !== "rating" || typeof job.payload.rating !== "number") {
-                  throw new Error("Unsupported AnimeGO write operation.");
-                }
-                const write = await activeStreamingRuntime.accounts.setRating!("animego", job.titleUrl, job.payload.rating);
-                if (!write.verified) throw new Error("AnimeGO has not confirmed the saved rating yet.");
-              });
-              if (result.failed > 0 || result.deferred > 0) {
-                setError("Локальная оценка сохранена. Запись в AnimeGO поставлена в очередь и будет повторена автоматически.");
+            if (activeStreamingRuntime?.accounts?.setRating && animeGoQueueRunnerRef.current) {
+              // Route foreground writes through the same single-flight runner as
+              // online/retry wakeups. This prevents concurrent queue processors
+              // from racing one another and keeps one retry policy for all writes.
+              await animeGoQueueRunnerRef.current.wake();
+              const queued = (await animeGoProviderWriteQueue.list()).some((job) =>
+                job.provider === "animego" && job.externalId === animeGoExternalId && job.kind === "rating"
+              );
+              if (queued) {
+                setError("Локальная оценка сохранена. AnimeGO пока не подтвердил запись, она останется в очереди и будет повторена автоматически.");
               }
             } else {
               setError("Локальная оценка сохранена. Запись в AnimeGO сохранена в очереди до подключения аккаунта.");
