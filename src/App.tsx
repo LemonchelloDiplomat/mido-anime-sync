@@ -2156,6 +2156,23 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       await repository.saveAnime(anime);
       await repository.saveEntry(entry);
 
+      // Persist the local edit first. A provider outage must never roll back the library.
+      const animeGoTitleUrl = (anime.providerMetadata?.animego?.titleUrl);
+      const previousScore = previous?.entry?.score ?? null;
+      if (anime.externalIds.animego && typeof animeGoTitleUrl === "string" && score !== previousScore && score !== null) {
+        const animeGoRating = Math.round(score / 10);
+        if (animeGoRating >= 1 && animeGoRating <= 10 && activeStreamingRuntime?.accounts?.setRating) {
+          try {
+            const result = await activeStreamingRuntime.accounts.setRating("animego", animeGoTitleUrl, animeGoRating);
+            if (!result.verified) setError("Локальная оценка сохранена, но AnimeGO не подтвердил запись. Повтори синхронизацию после проверки аккаунта.");
+          } catch (writeError) {
+            setError("Локальная оценка сохранена. Не удалось отправить её в AnimeGO: " + (writeError instanceof Error ? writeError.message : "ошибка соединения"));
+          }
+        } else if (animeGoRating < 1 || animeGoRating > 10) {
+          setError("Локальная оценка сохранена, но AnimeGO принимает оценки только от 1 до 10. Значение не отправлено.");
+        }
+      }
+
       await refreshLibrary();
 
       setModalOpen(false);
