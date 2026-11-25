@@ -16,7 +16,7 @@ const PROVIDERS: ProviderCard[] = [
     id: "animego",
     name: "AnimeGO",
     description: "Аккаунт и личный список просмотра",
-    limitation: "Вход через встроенное окно Windows. Личный список читается через защищённую нативную сессию; запись на сайт пока не поддерживается.",
+    limitation: "Вход через встроенное окно Windows. Личный список читается через защищённую нативную сессию. Запись оценки поддерживается с проверкой результата и офлайн-очередью; статус, прогресс и удаление пока не записываются.",
   },
   {
     id: "anixart",
@@ -413,7 +413,35 @@ export function StreamingAccountManagerPanel({
                     <p key={index}>
                       {control.tag}{control.name ? ` name=${control.name}` : ""}{control.id ? ` #${control.id}` : ""}
                       <small>{control.classNames.join(" ")}{control.required ? " · обязательно" : ""}{control.hasInlineEventHandler ? " · inline JS" : ""}{control.hasDataAction ? " · data-action" : ""}</small>
+                      {control.hrefPath && <small>Ссылка действия: {control.hrefPath}</small>}
+                      {control.ajaxUrlPath && <small>AJAX-путь: {control.ajaxUrlPath}</small>}
+                      {control.controllerNames.length > 0 && <small>Контроллеры: {control.controllerNames.join(", ")}</small>}
+                      {control.actionHints.length > 0 && <small>Действия: {control.actionHints.join(" · ")}</small>}
                     </p>
+                  ))}
+                </div>
+              )}
+              {writeInspection.accountLists.length > 0 && (
+                <div>
+                  <strong>Элементы личного списка по категориям AnimeGO</strong>
+                  {writeInspection.accountLists.map((list) => (
+                    <div key={list.listType}>
+                      <p><strong>Категория {list.listType} · HTTP {list.httpStatus}</strong></p>
+                      {list.forms.map((form, index) => (
+                        <p key={index}>
+                          <strong>{form.method} {form.actionPath}</strong>
+                          <small>Поля: {form.fieldNames.join(", ") || "нет"}</small>
+                        </p>
+                      ))}
+                      {list.interactiveControls.map((control, index) => (
+                        <p key={index}>
+                          {control.tag}{control.name ? " name=" + control.name : ""}{control.id ? " #" + control.id : ""}
+                          <small>{control.hrefPath ? "Путь: " + control.hrefPath : ""}{control.ajaxUrlPath ? " · AJAX: " + control.ajaxUrlPath : ""}</small>
+                          {control.controllerNames.length > 0 && <small>Контроллеры: {control.controllerNames.join(", ")}</small>}
+                          {control.actionHints.length > 0 && <small>Действия: {control.actionHints.join(" · ")}</small>}
+                        </p>
+                      ))}
+                    </div>
                   ))}
                 </div>
               )}

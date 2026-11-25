@@ -51,3 +51,8 @@ No provider capability flags were enabled by this foundation.
 - Unit tests are authored for the platform-neutral vault contract.
 - Native secure-storage behavior is not yet implemented or tested because the repository does not yet include a selected Windows shell or Android native runtime.
 - No Anixart or AnimeGO account capability is enabled by this branch.
+
+
+## AnimeGO episode progress
+
+Episode progress uses the first-party player page and its episode-list response. The native Windows adapter reads the active visible translation ID and episode IDs from the returned HTML, then compares each episode's current watched flag with the requested contiguous progress value. The site endpoint `POST /anime/episode/watched` is a toggle, not an idempotent setter: the adapter only sends a toggle for a mismatched episode, validates the JSON result, and re-reads the episode list after all changes. If a request has an unknown transport outcome, the durable queue retries by running the same read-before-write reconciliation, so already-applied toggles are not blindly repeated. The implementation is native Windows-only; Android account session support remains deferred.

@@ -36,6 +36,7 @@ import { initializeStreamingRuntimeFromHost } from "./services/platform/runtime-
 import { reconcileStreamingAccountSnapshot } from "./services/streaming-account-import.js";
 import { mergeAnimeGoTitleMetadata, normalizeAnimeGoAccountList, normalizeAnimeGoFetchedAt, type AnimeGoAccountListPayload } from "./services/animego-account-import.js";
 import { AnimeGoCatalogProvider } from "./services/animego.js";
+import { animeGoProviderWriteQueue, ProviderWriteQueueRunner } from "./services/durable-provider-write-queue.js";
 import { parseAnixartBookmarkExport } from "./services/anixart-export-import.js";
 import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
 import { suggestTrackerMatches, type TrackerMatchSuggestion } from "./services/streaming-tracker-sync.js";
@@ -158,6 +159,41 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
   const [activeStreamingRuntime, setActiveStreamingRuntime] = useState(streamingRuntime);
   const [runtimeRefreshing, setRuntimeRefreshing] = useState(false);
   const [runtimeRefreshError, setRuntimeRefreshError] = useState("");
+  const animeGoQueueRunnerRef = useRef<ProviderWriteQueueRunner | null>(null);
+
+  useEffect(() => {
+    const accounts = activeStreamingRuntime?.accounts;
+    if (!accounts?.setRating && !accounts?.setProgress && !accounts?.setStatus && !accounts?.deleteFromList) return;
+    const runner = new ProviderWriteQueueRunner(animeGoProviderWriteQueue, async (job) => {
+      if (job.kind === "rating" && typeof job.payload.rating === "number" && accounts.setRating) {
+        const result = await accounts.setRating("animego", job.titleUrl, job.payload.rating);
+        if (!result.verified) throw new Error("AnimeGO has not confirmed the saved rating yet.");
+        return;
+      }
+      if (job.kind === "progress" && typeof job.payload.progress === "number" && accounts.setProgress) {
+        const result = await accounts.setProgress("animego", job.titleUrl, job.payload.progress);
+        if (!result.verified) throw new Error("AnimeGO has not confirmed the saved episode progress yet.");
+        return;
+      }
+      if (job.kind === "status" && job.payload.status && accounts.setStatus) {
+        const result = await accounts.setStatus("animego", job.titleUrl, job.payload.status);
+        if (!result.verified) throw new Error("AnimeGO has not confirmed the saved list status yet.");
+        return;
+      }
+      if (job.kind === "delete" && accounts.deleteFromList) {
+        const result = await accounts.deleteFromList("animego", job.titleUrl);
+        if (!result.verified) throw new Error("AnimeGO has not confirmed the list deletion yet.");
+        return;
+      }
+      throw new Error("This AnimeGO write operation is unavailable in the current runtime.");
+    });
+    animeGoQueueRunnerRef.current = runner;
+    void runner.start();
+    return () => {
+      runner.stop();
+      if (animeGoQueueRunnerRef.current === runner) animeGoQueueRunnerRef.current = null;
+    };
+  }, [activeStreamingRuntime]);
 
   async function retryStreamingRuntime() {
     if (runtimeRefreshing || activeStreamingRuntime) return;
@@ -2156,6 +2192,71 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       await repository.saveAnime(anime);
       await repository.saveEntry(entry);
 
+      // Persist the local edit first, then durably enqueue the remote rating.
+      // Offline/expired sessions never roll back the local library.
+      const animeGoTitleUrl = anime.providerMetadata?.animego?.titleUrl;
+      const animeGoExternalId = anime.externalIds.animego;
+      const previousScore = previous?.entry?.score ?? null;
+      if (animeGoExternalId && typeof animeGoTitleUrl === "string" && score !== previousScore && score !== null) {
+        const animeGoRating = Math.round(score / 10);
+        if (animeGoRating >= 1 && animeGoRating <= 10) {
+          try {
+            await animeGoProviderWriteQueue.enqueue({
+              provider: "animego",
+              kind: "rating",
+              externalId: animeGoExternalId,
+              titleUrl: animeGoTitleUrl,
+              payload: { rating: animeGoRating },
+            });
+            if (activeStreamingRuntime?.accounts?.setRating && animeGoQueueRunnerRef.current) {
+              // Route foreground writes through the same single-flight runner as
+              // online/retry wakeups. This prevents concurrent queue processors
+              // from racing one another and keeps one retry policy for all writes.
+              await animeGoQueueRunnerRef.current.wake();
+              const queued = (await animeGoProviderWriteQueue.list()).some((job) =>
+                job.provider === "animego" && job.externalId === animeGoExternalId && job.kind === "rating"
+              );
+              if (queued) {
+                setError("Локальная оценка сохранена. AnimeGO пока не подтвердил запись, она останется в очереди и будет повторена автоматически.");
+              }
+            } else {
+              setError("Локальная оценка сохранена. Запись в AnimeGO сохранена в очереди до подключения аккаунта.");
+            }
+          } catch {
+            setError("Локальная оценка сохранена, но не удалось поставить запись AnimeGO в очередь.");
+          }
+        } else {
+          setError("Локальная оценка сохранена, но AnimeGO принимает оценки только от 1 до 10. Значение не отправлено.");
+        }
+      }
+
+      const previousProgress = previous?.entry?.progress ?? 0;
+      if (animeGoExternalId && typeof animeGoTitleUrl === "string" && progress !== previousProgress &&
+          Number.isSafeInteger(progress) && progress >= 0) {
+        try {
+          await animeGoProviderWriteQueue.enqueue({
+            provider: "animego",
+            kind: "progress",
+            externalId: animeGoExternalId,
+            titleUrl: animeGoTitleUrl,
+            payload: { progress },
+          });
+          if (activeStreamingRuntime?.accounts?.setProgress && animeGoQueueRunnerRef.current) {
+            await animeGoQueueRunnerRef.current.wake();
+            const queued = (await animeGoProviderWriteQueue.list()).some((job) =>
+              job.provider === "animego" && job.externalId === animeGoExternalId && job.kind === "progress"
+            );
+            if (queued) {
+              setError("Локальный прогресс сохранён. AnimeGO пока не подтвердил запись, она останется в очереди.");
+            }
+          } else {
+            setError("Локальный прогресс сохранён. Запись в AnimeGO сохранена в очереди до подключения аккаунта.");
+          }
+        } catch {
+          setError("Локальный прогресс сохранён, но не удалось поставить запись AnimeGO в очередь.");
+        }
+      }
+
       await refreshLibrary();
 
       setModalOpen(false);
@@ -2178,7 +2279,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
     }
 
     const confirmed = window.confirm(
-      "Удалить аниме из локальной библиотеки?\n\nЕсли для него сохранены записи MAL/AniList, приложение запомнит намерение удалить их на соответствующем сервисе при следующей синхронизации. Удаление на сервисе потребует отдельного подтверждения.",
+      "Удалить аниме из локальной библиотеки?\n\nДля AnimeGO удаление будет поставлено в очередь и выполнено автоматически при доступности аккаунта. Для MAL/AniList приложение запомнит намерение удалить связанные записи при следующей синхронизации.",
     );
     if (!confirmed) return;
 
@@ -3468,7 +3569,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                   })}
               </div>
             )}
-            <StreamingCatalogPanel query={searchQuery} onImport={addCatalogAnime} onImportSnapshot={importYummyAnimeSnapshot} locale={appLocale} />
+            <StreamingCatalogPanel query={searchQuery} onImport={addCatalogAnime} onImportSnapshot={importYummyAnimeSnapshot} locale={appLocale} accountManager={activeStreamingRuntime?.accounts ?? null} />
           </div>
         </div>
       )}

@@ -123,6 +123,7 @@ describe("streaming account manager", () => {
       scriptsInspected: 2,
       scriptsSkipped: 1,
       scriptRouteCandidates: [{ path: "/mylist/anime/", methods: ["POST"], capabilities: ["list-membership"], fieldHints: ["token"], signals: ["fetch"] }],
+      accountLists: [],
       note: "read-only",
     };
     let inspectedUrl = "";
@@ -136,6 +137,81 @@ describe("streaming account manager", () => {
     const result = await manager.inspectWriteCapabilities("animego", expected.titleUrl);
     expect(result).toEqual(expected);
     expect(inspectedUrl).toBe(expected.titleUrl);
+  });
+
+  it("writes an AnimeGO rating only through a connected adapter and returns verification state", async () => {
+    const manager = new StreamingAccountManager(new StreamingAccountSessionVault(createStore()));
+    const expected = {
+      provider: "animego" as const,
+      titleUrl: "https://animego.me/anime/example-123",
+      rating: 9,
+      httpStatus: 200,
+      submitted: true,
+      verified: true,
+      verifiedRating: 9,
+      durationMs: 42,
+    };
+    let written = 0;
+    manager.register({
+      provider: "animego",
+      async connect() { return { sessionPayload: "native-session" }; },
+      async validateSession() { return true; },
+      async setRating(titleUrl, rating) {
+        expect(titleUrl).toBe(expected.titleUrl);
+        expect(rating).toBe(9);
+        written += 1;
+        return expected;
+      },
+    });
+    await manager.connect("animego", {});
+    await expect(manager.setRating("animego", expected.titleUrl, 9)).resolves.toEqual(expected);
+    expect(written).toBe(1);
+    await expect(manager.setRating("animego", expected.titleUrl, 11)).rejects.toThrow("от 1 до 10");
+    expect(written).toBe(1);
+  });
+
+  it("reads and writes AnimeGO episode progress through the connected adapter", async () => {
+    const manager = new StreamingAccountManager(new StreamingAccountSessionVault(createStore()));
+    const titleUrl = "https://animego.me/anime/example-123";
+    const snapshot = {
+      provider: "animego" as const,
+      titleUrl,
+      playerId: "123",
+      translationId: "81",
+      watchedEpisodeNumber: 2,
+      episodes: [
+        { episodeId: "10", episodeNumber: 1, watched: true },
+        { episodeId: "11", episodeNumber: 2, watched: true },
+        { episodeId: "12", episodeNumber: 3, watched: false },
+      ],
+      httpStatus: 200,
+      durationMs: 12,
+    };
+    const written = {
+      provider: "animego" as const,
+      titleUrl,
+      requestedProgress: 3,
+      translationId: "81",
+      changedEpisodes: 1,
+      verified: true,
+      watchedEpisodeNumber: 3,
+      httpStatus: 200,
+      durationMs: 24,
+    };
+    const calls: string[] = [];
+    manager.register({
+      provider: "animego",
+      async connect() { return { sessionPayload: "native-session" }; },
+      async validateSession() { return true; },
+      async fetchProgress(url) { calls.push("read:" + url); return snapshot; },
+      async setProgress(url, progress) { calls.push("write:" + url + ":" + progress); return written; },
+    });
+    await manager.connect("animego", {});
+    await expect(manager.fetchProgress("animego", titleUrl)).resolves.toEqual(snapshot);
+    await expect(manager.setProgress("animego", titleUrl, 3)).resolves.toEqual(written);
+    expect(calls).toEqual(["read:" + titleUrl, "write:" + titleUrl + ":3"]);
+    await expect(manager.setProgress("animego", titleUrl, -1)).rejects.toThrow("целым числом");
+    await expect(manager.setProgress("animego", titleUrl, 1.5)).rejects.toThrow("целым числом");
   });
 
   it("fetches a read-only provider list only through the registered native adapter", async () => {
