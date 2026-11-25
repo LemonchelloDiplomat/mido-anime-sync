@@ -103,6 +103,11 @@ export class DurableProviderWriteQueue {
     return (await database()).countFromIndex(STORE_NAME, "by-state", "pending");
   }
 
+  async nextPendingAt(): Promise<number | null> {
+    const jobs = await (await database()).getAllFromIndex(STORE_NAME, "by-state", "pending");
+    return jobs.length ? Math.min(...jobs.map(job => job.nextAttemptAt)) : null;
+  }
+
   async remove(id: string): Promise<void> {
     await (await database()).delete(STORE_NAME, id);
   }
@@ -220,8 +225,10 @@ export class ProviderWriteQueueRunner {
     this.timer = null;
     const result = await this.queue.process(this.execute);
     if (!this.running) return;
-    if (result.failed > 0 || result.deferred > 0 || await this.queue.pendingCount() > 0) {
-      this.timer = setTimeout(() => { void this.wake(); }, 5_000);
+    const nextAttemptAt = await this.queue.nextPendingAt();
+    if (nextAttemptAt !== null) {
+      const delay = Math.max(1_000, Math.min(6 * 60 * 60 * 1000, nextAttemptAt - Date.now()));
+      this.timer = setTimeout(() => { void this.wake(); }, delay);
     }
   }
 }
