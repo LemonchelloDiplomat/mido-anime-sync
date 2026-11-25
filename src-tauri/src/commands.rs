@@ -1479,10 +1479,14 @@ pub async fn animego_account_rating_write(
     if response.content_length().map(|length| length > 2 * 1024 * 1024).unwrap_or(false) {
         return Err("Ответ AnimeGO превышает допустимый размер.".to_string());
     }
-    let body = response.bytes().await
-        .map_err(|_| "Не удалось прочитать ответ AnimeGO после отправки оценки.".to_string())?;
-    if body.len() > 2 * 1024 * 1024 {
-        return Err("Ответ AnimeGO превышает допустимый размер.".to_string());
+    let mut response = response;
+    let mut response_bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await
+        .map_err(|_| "Не удалось прочитать ответ AnimeGO после отправки оценки.".to_string())? {
+        if response_bytes.len() + chunk.len() > 2 * 1024 * 1024 {
+            return Err("Ответ AnimeGO превышает допустимый размер.".to_string());
+        }
+        response_bytes.extend_from_slice(&chunk);
     }
     if !(200..300).contains(&status) {
         eprintln!("[AnimeGO Sync] operation=rating method=POST endpoint=/rating/anime/{anime_id}/vote status={status} result=failed durationMs={}", started.elapsed().as_millis());
