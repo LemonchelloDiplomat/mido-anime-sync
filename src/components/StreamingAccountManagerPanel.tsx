@@ -32,6 +32,7 @@ interface Props {
   runtimeRefreshing?: boolean;
   runtimeRefreshError?: string;
   onImportAnimeGoList?: (result: AnimeGoAccountListResponse) => Promise<void>;
+  onSyncAnimeGo?: () => Promise<{ imported: number; queued: number; conflicts: number }>;
 }
 
 export function StreamingAccountManagerPanel({
@@ -40,12 +41,15 @@ export function StreamingAccountManagerPanel({
   runtimeRefreshing = false,
   runtimeRefreshError = "",
   onImportAnimeGoList,
+  onSyncAnimeGo,
 }: Props) {
   const [statuses, setStatuses] = useState<Partial<Record<StreamingProviderId, StreamingAccountStatus>>>({});
   const [loading, setLoading] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState<StreamingProviderId | null>(null);
   const [listLoading, setListLoading] = useState(false);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncMessage, setSyncMessage] = useState("");
   const [listImporting, setListImporting] = useState(false);
   const [listImportMessage, setListImportMessage] = useState("");
   const [authWindowOpened, setAuthWindowOpened] = useState(false);
@@ -198,6 +202,42 @@ export function StreamingAccountManagerPanel({
     }
   }
 
+  async function syncAnimeGo() {
+    if (!onSyncAnimeGo || syncLoading) return;
+    setSyncLoading(true);
+    setError("");
+    setSyncMessage("");
+    try {
+      const result = await onSyncAnimeGo();
+      setSyncMessage(
+        `Синхронизация завершена. Получено/обновлено: ${result.imported}. В очереди отправки: ${result.queued}. Конфликтов: ${result.conflicts}.`,
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось синхронизировать AnimeGO.");
+    } finally {
+      setSyncLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!onSyncAnimeGo || !statuses.animego?.connected) return;
+    let disposed = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const run = () => {
+      if (disposed || document.visibilityState !== "visible" || !navigator.onLine) return;
+      void onSyncAnimeGo().catch(() => undefined);
+    };
+    timer = setInterval(run, 5 * 60 * 1000);
+    window.addEventListener("online", run);
+    document.addEventListener("visibilitychange", run);
+    return () => {
+      disposed = true;
+      if (timer) clearInterval(timer);
+      window.removeEventListener("online", run);
+      document.removeEventListener("visibilitychange", run);
+    };
+  }, [onSyncAnimeGo, statuses.animego?.connected]);
+
   async function importAnimeGoList() {
     if (!listPreview || !onImportAnimeGoList) return;
     setListImporting(true);
@@ -327,6 +367,16 @@ export function StreamingAccountManagerPanel({
                       {networkInspectionLoading ? "Наблюдаем 90 секунд..." : "Начать пассивное наблюдение"}
                     </button>
                   )}
+                  {provider.id === "animego" && onSyncAnimeGo && (
+                    <button
+                      className="primary-button"
+                      type="button"
+                      onClick={() => void syncAnimeGo()}
+                      disabled={syncLoading || listLoading || disconnecting !== null}
+                    >
+                      {syncLoading ? "Синхронизируем..." : "Синхронизировать"}
+                    </button>
+                  )}
                   {provider.id === "animego" && runtime.accounts.fetchList && (
                     <button
                       className="secondary-button"
@@ -346,8 +396,9 @@ export function StreamingAccountManagerPanel({
                     {disconnecting === provider.id ? "Отключаем..." : "Отключить"}
                   </button>
                 </div>
+                {provider.id === "animego" && syncMessage && <small role="status">{syncMessage}</small>}
                 {provider.id === "animego" && runtime.platform === "windows-native" && (
-                  <small>Открой окно AnimeGO, перейди на страницу нужного тайтла и только затем запусти наблюдение. Во время 90 секунд выполни обычные действия на сайте. Инспектор не нажимает кнопки и не меняет данные.</small>
+                  <small>Автосинхронизация выполняется при открытом приложении: каждые 5 минут, при возвращении в окно и после восстановления сети. Очередь локальных изменений сохраняется офлайн.</small>
                 )}
                 </>
               ) : provider.id !== "animego" ? (
