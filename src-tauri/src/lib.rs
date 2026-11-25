@@ -18,6 +18,8 @@ pub fn run() {
             commands::animego_account_rating_write,
             commands::animego_account_status_write,
             commands::animego_account_delete,
+            commands::animego_account_progress_fetch,
+            commands::animego_account_progress_write,
             commands::animego_network_inspect
         ])
         .run(tauri::generate_context!())

@@ -6,6 +6,8 @@ import type {
   AnimeGoRatingWriteResult,
   AnimeGoStatusWriteResult,
   AnimeGoDeleteWriteResult,
+  AnimeGoProgressSnapshot,
+  AnimeGoProgressWriteResult,
 } from "../streaming-account-manager.js";
 import type { NativeInvoke } from "./native-platform-adapters.js";
 
@@ -104,6 +106,14 @@ export class AnimeGoWindowsWebViewAdapter implements StreamingAccountAdapter {
 
   async inspectWriteCapabilities(titleUrl: string): Promise<AnimeGoWriteInspection> {
     return this.invoke<AnimeGoWriteInspection>("animego_account_write_inspect", { titleUrl });
+  }
+
+  async fetchProgress(titleUrl: string): Promise<AnimeGoProgressSnapshot> {
+    return this.invoke<AnimeGoProgressSnapshot>("animego_account_progress_fetch", { titleUrl });
+  }
+
+  async setProgress(titleUrl: string, progress: number): Promise<AnimeGoProgressWriteResult> {
+    return this.invoke<AnimeGoProgressWriteResult>("animego_account_progress_write", { titleUrl, progress });
   }
 
   async setRating(titleUrl: string, rating: number): Promise<AnimeGoRatingWriteResult> {

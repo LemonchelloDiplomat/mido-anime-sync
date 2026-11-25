@@ -114,6 +114,35 @@ export interface AnimeGoDeleteWriteResult {
   durationMs: number;
 }
 
+export interface AnimeGoEpisodeProgressItem {
+  episodeId: string;
+  episodeNumber: number;
+  watched: boolean;
+}
+
+export interface AnimeGoProgressSnapshot {
+  provider: "animego";
+  titleUrl: string;
+  playerId: string;
+  translationId: string;
+  watchedEpisodeNumber: number;
+  episodes: AnimeGoEpisodeProgressItem[];
+  httpStatus: number;
+  durationMs: number;
+}
+
+export interface AnimeGoProgressWriteResult {
+  provider: "animego";
+  titleUrl: string;
+  requestedProgress: number;
+  translationId: string;
+  changedEpisodes: number;
+  verified: boolean;
+  watchedEpisodeNumber: number;
+  httpStatus: number;
+  durationMs: number;
+}
+
 export interface AnimeGoRatingWriteResult {
   provider: "animego";
   titleUrl: string;
@@ -140,6 +169,8 @@ export interface StreamingAccountManagerPort {
   /** Optional read-only provider list fetch; secrets remain inside the trusted adapter. */
   fetchList?(provider: StreamingProviderId): Promise<unknown>;
   inspectWriteCapabilities?(provider: StreamingProviderId, titleUrl: string): Promise<AnimeGoWriteInspection>;
+  fetchProgress?(provider: StreamingProviderId, titleUrl: string): Promise<AnimeGoProgressSnapshot>;
+  setProgress?(provider: StreamingProviderId, titleUrl: string, progress: number): Promise<AnimeGoProgressWriteResult>;
   setRating?(provider: StreamingProviderId, titleUrl: string, rating: number): Promise<AnimeGoRatingWriteResult>;
   setStatus?(provider: StreamingProviderId, titleUrl: string, status: AnimeGoStatusWriteResult["status"]): Promise<AnimeGoStatusWriteResult>;
   deleteFromList?(provider: StreamingProviderId, titleUrl: string): Promise<AnimeGoDeleteWriteResult>;
@@ -167,6 +198,8 @@ export interface StreamingAccountAdapter {
   fetchList?(): Promise<unknown>;
   inspectWriteCapabilities?(titleUrl: string): Promise<AnimeGoWriteInspection>;
   /** Explicit user-triggered write. The adapter must keep credentials native. */
+  fetchProgress?(titleUrl: string): Promise<AnimeGoProgressSnapshot>;
+  setProgress?(titleUrl: string, progress: number): Promise<AnimeGoProgressWriteResult>;
   setRating?(titleUrl: string, rating: number): Promise<AnimeGoRatingWriteResult>;
   setStatus?(titleUrl: string, status: AnimeGoStatusWriteResult["status"]): Promise<AnimeGoStatusWriteResult>;
   deleteFromList?(titleUrl: string): Promise<AnimeGoDeleteWriteResult>;
@@ -279,6 +312,27 @@ export class StreamingAccountManager {
       this.states.set(provider, status);
       return { ...status };
     }
+  }
+
+  async fetchProgress(provider: StreamingProviderId, titleUrl: string): Promise<AnimeGoProgressSnapshot> {
+    if (provider !== "animego") throw new Error(`Progress reads are not supported for ${provider}.`);
+    const adapter = this.requireAdapter(provider);
+    if (!adapter.fetchProgress) throw new Error(`Progress reads are unavailable for ${provider}.`);
+    const account = await this.restore(provider);
+    if (!account.connected) throw new Error(`Сначала подключи аккаунт ${provider}.`);
+    return adapter.fetchProgress(titleUrl);
+  }
+
+  async setProgress(provider: StreamingProviderId, titleUrl: string, progress: number): Promise<AnimeGoProgressWriteResult> {
+    if (provider !== "animego") throw new Error(`Progress writes are not supported for ${provider}.`);
+    if (!Number.isSafeInteger(progress) || progress < 0 || progress > 10000) {
+      throw new Error("Прогресс AnimeGO должен быть целым числом от 0 до 10000.");
+    }
+    const adapter = this.requireAdapter(provider);
+    if (!adapter.setProgress) throw new Error(`Progress writes are unavailable for ${provider}.`);
+    const account = await this.restore(provider);
+    if (!account.connected) throw new Error(`Сначала подключи аккаунт ${provider}.`);
+    return adapter.setProgress(titleUrl, progress);
   }
 
   async setRating(provider: StreamingProviderId, titleUrl: string, rating: number): Promise<AnimeGoRatingWriteResult> {

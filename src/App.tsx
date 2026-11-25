@@ -163,14 +163,29 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
 
   useEffect(() => {
     const accounts = activeStreamingRuntime?.accounts;
-    if (!accounts?.setRating) return;
-    const setRating = accounts.setRating.bind(accounts);
+    if (!accounts?.setRating && !accounts?.setProgress && !accounts?.setStatus && !accounts?.deleteFromList) return;
     const runner = new ProviderWriteQueueRunner(animeGoProviderWriteQueue, async (job) => {
-      if (job.kind !== "rating" || typeof job.payload.rating !== "number") {
-        throw new Error("This AnimeGO write operation is not enabled yet.");
+      if (job.kind === "rating" && typeof job.payload.rating === "number" && accounts.setRating) {
+        const result = await accounts.setRating("animego", job.titleUrl, job.payload.rating);
+        if (!result.verified) throw new Error("AnimeGO has not confirmed the saved rating yet.");
+        return;
       }
-      const result = await setRating("animego", job.titleUrl, job.payload.rating);
-      if (!result.verified) throw new Error("AnimeGO has not confirmed the saved rating yet.");
+      if (job.kind === "progress" && typeof job.payload.progress === "number" && accounts.setProgress) {
+        const result = await accounts.setProgress("animego", job.titleUrl, job.payload.progress);
+        if (!result.verified) throw new Error("AnimeGO has not confirmed the saved episode progress yet.");
+        return;
+      }
+      if (job.kind === "status" && job.payload.status && accounts.setStatus) {
+        const result = await accounts.setStatus("animego", job.titleUrl, job.payload.status);
+        if (!result.verified) throw new Error("AnimeGO has not confirmed the saved list status yet.");
+        return;
+      }
+      if (job.kind === "delete" && accounts.deleteFromList) {
+        const result = await accounts.deleteFromList("animego", job.titleUrl);
+        if (!result.verified) throw new Error("AnimeGO has not confirmed the list deletion yet.");
+        return;
+      }
+      throw new Error("This AnimeGO write operation is unavailable in the current runtime.");
     });
     animeGoQueueRunnerRef.current = runner;
     void runner.start();
@@ -2212,6 +2227,33 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
           }
         } else {
           setError("Локальная оценка сохранена, но AnimeGO принимает оценки только от 1 до 10. Значение не отправлено.");
+        }
+      }
+
+      const previousProgress = previous?.entry?.progress ?? 0;
+      if (animeGoExternalId && typeof animeGoTitleUrl === "string" && progress !== previousProgress &&
+          Number.isSafeInteger(progress) && progress >= 0) {
+        try {
+          await animeGoProviderWriteQueue.enqueue({
+            provider: "animego",
+            kind: "progress",
+            externalId: animeGoExternalId,
+            titleUrl: animeGoTitleUrl,
+            payload: { progress },
+          });
+          if (activeStreamingRuntime?.accounts?.setProgress && animeGoQueueRunnerRef.current) {
+            await animeGoQueueRunnerRef.current.wake();
+            const queued = (await animeGoProviderWriteQueue.list()).some((job) =>
+              job.provider === "animego" && job.externalId === animeGoExternalId && job.kind === "progress"
+            );
+            if (queued) {
+              setError("Локальный прогресс сохранён. AnimeGO пока не подтвердил запись, она останется в очереди.");
+            }
+          } else {
+            setError("Локальный прогресс сохранён. Запись в AnimeGO сохранена в очереди до подключения аккаунта.");
+          }
+        } catch {
+          setError("Локальный прогресс сохранён, но не удалось поставить запись AnimeGO в очередь.");
         }
       }
 
