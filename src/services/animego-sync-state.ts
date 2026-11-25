@@ -147,13 +147,11 @@ export async function reconcileAnimeGoEntry(input: {
       values[field] = input.local[field] as never;
       await saveAnimeGoConflict(conflicts[conflicts.length - 1]!);
     }
-    await saveAnimeGoBaseline(baseline);
     return { values, outbound, conflicts, baseline };
   }
 
   if (!previous || !input.local) {
     const baseline = { externalId: input.externalId, ...input.remote, updatedAt: input.updatedAt || now };
-    await saveAnimeGoBaseline(baseline);
     return { values, outbound, conflicts, baseline };
   }
 
@@ -195,7 +193,6 @@ export async function reconcileAnimeGoEntry(input: {
   }
 
   baseline.updatedAt = input.updatedAt || now;
-  await saveAnimeGoBaseline(baseline);
   return { values, outbound, conflicts, baseline };
 }
 
