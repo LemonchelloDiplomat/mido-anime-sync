@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { afterEach, describe, expect, it } from "vitest";
-import { DurableProviderWriteQueue } from "../src/services/durable-provider-write-queue.js";
+import { DurableProviderWriteQueue, ProviderWriteQueueRunner } from "../src/services/durable-provider-write-queue.js";
 
 const sample = {
   provider: "animego" as const,
@@ -67,6 +67,29 @@ describe("durable provider write queue", () => {
     const recovered = (await queue.list())[0]!;
     expect(recovered.state).toBe("pending");
     expect(recovered.lastError).toContain("restart");
+  });
+
+  it("serializes overlapping runner wakeups into one queue execution", async () => {
+    const queue = new DurableProviderWriteQueue();
+    await queue.enqueue(sample);
+    let executions = 0;
+    let releaseExecution!: () => void;
+    const executionGate = new Promise<void>(resolve => { releaseExecution = resolve; });
+    const runner = new ProviderWriteQueueRunner(queue, async () => {
+      executions += 1;
+      await executionGate;
+    });
+
+    const starting = runner.start();
+    await Promise.resolve();
+    await Promise.resolve();
+    const overlappingWake = runner.wake();
+    releaseExecution();
+    await Promise.all([starting, overlappingWake]);
+
+    expect(executions).toBe(1);
+    expect(await queue.list()).toHaveLength(0);
+    runner.stop();
   });
 
   it("allows explicitly retrying terminal failures", async () => {
