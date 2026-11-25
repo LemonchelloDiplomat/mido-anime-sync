@@ -75,12 +75,12 @@ function validate(input: NewProviderWriteJob): void {
     throw new Error("Progress must be a non-negative integer.");
   }
   if (input.kind === "status" && !input.payload.status) throw new Error("Status is required.");
-  if ((input.kind === "delete") && Object.keys(input.payload).length) throw new Error("Delete jobs cannot contain a mutation payload.");
+  if (input.kind === "delete" && Object.keys(input.payload).length) throw new Error("Delete jobs cannot contain a mutation payload.");
 }
 
 function safeError(error: unknown): string {
   const message = error instanceof Error ? error.message : "Provider write failed.";
-  return message.replace(/(?:token|cookie|authorization|password)\s*[:=]\s*[^\s&]+/gi, "$1=[redacted]").slice(0, 500);
+  return message.replace(/(token|cookie|authorization|password)\s*[:=]\s*[^\s&]+/gi, "$1=[redacted]").slice(0, 500);
 }
 
 export class DurableProviderWriteQueue {
@@ -123,7 +123,7 @@ export class DurableProviderWriteQueue {
     return jobs.length;
   }
 
-  /** Requeue interrupted work after a crash/restart; remote writes are replayed idempotently by provider adapters. */
+  /** Requeue interrupted work after a crash/restart; the adapter must reconcile remote state before replay. */
   async recoverInterrupted(): Promise<number> {
     const db = await database();
     const tx = db.transaction(STORE_NAME, "readwrite");
@@ -133,7 +133,7 @@ export class DurableProviderWriteQueue {
       job.state = "pending";
       job.nextAttemptAt = Date.now();
       job.updatedAt = now;
-      job.lastError = "Recovered after application restart; provider state will be checked on retry.";
+      job.lastError = "Recovered after application restart; remote state must be checked before replay.";
       await tx.store.put(job);
     }
     await tx.done;
