@@ -1879,6 +1879,44 @@ fn animego_parse_episode_items(html: &str) -> Result<Vec<AnimeGoEpisodeProgressI
     Ok(episodes)
 }
 
+
+fn animego_parse_player_metadata(
+    html: &str,
+    expected_anime_id: &str,
+) -> Result<(String, String, String, String), String> {
+    use scraper::{Html, Selector};
+    if html.len() > 2 * 1024 * 1024 {
+        return Err("HTML плеера AnimeGO превышает лимит 2 МБ.".to_string());
+    }
+    let document = Html::parse_document(html);
+    let selector = Selector::parse(".player-video[data-anime-player-episodes-url-value][data-anime-episode-watched-url-value]")
+        .map_err(|_| "Не удалось разобрать HTML плеера AnimeGO.".to_string())?;
+    let player = document.select(&selector).next()
+        .ok_or_else(|| "В плеере AnimeGO отсутствуют данные списка серий.".to_string())?;
+    let player_id = player.value().attr("data-anime-player-anime-id-value").unwrap_or("").to_string();
+    if player_id != expected_anime_id || !player_id.chars().all(|ch| ch.is_ascii_digit()) {
+        return Err("ID плеера AnimeGO не совпадает с ID тайтла.".to_string());
+    }
+    let episodes_path = player.value().attr("data-anime-player-episodes-url-value")
+        .ok_or_else(|| "В плеере AnimeGO отсутствует адрес списка серий.".to_string())?.to_string();
+    let watched_path = player.value().attr("data-anime-episode-watched-url-value")
+        .ok_or_else(|| "В плеере AnimeGO отсутствует адрес записи прогресса.".to_string())?.to_string();
+    if watched_path != "/anime/episode/watched" {
+        return Err("Адрес записи прогресса AnimeGO не прошёл проверку.".to_string());
+    }
+    let active_selector = Selector::parse("[data-translation-id].active")
+        .map_err(|_| "Не удалось разобрать список переводов AnimeGO.".to_string())?;
+    let translation_id = document.select(&active_selector)
+        .filter(|element| !element.ancestors()
+            .filter_map(scraper::ElementRef::wrap)
+            .any(|ancestor| ancestor.value().attr("hidden").is_some()
+                || ancestor.value().classes().any(|class_name| class_name == "d-none")))
+        .filter_map(|element| element.value().attr("data-translation-id"))
+        .find(|value| !value.is_empty() && value.chars().all(|ch| ch.is_ascii_digit()))
+        .ok_or_else(|| "Не удалось определить активный видимый перевод AnimeGO.".to_string())?.to_string();
+    Ok((player_id, episodes_path, watched_path, translation_id))
+}
+
 async fn animego_load_episode_state(
     client: &reqwest::Client,
     cookies: &mut HashMap<String, String>,
@@ -1898,32 +1936,8 @@ async fn animego_load_episode_state(
     }
     let player_html = player_json.pointer("/data/content").and_then(Value::as_str)
         .ok_or_else(|| "В ответе AnimeGO отсутствует HTML плеера.".to_string())?;
-    let document = scraper::Html::parse_document(player_html);
-    let selector = scraper::Selector::parse(".player-video[data-anime-player-episodes-url-value][data-anime-episode-watched-url-value]")
-        .map_err(|_| "Не удалось разобрать HTML плеера AnimeGO.".to_string())?;
-    let player = document.select(&selector).next()
-        .ok_or_else(|| "В плеере AnimeGO отсутствуют данные списка серий.".to_string())?;
-    let player_id = player.value().attr("data-anime-player-anime-id-value").unwrap_or("").to_string();
-    if player_id != anime_id || !player_id.chars().all(|ch| ch.is_ascii_digit()) {
-        return Err("ID плеера AnimeGO не совпадает с ID тайтла.".to_string());
-    }
-    let episodes_path = player.value().attr("data-anime-player-episodes-url-value")
-        .ok_or_else(|| "В плеере AnimeGO отсутствует адрес списка серий.".to_string())?.to_string();
-    let watched_path = player.value().attr("data-anime-episode-watched-url-value")
-        .ok_or_else(|| "В плеере AnimeGO отсутствует адрес записи прогресса.".to_string())?.to_string();
-    if watched_path != "/anime/episode/watched" {
-        return Err("Адрес записи прогресса AnimeGO не прошёл проверку.".to_string());
-    }
-    let active_selector = scraper::Selector::parse("[data-translation-id].active")
-        .map_err(|_| "Не удалось разобрать список переводов AnimeGO.".to_string())?;
-    let translation_id = document.select(&active_selector)
-        .filter(|element| !element.ancestors()
-            .filter_map(scraper::ElementRef::wrap)
-            .any(|ancestor| ancestor.value().attr("hidden").is_some()
-                || ancestor.value().classes().any(|class_name| class_name == "d-none")))
-        .filter_map(|element| element.value().attr("data-translation-id"))
-        .find(|value| !value.is_empty() && value.chars().all(|ch| ch.is_ascii_digit()))
-        .ok_or_else(|| "Не удалось определить активный видимый перевод AnimeGO.".to_string())?.to_string();
+    let (player_id, episodes_path, watched_path, translation_id) =
+        animego_parse_player_metadata(player_html, anime_id)?;
 
     let origin = reqwest::Url::parse(ANIMEGO_ORIGIN).map_err(|_| "Некорректный адрес AnimeGO.".to_string())?;
     let episodes_url = origin.join(&episodes_path)
