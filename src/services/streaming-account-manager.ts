@@ -94,6 +94,26 @@ export interface AnimeGoWriteInspection {
   note: string;
 }
 
+export interface AnimeGoStatusWriteResult {
+  provider: "animego";
+  titleUrl: string;
+  status: "PLANNING" | "WATCHING" | "COMPLETED" | "ON_HOLD" | "DROPPED" | "REWATCHING";
+  listType: number;
+  httpStatus: number;
+  submitted: boolean;
+  verified: boolean;
+  durationMs: number;
+}
+
+export interface AnimeGoDeleteWriteResult {
+  provider: "animego";
+  titleUrl: string;
+  httpStatus: number;
+  submitted: boolean;
+  verified: boolean;
+  durationMs: number;
+}
+
 export interface AnimeGoRatingWriteResult {
   provider: "animego";
   titleUrl: string;
@@ -121,6 +141,8 @@ export interface StreamingAccountManagerPort {
   fetchList?(provider: StreamingProviderId): Promise<unknown>;
   inspectWriteCapabilities?(provider: StreamingProviderId, titleUrl: string): Promise<AnimeGoWriteInspection>;
   setRating?(provider: StreamingProviderId, titleUrl: string, rating: number): Promise<AnimeGoRatingWriteResult>;
+  setStatus?(provider: StreamingProviderId, titleUrl: string, status: AnimeGoStatusWriteResult["status"]): Promise<AnimeGoStatusWriteResult>;
+  deleteFromList?(provider: StreamingProviderId, titleUrl: string): Promise<AnimeGoDeleteWriteResult>;
 }
 
 export interface StreamingAccountConnectResult {
@@ -146,6 +168,8 @@ export interface StreamingAccountAdapter {
   inspectWriteCapabilities?(titleUrl: string): Promise<AnimeGoWriteInspection>;
   /** Explicit user-triggered write. The adapter must keep credentials native. */
   setRating?(titleUrl: string, rating: number): Promise<AnimeGoRatingWriteResult>;
+  setStatus?(titleUrl: string, status: AnimeGoStatusWriteResult["status"]): Promise<AnimeGoStatusWriteResult>;
+  deleteFromList?(titleUrl: string): Promise<AnimeGoDeleteWriteResult>;
 }
 
 /**
@@ -265,6 +289,24 @@ export class StreamingAccountManager {
     const status = await this.restore(provider);
     if (!status.connected) throw new Error(`Сначала подключи аккаунт ${provider}.`);
     return adapter.setRating(titleUrl, rating);
+  }
+
+  async setStatus(provider: StreamingProviderId, titleUrl: string, status: AnimeGoStatusWriteResult["status"]): Promise<AnimeGoStatusWriteResult> {
+    if (provider !== "animego") throw new Error(`Status writes are not supported for ${provider}.`);
+    const adapter = this.requireAdapter(provider);
+    if (!adapter.setStatus) throw new Error(`Status writes are unavailable for ${provider}.`);
+    const account = await this.restore(provider);
+    if (!account.connected) throw new Error(`Сначала подключи аккаунт ${provider}.`);
+    return adapter.setStatus(titleUrl, status);
+  }
+
+  async deleteFromList(provider: StreamingProviderId, titleUrl: string): Promise<AnimeGoDeleteWriteResult> {
+    if (provider !== "animego") throw new Error(`List deletion is not supported for ${provider}.`);
+    const adapter = this.requireAdapter(provider);
+    if (!adapter.deleteFromList) throw new Error(`List deletion is unavailable for ${provider}.`);
+    const account = await this.restore(provider);
+    if (!account.connected) throw new Error(`Сначала подключи аккаунт ${provider}.`);
+    return adapter.deleteFromList(titleUrl);
   }
 
   async inspectWriteCapabilities(provider: StreamingProviderId, titleUrl: string): Promise<AnimeGoWriteInspection> {

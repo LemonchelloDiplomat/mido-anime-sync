@@ -1617,6 +1617,187 @@ pub async fn animego_account_rating_write(
     })
 }
 
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeGoStatusWriteResult {
+    provider: &'static str,
+    title_url: String,
+    status: String,
+    list_type: u8,
+    http_status: u16,
+    submitted: bool,
+    verified: bool,
+    duration_ms: u128,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeGoDeleteWriteResult {
+    provider: &'static str,
+    title_url: String,
+    http_status: u16,
+    submitted: bool,
+    verified: bool,
+    duration_ms: u128,
+}
+
+fn animego_csrf_token(html: &str) -> Result<String, String> {
+    use scraper::{Html, Selector};
+    let document = Html::parse_document(html);
+    let selector = Selector::parse("input[name='_token'], input[name='token']")
+        .map_err(|_| "Не удалось разобрать CSRF-поле AnimeGO.".to_string())?;
+    document.select(&selector)
+        .find_map(|input| input.value().attr("value")
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string))
+        .ok_or_else(|| "На странице AnimeGO не найден CSRF-токен. Запись остановлена.".to_string())
+}
+
+fn animego_status_list_type(status: &str) -> Result<u8, String> {
+    match status {
+        "WATCHING" => Ok(1),
+        "COMPLETED" => Ok(2),
+        "ON_HOLD" => Ok(3),
+        "DROPPED" => Ok(4),
+        "PLANNING" => Ok(5),
+        "REWATCHING" => Ok(6),
+        _ => Err("Неизвестный статус AnimeGO.".to_string()),
+    }
+}
+
+async fn animego_submit_list_mutation(
+    title_url: String,
+    list_type: Option<u8>,
+) -> Result<(reqwest::Url, u16, bool, u128), String> {
+    let started = std::time::Instant::now();
+    if list_type.map(|value| !(1..=6).contains(&value)).unwrap_or(false) {
+        return Err("Категория списка AnimeGO вне допустимого диапазона.".to_string());
+    }
+    let requested = reqwest::Url::parse(&title_url)
+        .map_err(|_| "Некорректная ссылка на тайтл AnimeGO.".to_string())?;
+    let origin = reqwest::Url::parse(ANIMEGO_ORIGIN)
+        .map_err(|_| "Некорректный адрес AnimeGO.".to_string())?;
+    let safe_title = safe_animego_title_url(requested.as_str(), &origin)
+        .ok_or_else(|| "Для изменения списка нужна HTTPS-ссылка на карточку animego.me/anime/…".to_string())?;
+    let slug = safe_title.path().trim_end_matches('/').rsplit('/').next().unwrap_or("");
+    let anime_id = slug.rsplit_once('-').map(|(_, id)| id)
+        .filter(|id| !id.is_empty() && id.chars().all(|ch| ch.is_ascii_digit()))
+        .ok_or_else(|| "Не удалось определить ID тайтла AnimeGO.".to_string())?;
+
+    let raw = streaming_secret_get(ANIMEGO_SESSION_KEY.to_string())?
+        .ok_or_else(|| "Сначала подключи аккаунт AnimeGO.".to_string())?;
+    let mut session: AnimeGoStoredSession = serde_json::from_str(&raw)
+        .map_err(|_| "Сохранённая сессия AnimeGO повреждена. Подключи аккаунт заново.".to_string())?;
+    if session.cookies.is_empty() || session.user_id.is_empty() ||
+        !session.user_id.chars().all(|ch| ch.is_ascii_digit()) {
+        return Err("Сохранённая сессия AnimeGO неполная. Подключи аккаунт заново.".to_string());
+    }
+    let mut cookies = session.cookies.iter().cloned().collect::<HashMap<_, _>>();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 5 { attempt.stop() }
+            else if attempt.url().scheme() == "https" && attempt.url().host_str() == Some("animego.me") { attempt.follow() }
+            else { attempt.stop() }
+        }))
+        .build()
+        .map_err(|_| "Не удалось запустить защищённый HTTP-клиент AnimeGO.".to_string())?;
+
+    let mut title_path = safe_title.path().to_string();
+    if let Some(query) = safe_title.query() { title_path.push('?'); title_path.push_str(query); }
+    let page = animego_fetch_account_page(&client, &mut cookies, &title_path, ANIMEGO_ORIGIN, None).await?;
+    if !(200..300).contains(&page.status) {
+        return Err(format!("AnimeGO не смог открыть карточку тайтла (HTTP {}).", page.status));
+    }
+    let (confirmed_user_id, _) = animego_user_from_html(&page.text)
+        .ok_or_else(|| "AnimeGO не подтвердил авторизованный профиль. Повтори вход.".to_string())?;
+    if confirmed_user_id != session.user_id {
+        return Err("Страница AnimeGO принадлежит другому аккаунту или сессия истекла.".to_string());
+    }
+    let token = animego_csrf_token(&page.text)?;
+    let action_path = match list_type {
+        Some(value) => format!("/mylist/anime/{anime_id}/{value}/add"),
+        None => format!("/mylist/anime/{anime_id}/delete"),
+    };
+    let cookie_header = cookies.iter().map(|(name, value)| format!("{name}={value}")).collect::<Vec<_>>().join("; ");
+    if cookie_header.is_empty() || cookie_header.len() > 16 * 1024 {
+        return Err("Сохранённая сессия AnimeGO пуста или превышает допустимый размер.".to_string());
+    }
+    let response = client.post(format!("{ANIMEGO_ORIGIN}{action_path}"))
+        .header(reqwest::header::ACCEPT, "*/*")
+        .header(reqwest::header::USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36")
+        .header(reqwest::header::REFERER, safe_title.as_str())
+        .header(reqwest::header::ORIGIN, ANIMEGO_ORIGIN)
+        .header(reqwest::header::COOKIE, cookie_header)
+        .header("X-Requested-With", "XMLHttpRequest")
+        .form(&[("_token", token.as_str())])
+        .send().await
+        .map_err(|_| "Не удалось отправить изменение списка в AnimeGO. Проверь соединение.".to_string())?;
+    let http_status = response.status().as_u16();
+    let final_url = response.url().clone();
+    if final_url.scheme() != "https" || final_url.host_str() != Some("animego.me") {
+        return Err("AnimeGO перенаправил запись за пределы разрешённого домена.".to_string());
+    }
+    update_animego_cookie_jar(&mut cookies, response.headers());
+    if response.content_length().map(|length| length > 2 * 1024 * 1024).unwrap_or(false) {
+        return Err("Ответ AnimeGO превышает допустимый размер.".to_string());
+    }
+    let mut response = response;
+    let mut response_bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await
+        .map_err(|_| "Не удалось прочитать ответ AnimeGO после изменения списка.".to_string())? {
+        if response_bytes.len() + chunk.len() > 2 * 1024 * 1024 {
+            return Err("Ответ AnimeGO превышает допустимый размер.".to_string());
+        }
+        response_bytes.extend_from_slice(&chunk);
+    }
+    if !(200..300).contains(&http_status) {
+        return Err(format!("AnimeGO отклонил изменение списка (HTTP {}).", http_status));
+    }
+    session.cookies = cookies.into_iter().collect();
+    let serialized = serde_json::to_string(&session)
+        .map_err(|_| "Не удалось обновить защищённую сессию AnimeGO.".to_string())?;
+    streaming_secret_set(ANIMEGO_SESSION_KEY.to_string(), serialized)?;
+    eprintln!("[AnimeGO Sync] operation={} method=POST endpoint={} status={} result=submitted durationMs={}",
+        if list_type.is_some() { "status" } else { "delete" }, action_path, http_status, started.elapsed().as_millis());
+    Ok((safe_title, http_status, true, started.elapsed().as_millis()))
+}
+
+#[tauri::command]
+pub async fn animego_account_status_write(
+    title_url: String,
+    status: String,
+) -> Result<AnimeGoStatusWriteResult, String> {
+    let list_type = animego_status_list_type(&status)?;
+    let (safe_title, http_status, submitted, duration_ms) =
+        animego_submit_list_mutation(title_url, Some(list_type)).await?;
+    let fetched = animego_account_list_fetch().await?;
+    let anime_id = safe_title.path().trim_end_matches('/').rsplit('-').next().unwrap_or("");
+    let verified = fetched.items.iter().any(|item|
+        item.anime_id.as_deref() == Some(anime_id) && item.list_type == list_type
+    );
+    Ok(AnimeGoStatusWriteResult {
+        provider: "animego", title_url: safe_title.to_string(), status, list_type,
+        http_status, submitted, verified, duration_ms,
+    })
+}
+
+#[tauri::command]
+pub async fn animego_account_delete(
+    title_url: String,
+) -> Result<AnimeGoDeleteWriteResult, String> {
+    let (safe_title, http_status, submitted, duration_ms) =
+        animego_submit_list_mutation(title_url, None).await?;
+    let anime_id = safe_title.path().trim_end_matches('/').rsplit('-').next().unwrap_or("");
+    let fetched = animego_account_list_fetch().await?;
+    let verified = !fetched.items.iter().any(|item| item.anime_id.as_deref() == Some(anime_id));
+    Ok(AnimeGoDeleteWriteResult {
+        provider: "animego", title_url: safe_title.to_string(),
+        http_status, submitted, verified, duration_ms,
+    })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnimeGoNetworkEvent {
