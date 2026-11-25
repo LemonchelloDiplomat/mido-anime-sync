@@ -71,13 +71,17 @@ function validate(input: NewProviderWriteJob): void {
   if (url.protocol !== "https:" || url.hostname !== "animego.me" || !/^\/anime\/[^/]+-\d+\/?$/.test(url.pathname)) {
     throw new Error("AnimeGO title URL is invalid.");
   }
+  const urlId = url.pathname.match(/-(\\d+)\\/?$/)?.[1];
+  if (urlId !== input.externalId) throw new Error("AnimeGO title URL and external ID do not match.");
   if (input.kind === "rating" && (!Number.isInteger(input.payload.rating) || input.payload.rating! < 1 || input.payload.rating! > 10)) {
     throw new Error("Rating must be an integer from 1 to 10.");
   }
   if (input.kind === "progress" && (!Number.isSafeInteger(input.payload.progress) || input.payload.progress! < 0)) {
     throw new Error("Progress must be a non-negative integer.");
   }
-  if (input.kind === "status" && !input.payload.status) throw new Error("Status is required.");
+  if (input.kind === "status" && !["PLANNING", "WATCHING", "COMPLETED", "ON_HOLD", "DROPPED", "REWATCHING"].includes(input.payload.status ?? "")) {
+    throw new Error("Status is invalid.");
+  }
   if (input.kind === "delete" && Object.keys(input.payload).length) throw new Error("Delete jobs cannot contain a mutation payload.");
 }
 

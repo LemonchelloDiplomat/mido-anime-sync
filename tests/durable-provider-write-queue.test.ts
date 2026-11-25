@@ -54,6 +54,20 @@ describe("durable provider write queue", () => {
     await expect(queue.enqueue({ ...sample, payload: { progress: -1 } })).rejects.toThrow();
   });
 
+  it("rejects status values outside the local anime status model", async () => {
+    const queue = new DurableProviderWriteQueue();
+    await expect(queue.enqueue({
+      ...sample,
+      kind: "status",
+      payload: { status: "UNKNOWN" as never },
+    })).rejects.toThrow("Status is invalid");
+  });
+
+  it("rejects a title URL whose AnimeGO ID differs from the queued external ID", async () => {
+    const queue = new DurableProviderWriteQueue();
+    await expect(queue.enqueue({ ...sample, externalId: "99999" })).rejects.toThrow("do not match");
+  });
+
   it("recovers jobs left processing by an application crash", async () => {
     const queue = new DurableProviderWriteQueue();
     const job = await queue.enqueue(sample);
