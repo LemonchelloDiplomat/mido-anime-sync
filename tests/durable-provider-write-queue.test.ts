@@ -59,7 +59,7 @@ describe("durable provider write queue", () => {
     const job = await queue.enqueue(sample);
     const db = await import("idb");
     const handle = await db.openDB("mido-anime-sync-provider-write-queue", 1);
-    const interrupted = { ...job, state: "processing" as const };
+    const interrupted = { ...job, state: "processing" as const, updatedAt: new Date(Date.now() - 3 * 60 * 1000).toISOString() };
     await handle.put("jobs", interrupted);
     handle.close();
 
@@ -67,6 +67,18 @@ describe("durable provider write queue", () => {
     const recovered = (await queue.list())[0]!;
     expect(recovered.state).toBe("pending");
     expect(recovered.lastError).toContain("restart");
+  });
+
+  it("does not recover a fresh processing job owned by another window", async () => {
+    const queue = new DurableProviderWriteQueue();
+    const job = await queue.enqueue(sample);
+    const db = await import("idb");
+    const handle = await db.openDB("mido-anime-sync-provider-write-queue", 1);
+    await handle.put("jobs", { ...job, state: "processing" as const, updatedAt: new Date().toISOString() });
+    handle.close();
+
+    expect(await queue.recoverInterrupted()).toBe(0);
+    expect((await queue.list())[0]?.state).toBe("processing");
   });
 
   it("serializes overlapping runner wakeups into one queue execution", async () => {
