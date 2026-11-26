@@ -1,5 +1,6 @@
 mod commands;
 mod animego_bridge;
+mod animego_event_bridge;
 mod animego_script_inspector;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -31,7 +32,9 @@ pub fn run() {
             commands::animego_account_progress_write,
             commands::animego_network_inspect,
             commands::animego_ipc_ready,
-            animego_bridge::animego_ipc_test
+            animego_bridge::animego_ipc_test,
+            animego_event_bridge::animego_bridge_stage,
+            animego_event_bridge::animego_bridge_complete
         ])
         .run(tauri::generate_context!())
         .expect("error while running Mido Anime Sync");
