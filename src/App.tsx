@@ -784,14 +784,15 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       if (!externalId) continue;
       const localItem = localByAnimeGoId.get(externalId);
       const titleUrl = row.anime.providerMetadata?.animego?.titleUrl ?? localItem?.anime.providerMetadata?.animego?.titleUrl;
-      const sourceEntry = localItem && repository
-        ? (await repository.getSourceEntries(localItem.anime.id)).find((entry) => entry.source === "animego")
-        : undefined;
       if (!options.reconcile) continue;
-      const localValues = sourceEntry ? {
-        status: sourceEntry.status,
-        progress: sourceEntry.progress,
-        score: sourceEntry.score,
+      // Compare against the user's current library entry, not the persisted
+      // AnimeGO source entry. The latter is the last imported remote snapshot
+      // and therefore cannot reveal edits made locally since that snapshot.
+      const localEntry = localItem?.entry;
+      const localValues = localEntry ? {
+        status: localEntry.status,
+        progress: localEntry.progress,
+        score: localEntry.score,
       } : null;
       const remoteValues = {
         status: row.entry.status,
