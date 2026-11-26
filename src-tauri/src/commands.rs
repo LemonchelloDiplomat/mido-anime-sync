@@ -1955,7 +1955,7 @@ pub async fn animego_account_status_write(
                 const trimmedBody = postBody.trimStart();
                 let bodyKind = !trimmedBody ? "empty"
                     : /^<!doctype html|^<html/i.test(trimmedBody) ? "html"
-                    : /^[{{[]/.test(trimmedBody) ? "invalid-json"
+                    : (trimmedBody.startsWith("{") || trimmedBody.startsWith("[")) ? "invalid-json"
                     : "plain-text";
                 if (bodyKind === "html") {{
                     const responseDocument = new DOMParser().parseFromString(postBody, "text/html");
