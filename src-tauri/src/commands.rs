@@ -567,6 +567,7 @@ struct ParsedAnimeGoListPage {
 
 struct AnimeGoHttpPage {
     status: u16,
+    retry_after_seconds: Option<u64>,
     text: String,
 }
 
@@ -868,7 +869,42 @@ async fn animego_fetch_account_page(
         }
         bytes.extend_from_slice(&chunk);
     }
-    Ok(AnimeGoHttpPage { status, text: String::from_utf8_lossy(&bytes).into_owned() })
+    let retry_after_seconds = response_retry_after_seconds(response.headers());
+    Ok(AnimeGoHttpPage { status, retry_after_seconds, text: String::from_utf8_lossy(&bytes).into_owned() })
+}
+
+/// Retry only rate-limited page requests. Successful requests keep the original
+/// fast path with no added delay. Retry-After is honored when it is an integer
+/// number of seconds; otherwise a short bounded exponential backoff is used.
+fn response_retry_after_seconds(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+    headers.get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<u64>().ok())
+}
+
+async fn animego_fetch_account_page_with_retry(
+    client: &reqwest::Client,
+    cookies: &mut HashMap<String, String>,
+    path: &str,
+    referer: &str,
+    turbo_frame: Option<&str>,
+) -> Result<AnimeGoHttpPage, String> {
+    const MAX_429_RETRIES: usize = 2;
+    const MAX_RETRY_WAIT_SECONDS: u64 = 30;
+
+    let mut retry = 0usize;
+    loop {
+        let page = animego_fetch_account_page(client, cookies, path, referer, turbo_frame).await?;
+        if page.status != 429 || retry >= MAX_429_RETRIES {
+            return Ok(page);
+        }
+
+        retry += 1;
+        let fallback = 2u64.saturating_pow(retry as u32);
+        let wait_seconds = page.retry_after_seconds.unwrap_or(fallback)
+            .clamp(1, MAX_RETRY_WAIT_SECONDS);
+        tokio::time::sleep(std::time::Duration::from_secs(wait_seconds)).await;
+    }
 }
 
 #[tauri::command]
@@ -897,7 +933,7 @@ pub async fn animego_account_list_fetch() -> Result<AnimeGoAccountListResponse, 
         .build()
         .map_err(|_| "Не удалось запустить защищённый HTTP-клиент AnimeGO.".to_string())?;
 
-    let home = animego_fetch_account_page(&client, &mut cookies, "/", ANIMEGO_ORIGIN, None).await?;
+    let home = animego_fetch_account_page_with_retry(&client, &mut cookies, "/", ANIMEGO_ORIGIN, None).await?;
     if !(200..300).contains(&home.status) {
         return Err(format!("AnimeGO не подтвердил сессию (HTTP {}). Повтори вход в аккаунт.", home.status));
     }
@@ -917,10 +953,10 @@ pub async fn animego_account_list_fetch() -> Result<AnimeGoAccountListResponse, 
     for list_type in 1u8..=6u8 {
         let referer = format!("{ANIMEGO_ORIGIN}/profile/{}?type={}", session.user_id, list_type);
         let profile_path = format!("/profile/{}?type={}", session.user_id, list_type);
-        let mut page = animego_fetch_account_page(&client, &mut cookies, &profile_path, ANIMEGO_ORIGIN, None).await?;
+        let mut page = animego_fetch_account_page_with_retry(&client, &mut cookies, &profile_path, ANIMEGO_ORIGIN, None).await?;
         if page.status == 404 {
             let fallback_path = format!("/user/{}?type={}", session.user_id, list_type);
-            page = animego_fetch_account_page(&client, &mut cookies, &fallback_path, ANIMEGO_ORIGIN, None).await?;
+            page = animego_fetch_account_page_with_retry(&client, &mut cookies, &fallback_path, ANIMEGO_ORIGIN, None).await?;
         }
         if !(200..300).contains(&page.status) {
             return Err(format!("AnimeGO не смог открыть категорию списка {} (HTTP {}).", list_type, page.status));
@@ -963,8 +999,7 @@ pub async fn animego_account_list_fetch() -> Result<AnimeGoAccountListResponse, 
                     list_type
                 ));
             }
-            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-            page = animego_fetch_account_page(
+            page = animego_fetch_account_page_with_retry(
                 &client,
                 &mut cookies,
                 &next_url,
