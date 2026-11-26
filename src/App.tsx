@@ -180,8 +180,14 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       }
       if (job.kind === "status" && job.payload.status && accounts.setStatus) {
         const result = await accounts.setStatus("animego", job.titleUrl, job.payload.status);
-        if (!result.verified) throw new Error("AnimeGO has not confirmed the saved list status yet.");
-        await commitAnimeGoWrite(job.externalId, "status", job.payload.status);
+        if (!result.submitted) throw new Error("AnimeGO did not accept the list status request.");
+        // The native command confirms that the POST was submitted. Do not
+        // advance the three-way baseline until a later full account snapshot
+        // actually contains the requested status. If the site ignored the
+        // mutation, the unchanged baseline makes the next sync enqueue it again.
+        if (result.verified) {
+          await commitAnimeGoWrite(job.externalId, "status", job.payload.status);
+        }
         return;
       }
       if (job.kind === "delete" && accounts.deleteFromList) {
