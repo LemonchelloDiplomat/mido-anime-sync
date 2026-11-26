@@ -34,7 +34,8 @@ pub fn run() {
             commands::animego_ipc_ready,
             animego_bridge::animego_ipc_test,
             animego_event_bridge::animego_bridge_stage,
-            animego_event_bridge::animego_bridge_complete
+            animego_event_bridge::animego_bridge_complete,
+            animego_event_bridge::animego_bridge_ping
         ])
         .run(tauri::generate_context!())
         .expect("error while running Mido Anime Sync");
