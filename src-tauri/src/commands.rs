@@ -470,8 +470,10 @@ pub async fn animego_auth_complete(app: tauri::AppHandle) -> Result<AnimeGoAuthS
         .map_err(|_| "Не удалось подготовить защищённую сессию AnimeGO.".to_string())?;
     streaming_secret_set(ANIMEGO_SESSION_KEY.to_string(), serialized)?;
 
+    // Keep the authenticated WebView2 alive as the first-party transport.
+    // Hide it after sign-in; animego_auth_open can show it again when needed.
     #[cfg(desktop)]
-    let _ = window.close();
+    window.hide().map_err(|_| "Не удалось скрыть окно AnimeGO после входа.".to_string())?;
     Ok(AnimeGoAuthStatus {
         connected: true,
         account_label,
