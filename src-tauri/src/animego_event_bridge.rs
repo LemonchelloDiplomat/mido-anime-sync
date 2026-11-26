@@ -111,6 +111,73 @@ pub async fn animego_bridge_ping(app: tauri::AppHandle) -> Result<Value, String>
     }
 }
 
+/// Runs an async JavaScript operation in the authenticated AnimeGO WebView and
+/// completes it through the event-driven IPC channel. The script may call
+/// window.__midoAnimeGoSetStage(stage) to report progress.
+pub async fn evaluate(
+    app: &tauri::AppHandle,
+    script: String,
+    timeout: Duration,
+) -> Result<Value, String> {
+    let window = app.get_webview_window(AUTH_WINDOW)
+        .ok_or_else(|| "Open and connect AnimeGO before changing account data.".to_string())?;
+    verify_auth_window(&window)?;
+
+    let op_id = Uuid::new_v4().to_string();
+    let (sender, receiver) = oneshot::channel();
+    {
+        let mut guard = pending().lock()
+            .map_err(|_| "AnimeGO operation registry is unavailable.".to_string())?;
+        guard.insert(op_id.clone(), PendingOperation { sender, stage: "dispatched".into() });
+    }
+
+    let op_json = serde_json::to_string(&op_id)
+        .map_err(|_| "Could not encode AnimeGO operation ID.".to_string())?;
+    let script_json = serde_json::to_string(&script)
+        .map_err(|_| "Could not encode AnimeGO script.".to_string())?;
+    let bootstrap = format!(r#"(() => {{
+      const opId = {op_json};
+      const source = {script_json};
+      const invoke = window.__TAURI__?.core?.invoke;
+      if (!invoke) return false;
+      const report = (result, error) => invoke('animego_bridge_complete', {{
+        opId, result: result ?? null, error: error ?? null
+      }}).catch(() => {{}});
+      window.__midoAnimeGoSetStage = (stage) => {{
+        invoke('animego_bridge_stage', {{ opId, stage: String(stage).slice(0, 120) }}).catch(() => {{}});
+      }};
+      Promise.resolve().then(() => (0, eval)(source)).then(result => {{
+        delete window.__midoAnimeGoSetStage;
+        let value = result ?? null;
+        if (typeof value === 'string') {{
+          try {{ value = JSON.parse(value); }} catch {{ value = {{ raw: value.slice(0, 50000) }}; }}
+        }}
+        return report(value, null);
+      }}).catch(error => {{
+        delete window.__midoAnimeGoSetStage;
+        return report(null, String(error?.message ?? error).slice(0, 500));
+      }});
+      return true;
+    }})()"#);
+
+    if let Err(error) = window.eval(&bootstrap) {
+        if let Ok(mut guard) = pending().lock() { guard.remove(&op_id); }
+        return Err(format!("Could not dispatch AnimeGO WebView operation: {error}"));
+    }
+
+    match tokio::time::timeout(timeout, receiver).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("AnimeGO operation ended before returning a result.".into()),
+        Err(_) => {
+            let stage = pending().lock().ok()
+                .and_then(|mut guard| guard.remove(&op_id))
+                .map(|operation| operation.stage)
+                .unwrap_or_else(|| "unknown".into());
+            Err(format!("AnimeGO operation timed out at stage: {stage}."))
+        }
+    }
+}
+
 /// Dispatches a narrowly-scoped status-add request inside the authenticated WebView2.
 /// Cookies and CSRF material never leave the browser context.
 pub async fn add_to_list(
