@@ -33,7 +33,7 @@ interface Props {
   runtimeRefreshing?: boolean;
   runtimeRefreshError?: string;
   onImportAnimeGoList?: (result: AnimeGoAccountListResponse) => Promise<void>;
-  onSyncAnimeGo?: () => Promise<{ imported: number; queued: number; deleted?: number; conflicts?: number }>;
+  onSyncAnimeGo?: (onProgress?: (message: string) => void) => Promise<{ imported: number; queued: number; deleted?: number; conflicts?: number; failed?: number; skipped?: number }>;
   onGetAnimeGoConflicts?: () => Promise<AnimeGoSyncConflict[]>;
   onResolveAnimeGoConflict?: (conflictId: string, choice: AnimeGoConflictChoice) => Promise<AnimeGoSyncConflict[]>;
 }
@@ -55,6 +55,8 @@ export function StreamingAccountManagerPanel({
   const [listLoading, setListLoading] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncMessage, setSyncMessage] = useState("");
+  const [syncProgress, setSyncProgress] = useState("");
+  const [syncReport, setSyncReport] = useState<{ imported: number; queued: number; deleted: number; conflicts: number; failed: number; skipped: number; completedAt: string } | null>(null);
   const [syncConflicts, setSyncConflicts] = useState<AnimeGoSyncConflict[]>([]);
   const [resolvingConflict, setResolvingConflict] = useState<string | null>(null);
   const syncCallbackRef = useRef(onSyncAnimeGo);
@@ -217,17 +219,28 @@ export function StreamingAccountManagerPanel({
     setSyncLoading(true);
     setError("");
     setSyncMessage("");
+    setSyncProgress("Подготавливаем синхронизацию…");
+    setSyncReport(null);
     try {
-      const result = await onSyncAnimeGo();
+      const result = await onSyncAnimeGo(setSyncProgress);
       if (onGetAnimeGoConflicts) setSyncConflicts(await onGetAnimeGoConflicts());
-      setSyncMessage(
-        `Синхронизация завершена. Получено/обновлено: ${result.imported}. Удалено из библиотеки: ${result.deleted ?? 0}. В очереди отправки: ${result.queued}. Конфликты: ${result.conflicts === undefined ? "пока не проверяются" : result.conflicts}.`,
-      );
+      const report = {
+        imported: result.imported,
+        queued: result.queued,
+        deleted: result.deleted ?? 0,
+        conflicts: result.conflicts ?? 0,
+        failed: result.failed ?? 0,
+        skipped: result.skipped ?? 0,
+        completedAt: new Date().toLocaleTimeString(),
+      };
+      setSyncReport(report);
+      setSyncMessage("Синхронизация завершена.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Не удалось синхронизировать AnimeGO.");
     } finally {
       syncInFlightRef.current = false;
       setSyncLoading(false);
+      setSyncProgress("");
     }
   }
 
@@ -412,12 +425,14 @@ export function StreamingAccountManagerPanel({
                   )}
                   {provider.id === "animego" && onSyncAnimeGo && (
                     <button
-                      className="primary-button"
+                      className="animego-sync-button"
                       type="button"
                       onClick={() => void syncAnimeGo()}
                       disabled={syncLoading || listLoading || disconnecting !== null}
+                      aria-busy={syncLoading}
                     >
-                      {syncLoading ? "Синхронизируем..." : "Синхронизировать"}
+                      {syncLoading ? <span className="animego-sync-spinner" aria-hidden="true" /> : <span className="animego-sync-icon" aria-hidden="true">↻</span>}
+                      {syncLoading ? "Синхронизация…" : "Синхронизировать"}
                     </button>
                   )}
                   {provider.id === "animego" && runtime.accounts.fetchList && (
@@ -439,7 +454,26 @@ export function StreamingAccountManagerPanel({
                     {disconnecting === provider.id ? "Отключаем..." : "Отключить"}
                   </button>
                 </div>
-                {provider.id === "animego" && syncMessage && <small role="status">{syncMessage}</small>}
+                {provider.id === "animego" && syncLoading && (
+                  <div className="animego-sync-progress" role="status" aria-live="polite">
+                    <span className="animego-sync-progress-spinner" aria-hidden="true" />
+                    <div><strong>Синхронизация AnimeGO</strong><small>{syncProgress || "Выполняем операции…"}</small></div>
+                  </div>
+                )}
+                {provider.id === "animego" && syncReport && (
+                  <section className="animego-sync-report" aria-live="polite">
+                    <div className="animego-sync-report-heading"><strong><span aria-hidden="true">✓</span> {syncMessage}</strong><small>{syncReport.completedAt}</small></div>
+                    <div className="animego-sync-report-grid">
+                      <div><strong>{syncReport.imported}</strong><span>Получено / обновлено</span></div>
+                      <div><strong>{syncReport.queued}</strong><span>В очереди отправки</span></div>
+                      <div><strong>{syncReport.conflicts}</strong><span>Конфликты</span></div>
+                      <div><strong>{syncReport.deleted}</strong><span>Удалено локально</span></div>
+                      <div><strong>{syncReport.failed}</strong><span>Ошибки очереди</span></div>
+                      <div><strong>{syncReport.skipped}</strong><span>Пропущено записей</span></div>
+                    </div>
+                    <small>Отправка в AnimeGO может завершиться после обработки очереди. Наличие записи в очереди ещё не означает подтверждённое сохранение на сайте.</small>
+                  </section>
+                )}
                 {provider.id === "animego" && syncConflicts.length > 0 && (
                   <div className="animego-sync-conflicts" aria-live="polite">
                     <h4>Конфликты синхронизации ({syncConflicts.length})</h4>
