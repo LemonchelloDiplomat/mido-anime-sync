@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::{
     collections::HashMap,
     sync::{Mutex, OnceLock},
@@ -9,7 +9,6 @@ use tokio::sync::oneshot;
 use uuid::Uuid;
 
 const AUTH_WINDOW: &str = "animego-auth";
-const ORIGIN: &str = "https://animego.me";
 const MAX_RESULT_BYTES: usize = 1024 * 1024;
 const OP_TIMEOUT: Duration = Duration::from_secs(25);
 
