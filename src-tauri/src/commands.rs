@@ -1926,12 +1926,14 @@ pub async fn animego_account_status_write(
             setStage("status_post_start");
             const actionPath = "/mylist/anime/" + animeId + "/" + listType + "/add";
             const postResponse = await fetch(new URL(actionPath, origin).href, {{
-                method: "POST", credentials: "include", redirect: "follow",
+                method: "POST",
+                credentials: "include",
+                redirect: "follow",
+                referrer: new URL(titlePath, origin).href,
                 headers: {{
                     "Accept": "*/*",
                     "X-Requested-With": "XMLHttpRequest",
-                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                    "Referer": new URL(titlePath, origin).href
+                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
                 }},
                 body: new URLSearchParams([["_token", token]]).toString()
             }});
