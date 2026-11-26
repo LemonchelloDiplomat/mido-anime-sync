@@ -1888,20 +1888,20 @@ pub async fn animego_account_status_write(
     let anime_id_json = serde_json::to_string(anime_id)
         .map_err(|_| "Не удалось подготовить ID тайтла AnimeGO.".to_string())?;
 
-    let script = format!(r#"(async () => {{{{
+    let script = format!(r#"(async () => {{
         const origin = "https://animego.me";
         const titlePath = {title_path_json};
         const expectedUserId = {user_id_json};
         const listType = {list_type_json};
         const animeId = {anime_id_json};
-        const fail = (message) => JSON.stringify({{{{ ok: false, error: String(message).slice(0, 500) }}}});
+        const fail = (message) => JSON.stringify({{ ok: false, error: String(message).slice(0, 500) }});
         const setStage = (stage) => window.__midoAnimeGoSetStage?.(stage);
         setStage("title_fetch_start");
-        try {{{{
-            const titleResponse = await fetch(new URL(titlePath, origin).href, {{{{
+        try {{
+            const titleResponse = await fetch(new URL(titlePath, origin).href, {{
                 method: "GET", credentials: "include", redirect: "follow",
-                headers: {{{{ "Accept": "text/html,application/xhtml+xml" }}}}
-            }}}});
+                headers: {{ "Accept": "text/html,application/xhtml+xml" }}
+            }});
             setStage("title_fetch_response_http_" + titleResponse.status);
             if (new URL(titleResponse.url).origin !== origin) return fail("Карточка тайтла перенаправила запрос за пределы AnimeGO.");
             if (!titleResponse.ok) return fail("Не удалось открыть карточку тайтла (HTTP " + titleResponse.status + ").");
@@ -1914,7 +1914,7 @@ pub async fn animego_account_status_write(
             const userRaw = titleDocument.documentElement?.dataset?.user;
             if (!userRaw) return fail("AnimeGO не подтвердил авторизованный профиль.");
             let user;
-            try {{{{ user = JSON.parse(userRaw); }}}} catch {{{{ return fail("Не удалось прочитать профиль AnimeGO."); }}}}
+            try {{ user = JSON.parse(userRaw); }} catch {{ return fail("Не удалось прочитать профиль AnimeGO."); }}
             const actualUserId = String(user.id ?? user.userId ?? "");
             if (actualUserId !== expectedUserId) return fail("Открыта сессия другого аккаунта AnimeGO.");
 
@@ -1925,16 +1925,16 @@ pub async fn animego_account_status_write(
 
             setStage("status_post_start");
             const actionPath = "/mylist/anime/" + animeId + "/" + listType + "/add";
-            const postResponse = await fetch(new URL(actionPath, origin).href, {{{{
+            const postResponse = await fetch(new URL(actionPath, origin).href, {{
                 method: "POST", credentials: "include", redirect: "follow",
-                headers: {{{{
+                headers: {{
                     "Accept": "*/*",
                     "X-Requested-With": "XMLHttpRequest",
                     "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
                     "Referer": new URL(titlePath, origin).href
-                }}}},
+                }},
                 body: new URLSearchParams([["_token", token]]).toString()
-            }}}});
+            }});
             if (new URL(postResponse.url).origin !== origin) return fail("Запрос записи перенаправлен за пределы AnimeGO.");
             setStage("status_post_response_http_" + postResponse.status);
             const postBody = await postResponse.text();
@@ -1942,14 +1942,14 @@ pub async fn animego_account_status_write(
             if (postBody.length > 2097152) return fail("Ответ AnimeGO после записи превышает лимит 2 МБ.");
             if (!postResponse.ok) return fail("AnimeGO отклонил изменение статуса (HTTP " + postResponse.status + ").");
 
-            const requestHtml = async (path) => {{{{
-                const response = await fetch(new URL(path, origin).href, {{{{
+            const requestHtml = async (path) => {{
+                const response = await fetch(new URL(path, origin).href, {{
                     method: "GET", credentials: "include", redirect: "follow",
-                    headers: {{{{ "Accept": "text/html,application/xhtml+xml" }}}}
-                }}}});
+                    headers: {{ "Accept": "text/html,application/xhtml+xml" }}
+                }});
                 if (new URL(response.url).origin !== origin) throw new Error("Проверка списка перенаправлена за пределы AnimeGO.");
-                return {{{{ response, html: await response.text() }}}};
-            }}}};
+                return {{ response, html: await response.text() }};
+            }};
             setStage("profile_fetch_start");
             let profileResult = await requestHtml("/profile/" + expectedUserId + "?type=" + listType);
             setStage("profile_fetch_response_http_" + profileResult.response.status);
@@ -1984,17 +1984,17 @@ pub async fn animego_account_status_write(
                 if (profileHtml.length > 8388608) return fail("Личный список AnimeGO превышает лимит 8 МБ.");
             }}
             setStage("verification_html_ready");
-            return JSON.stringify({{{{
+            return JSON.stringify({{
                 ok: true,
                 postStatus: postResponse.status,
                 profileStatus: profileResult.response.status,
                 titleHtml,
                 profileHtml
-            }}}});
-        }}}} catch (error) {{{{
+            }});
+        }} catch (error) {{
             return fail(error?.message ?? error);
-        }}}}
-    }}}})()"#);
+        }}
+    }})()"#);
 
     let payload = crate::animego_event_bridge::evaluate(
         &app, script, std::time::Duration::from_secs(35)
