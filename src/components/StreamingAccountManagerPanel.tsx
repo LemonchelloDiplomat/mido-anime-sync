@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { StreamingProviderId } from "../services/streaming-provider.js";
-import type { AnimeGoNetworkInspection, AnimeGoWriteInspection, StreamingAccountStatus } from "../services/streaming-account-manager.js";
+import type { AnimeGoNetworkInspection, AnimeGoProgressSnapshot, AnimeGoWriteInspection, StreamingAccountStatus } from "../services/streaming-account-manager.js";
 import type { StreamingRuntime } from "../services/platform/streaming-runtime.js";
 import type { AnimeGoAccountListResponse } from "../services/platform/web-streaming-account-manager.js";
 
@@ -54,6 +54,14 @@ export function StreamingAccountManagerPanel({
   const [targetAnimeGoStatus, setTargetAnimeGoStatus] = useState<"PLANNING" | "WATCHING" | "COMPLETED" | "ON_HOLD" | "DROPPED" | "REWATCHING">("WATCHING");
   const [statusWriting, setStatusWriting] = useState(false);
   const [statusWriteMessage, setStatusWriteMessage] = useState("");
+  const [targetAnimeGoRating, setTargetAnimeGoRating] = useState(8);
+  const [ratingWriting, setRatingWriting] = useState(false);
+  const [ratingWriteMessage, setRatingWriteMessage] = useState("");
+  const [targetAnimeGoProgress, setTargetAnimeGoProgress] = useState("0");
+  const [progressSnapshot, setProgressSnapshot] = useState<AnimeGoProgressSnapshot | null>(null);
+  const [progressLoading, setProgressLoading] = useState(false);
+  const [progressWriting, setProgressWriting] = useState(false);
+  const [progressWriteMessage, setProgressWriteMessage] = useState("");
 
   const [writeInspection, setWriteInspection] = useState<AnimeGoWriteInspection | null>(null);
   const [inspectionLoading, setInspectionLoading] = useState(false);
@@ -143,6 +151,11 @@ export function StreamingAccountManagerPanel({
       setListPreview(result);
       const preferred = result.items.find((item) => /91\\s*days|91\\s*ден/i.test(item.title + " " + (item.alternativeTitle ?? "")));
       setSelectedAnimeGoItemId(preferred?.listEntryId ?? result.items[0]?.listEntryId ?? "");
+      setTargetAnimeGoRating(preferred?.score ?? result.items[0]?.score ?? 8);
+      setTargetAnimeGoProgress(String(preferred?.episodesWatched ?? result.items[0]?.episodesWatched ?? 0));
+      setProgressSnapshot(null);
+      setRatingWriteMessage("");
+      setProgressWriteMessage("");
       setStatusWriteMessage("");
       setWriteInspection(null);
       setListImportMessage("");
@@ -235,6 +248,102 @@ export function StreamingAccountManagerPanel({
       setError(detail && detail !== "{}" ? detail : "Не удалось записать статус через AnimeGO. Подробности отсутствуют в ответе Tauri.");
     } finally {
       setStatusWriting(false);
+    }
+  }
+
+
+  async function writeAnimeGoRating() {
+    const item = listPreview?.items.find((candidate) => candidate.listEntryId === selectedAnimeGoItemId);
+    if (!item || !runtime?.accounts.setRating) return;
+    if (!Number.isInteger(targetAnimeGoRating) || targetAnimeGoRating < 1 || targetAnimeGoRating > 10) {
+      setRatingWriteMessage("Оценка должна быть целым числом от 1 до 10.");
+      return;
+    }
+    setRatingWriting(true);
+    setError("");
+    setRatingWriteMessage("");
+    try {
+      const result = await runtime.accounts.setRating("animego", item.url, targetAnimeGoRating);
+      if (!result.verified) {
+        setRatingWriteMessage("AnimeGO получил запрос, но сохранение оценки не подтверждено. Проверь страницу тайтла.");
+        return;
+      }
+      const confirmedRating = result.verifiedRating ?? result.rating;
+      setListPreview((current) => current ? {
+        ...current,
+        items: current.items.map((candidate) => candidate.listEntryId === item.listEntryId
+          ? { ...candidate, score: confirmedRating }
+          : candidate),
+      } : current);
+      setRatingWriteMessage("Оценка подтверждена AnimeGO: " + confirmedRating + "/10 · HTTP " + result.httpStatus + " · " + result.durationMs + " мс.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось записать оценку AnimeGO.");
+    } finally {
+      setRatingWriting(false);
+    }
+  }
+
+  async function readAnimeGoProgress() {
+    const item = listPreview?.items.find((candidate) => candidate.listEntryId === selectedAnimeGoItemId);
+    if (!item || !runtime?.accounts.fetchProgress) return;
+    setProgressLoading(true);
+    setError("");
+    setProgressWriteMessage("");
+    try {
+      const result = await runtime.accounts.fetchProgress("animego", item.url);
+      setProgressSnapshot(result);
+      setTargetAnimeGoProgress(String(result.watchedEpisodeNumber));
+      setProgressWriteMessage("Прочитано с AnimeGO: просмотрено " + result.watchedEpisodeNumber + " из " + result.episodes.length + " эпизодов · HTTP " + result.httpStatus + ".");
+    } catch (cause) {
+      setProgressSnapshot(null);
+      setError(cause instanceof Error ? cause.message : "Не удалось прочитать прогресс AnimeGO.");
+    } finally {
+      setProgressLoading(false);
+    }
+  }
+
+  async function writeAnimeGoProgress() {
+    const item = listPreview?.items.find((candidate) => candidate.listEntryId === selectedAnimeGoItemId);
+    if (!item || !runtime?.accounts.setProgress) return;
+    const progress = Number(targetAnimeGoProgress);
+    if (!Number.isInteger(progress) || progress < 0) {
+      setProgressWriteMessage("Укажи целое количество просмотренных эпизодов, начиная с 0.");
+      return;
+    }
+    if (item.episodesTotal !== null && progress > item.episodesTotal) {
+      setProgressWriteMessage("У этого тайтла всего " + item.episodesTotal + " эпизодов.");
+      return;
+    }
+    setProgressWriting(true);
+    setError("");
+    setProgressWriteMessage("");
+    try {
+      const result = await runtime.accounts.setProgress("animego", item.url, progress);
+      if (!result.verified) {
+        setProgressWriteMessage("AnimeGO получил запрос, но новый прогресс не подтверждён. Прочитай прогресс повторно и проверь сайт.");
+        return;
+      }
+      setProgressSnapshot((current) => current ? {
+        ...current,
+        watchedEpisodeNumber: result.watchedEpisodeNumber,
+        httpStatus: result.httpStatus,
+        durationMs: result.durationMs,
+        episodes: current.episodes.map((episode) => ({
+          ...episode,
+          watched: episode.episodeNumber <= result.watchedEpisodeNumber,
+        })),
+      } : current);
+      setListPreview((current) => current ? {
+        ...current,
+        items: current.items.map((candidate) => candidate.listEntryId === item.listEntryId
+          ? { ...candidate, episodesWatched: result.watchedEpisodeNumber }
+          : candidate),
+      } : current);
+      setProgressWriteMessage("Прогресс подтверждён AnimeGO: " + result.watchedEpisodeNumber + " эпизодов · изменено: " + result.changedEpisodes + " · HTTP " + result.httpStatus + " · " + result.durationMs + " мс.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось записать прогресс AnimeGO.");
+    } finally {
+      setProgressWriting(false);
     }
   }
 
@@ -429,7 +538,20 @@ export function StreamingAccountManagerPanel({
               <h4>Тест записи статуса через WebView2</h4>
               <label>
                 Тайтл AnimeGO
-                <select value={selectedAnimeGoItemId} onChange={(event) => setSelectedAnimeGoItemId(event.target.value)} disabled={statusWriting}>
+                <select
+                  value={selectedAnimeGoItemId}
+                  onChange={(event) => {
+                    const nextId = event.target.value;
+                    const nextItem = listPreview.items.find((item) => item.listEntryId === nextId);
+                    setSelectedAnimeGoItemId(nextId);
+                    setTargetAnimeGoRating(nextItem?.score ?? 8);
+                    setTargetAnimeGoProgress(String(nextItem?.episodesWatched ?? 0));
+                    setProgressSnapshot(null);
+                    setRatingWriteMessage("");
+                    setProgressWriteMessage("");
+                  }}
+                  disabled={statusWriting || ratingWriting || progressLoading || progressWriting}
+                >
                   {listPreview.items.map((item) => (
                     <option key={item.listEntryId} value={item.listEntryId}>{item.title} · тип {item.listType}</option>
                   ))}
@@ -451,6 +573,84 @@ export function StreamingAccountManagerPanel({
               </button>
               {statusWriteMessage && <p role="status">{statusWriteMessage}</p>}
               <small>Изменится только выбранный тайтл. Перед записью убедись, что выбран правильный аккаунт и статус.</small>
+            </div>
+          )}
+
+
+          {runtime?.platform === "windows-native" && listPreview.items.length > 0 && (
+            <div className="native-account-status-test">
+              <h4>Тест записи оценки и прогресса</h4>
+              <p>Операции выполняются только для выбранного выше тайтла и проверяются повторным чтением AnimeGO.</p>
+              {runtime.accounts.setRating && (
+                <>
+                  <label>
+                    Оценка AnimeGO (1–10)
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      step="1"
+                      value={targetAnimeGoRating}
+                      onChange={(event) => setTargetAnimeGoRating(Number(event.target.value))}
+                      disabled={ratingWriting || statusWriting || progressWriting}
+                    />
+                  </label>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => void writeAnimeGoRating()}
+                    disabled={ratingWriting || statusWriting || progressWriting || !selectedAnimeGoItemId}
+                  >
+                    {ratingWriting ? "Записываем и проверяем..." : "Записать оценку на AnimeGO"}
+                  </button>
+                  {ratingWriteMessage && <p role="status">{ratingWriteMessage}</p>}
+                </>
+              )}
+              {(runtime.accounts.fetchProgress || runtime.accounts.setProgress) && (
+                <>
+                  <div className="native-account-progress-readout">
+                    {progressSnapshot
+                      ? "Текущий прогресс: " + progressSnapshot.watchedEpisodeNumber + " / " + progressSnapshot.episodes.length
+                      : "Текущий прогресс ещё не прочитан."}
+                  </div>
+                  {runtime.accounts.fetchProgress && (
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => void readAnimeGoProgress()}
+                      disabled={progressLoading || progressWriting || ratingWriting || statusWriting || !selectedAnimeGoItemId}
+                    >
+                      {progressLoading ? "Читаем AnimeGO..." : "Прочитать прогресс эпизодов"}
+                    </button>
+                  )}
+                  {runtime.accounts.setProgress && (
+                    <>
+                      <label>
+                        Просмотрено эпизодов
+                        <input
+                          type="number"
+                          min="0"
+                          max={listPreview.items.find((item) => item.listEntryId === selectedAnimeGoItemId)?.episodesTotal ?? undefined}
+                          step="1"
+                          value={targetAnimeGoProgress}
+                          onChange={(event) => setTargetAnimeGoProgress(event.target.value)}
+                          disabled={progressLoading || progressWriting || ratingWriting || statusWriting}
+                        />
+                      </label>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => void writeAnimeGoProgress()}
+                        disabled={progressLoading || progressWriting || ratingWriting || statusWriting || !selectedAnimeGoItemId}
+                      >
+                        {progressWriting ? "Записываем и проверяем..." : "Записать прогресс на AnimeGO"}
+                      </button>
+                    </>
+                  )}
+                  {progressWriteMessage && <p role="status">{progressWriteMessage}</p>}
+                </>
+              )}
+              <small>Оценка и прогресс изменяют данные на сайте AnimeGO. Для первого теста выбери тайтл, на котором не жалко изменить эти значения.</small>
             </div>
           )}
 
