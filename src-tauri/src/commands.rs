@@ -382,7 +382,7 @@ async fn animego_webview_eval_json(
     let key_json = serde_json::to_string(&operation_key)
         .map_err(|_| "Не удалось подготовить идентификатор операции AnimeGO.".to_string())?;
     let bootstrap = format!(
-        "(() => {{ const key = {key_json}; window[key] = {{ state: 'pending' }}; Promise.resolve().then(() => ({script})).then((result) => {{ window[key] = {{ state: 'done', result: result ?? null }}; }}).catch((error) => {{ window[key] = {{ state: 'error', error: String(error?.message ?? error).slice(0, 500) }}; }}); return true; }})()"
+        "(() => {{ const key = {key_json}; window[key] = {{ state: 'pending', stage: 'bootstrap' }}; window.__midoAnimeGoSetStage = (stage) => {{ if (window[key]?.state === 'pending') window[key].stage = String(stage).slice(0, 120); }}; Promise.resolve().then(() => ({script})).then((result) => {{ window[key] = {{ state: 'done', stage: window[key]?.stage ?? 'completed', result: result ?? null }}; delete window.__midoAnimeGoSetStage; }}).catch((error) => {{ window[key] = {{ state: 'error', stage: window[key]?.stage ?? 'unknown', error: String(error?.message ?? error).slice(0, 500) }}; delete window.__midoAnimeGoSetStage; }}); return true; }})()"
     );
     window.eval(&bootstrap)
         .map_err(|error| format!("WEBVIEW_EVALUATION_FAILED: {error}"))?;
@@ -430,9 +430,10 @@ async fn animego_webview_eval_json(
             Some(other) => return Err(format!("Неизвестное состояние операции WebView2: {other}")),
         }
         if tokio::time::Instant::now() >= deadline {
-            let cleanup = format!("delete window[{key_json}]; true");
+            let stage = state.get("stage").and_then(Value::as_str).unwrap_or("unknown");
+            let cleanup = format!("delete window[{key_json}]; delete window.__midoAnimeGoSetStage; true");
             let _ = window.eval(&cleanup);
-            return Err("Истекло время ожидания асинхронной операции AnimeGO.".to_string());
+            return Err(format!("Истекло время ожидания асинхронной операции AnimeGO. Последний этап: {stage}."));
         }
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
@@ -1894,15 +1895,21 @@ pub async fn animego_account_status_write(
         const listType = {list_type_json};
         const animeId = {anime_id_json};
         const fail = (message) => JSON.stringify({{{{ ok: false, error: String(message).slice(0, 500) }}}});
+        const setStage = (stage) => window.__midoAnimeGoSetStage?.(stage);
+        setStage("title_fetch_start");
         try {{{{
             const titleResponse = await fetch(new URL(titlePath, origin).href, {{{{
                 method: "GET", credentials: "include", redirect: "follow",
                 headers: {{{{ "Accept": "text/html,application/xhtml+xml" }}}}
             }}}});
+            setStage("title_fetch_response_http_" + titleResponse.status);
             if (new URL(titleResponse.url).origin !== origin) return fail("Карточка тайтла перенаправила запрос за пределы AnimeGO.");
             if (!titleResponse.ok) return fail("Не удалось открыть карточку тайтла (HTTP " + titleResponse.status + ").");
+            setStage("title_read_body");
             const titleHtml = await titleResponse.text();
+            setStage("title_body_received");
             if (titleHtml.length > 2097152) return fail("HTML карточки тайтла превышает лимит 2 МБ.");
+            setStage("title_parse_html");
             const titleDocument = new DOMParser().parseFromString(titleHtml, "text/html");
             const userRaw = titleDocument.documentElement?.dataset?.user;
             if (!userRaw) return fail("AnimeGO не подтвердил авторизованный профиль.");
@@ -1911,10 +1918,12 @@ pub async fn animego_account_status_write(
             const actualUserId = String(user.id ?? user.userId ?? "");
             if (actualUserId !== expectedUserId) return fail("Открыта сессия другого аккаунта AnimeGO.");
 
+            setStage("csrf_lookup");
             const tokenInput = titleDocument.querySelector("input[name='_token'], input[name='token']");
             const token = tokenInput?.value?.trim();
             if (!token) return fail("На странице AnimeGO не найден CSRF-токен.");
 
+            setStage("status_post_start");
             const actionPath = "/mylist/anime/" + animeId + "/" + listType + "/add";
             const postResponse = await fetch(new URL(actionPath, origin).href, {{{{
                 method: "POST", credentials: "include", redirect: "follow",
@@ -1927,7 +1936,9 @@ pub async fn animego_account_status_write(
                 body: new URLSearchParams([["_token", token]]).toString()
             }}}});
             if (new URL(postResponse.url).origin !== origin) return fail("Запрос записи перенаправлен за пределы AnimeGO.");
+            setStage("status_post_response_http_" + postResponse.status);
             const postBody = await postResponse.text();
+            setStage("status_post_body_received");
             if (postBody.length > 2097152) return fail("Ответ AnimeGO после записи превышает лимит 2 МБ.");
             if (!postResponse.ok) return fail("AnimeGO отклонил изменение статуса (HTTP " + postResponse.status + ").");
 
@@ -1939,11 +1950,15 @@ pub async fn animego_account_status_write(
                 if (new URL(response.url).origin !== origin) throw new Error("Проверка списка перенаправлена за пределы AnimeGO.");
                 return {{{{ response, html: await response.text() }}}};
             }}}};
+            setStage("profile_fetch_start");
             let profileResult = await requestHtml("/profile/" + expectedUserId + "?type=" + listType);
+            setStage("profile_fetch_response_http_" + profileResult.response.status);
             // Current AnimeGO account lists are served from /user/{{id}}; /profile/{{id}}
             // may return 404 even though the account and its lists are valid.
             if (profileResult.response.status === 404) {{
+                setStage("profile_fallback_fetch_start");
                 profileResult = await requestHtml("/user/" + expectedUserId + "?type=" + listType);
+                setStage("profile_fallback_response_http_" + profileResult.response.status);
             }}
             if (!profileResult.response.ok) return fail("Не удалось проверить личный список (HTTP " + profileResult.response.status + ").");
             let profileHtml = profileResult.html;
@@ -1961,11 +1976,14 @@ pub async fn animego_account_status_write(
                 const nextPath = nextUrl.pathname + nextUrl.search;
                 if (visitedPages.has(nextPath)) break;
                 visitedPages.add(nextPath);
+                setStage("pagination_fetch_" + (page + 1));
                 const nextResult = await requestHtml(nextPath);
+                setStage("pagination_response_" + (page + 1) + "_http_" + nextResult.response.status);
                 if (!nextResult.response.ok) break;
                 profileHtml += nextResult.html;
                 if (profileHtml.length > 8388608) return fail("Личный список AnimeGO превышает лимит 8 МБ.");
             }}
+            setStage("verification_html_ready");
             return JSON.stringify({{{{
                 ok: true,
                 postStatus: postResponse.status,
