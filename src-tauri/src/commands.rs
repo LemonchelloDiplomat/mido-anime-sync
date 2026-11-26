@@ -1807,14 +1807,13 @@ pub async fn animego_account_status_write(
     let list_type = animego_status_list_type(&status)?;
     let (safe_title, http_status, submitted, duration_ms) =
         animego_submit_list_mutation(title_url, Some(list_type)).await?;
-    let fetched = animego_account_list_fetch().await?;
-    let anime_id = safe_title.path().trim_end_matches('/').rsplit('-').next().unwrap_or("");
-    let verified = fetched.items.iter().any(|item|
-        item.anime_id.as_deref() == Some(anime_id) && item.list_type == list_type
-    );
+    // Do not fetch all account lists (potentially hundreds of entries) for every
+    // single write. A failure or rate limit during that unrelated full refresh
+    // must not turn a submitted POST into a failed queue job. The next normal
+    // account sync verifies the remote state against the unchanged baseline.
     Ok(AnimeGoStatusWriteResult {
         provider: "animego", title_url: safe_title.to_string(), status, list_type,
-        http_status, submitted, verified, duration_ms,
+        http_status, submitted, verified: false, duration_ms,
     })
 }
 
