@@ -16,7 +16,7 @@ const PROVIDERS: ProviderCard[] = [
     id: "animego",
     name: "AnimeGO",
     description: "Аккаунт и личный список просмотра",
-    limitation: "Вход через встроенное окно Windows. Личный список читается через защищённую нативную сессию. Запись оценки поддерживается с проверкой результата и офлайн-очередью; статус, прогресс и удаление пока не записываются.",
+    limitation: "Вход через встроенное окно Windows. Личный список читается через защищённую сессию; тестовая запись статуса выполняется через авторизованный WebView2 с проверкой результата.",
   },
   {
     id: "anixart",
@@ -50,6 +50,11 @@ export function StreamingAccountManagerPanel({
   const [listImportMessage, setListImportMessage] = useState("");
   const [authWindowOpened, setAuthWindowOpened] = useState(false);
   const [listPreview, setListPreview] = useState<AnimeGoAccountListResponse | null>(null);
+  const [selectedAnimeGoItemId, setSelectedAnimeGoItemId] = useState("");
+  const [targetAnimeGoStatus, setTargetAnimeGoStatus] = useState<"PLANNING" | "WATCHING" | "COMPLETED" | "ON_HOLD" | "DROPPED" | "REWATCHING">("WATCHING");
+  const [statusWriting, setStatusWriting] = useState(false);
+  const [statusWriteMessage, setStatusWriteMessage] = useState("");
+
   const [writeInspection, setWriteInspection] = useState<AnimeGoWriteInspection | null>(null);
   const [inspectionLoading, setInspectionLoading] = useState(false);
   const [networkInspection, setNetworkInspection] = useState<AnimeGoNetworkInspection | null>(null);
@@ -136,6 +141,9 @@ export function StreamingAccountManagerPanel({
     try {
       const result = await runtime.accounts.fetchList("animego") as AnimeGoAccountListResponse;
       setListPreview(result);
+      const preferred = result.items.find((item) => /91\\s*days|91\\s*ден/i.test(item.title + " " + (item.alternativeTitle ?? "")));
+      setSelectedAnimeGoItemId(preferred?.listEntryId ?? result.items[0]?.listEntryId ?? "");
+      setStatusWriteMessage("");
       setWriteInspection(null);
       setListImportMessage("");
     } catch (cause) {
@@ -195,6 +203,27 @@ export function StreamingAccountManagerPanel({
       setError(cause instanceof Error ? cause.message : "Не удалось собрать сетевые метаданные AnimeGO.");
     } finally {
       setNetworkInspectionLoading(false);
+    }
+  }
+
+  async function writeAnimeGoStatus() {
+    const item = listPreview?.items.find((candidate) => candidate.listEntryId === selectedAnimeGoItemId);
+    if (!item || !runtime?.accounts.setStatus) return;
+    setStatusWriting(true);
+    setError("");
+    setStatusWriteMessage("");
+    try {
+      const result = await runtime.accounts.setStatus("animego", item.url, targetAnimeGoStatus);
+      if (!result.verified) {
+        setStatusWriteMessage("Запрос отправлен, но AnimeGO не подтвердил новый статус. Проверь список на сайте.");
+        return;
+      }
+      setStatusWriteMessage("Статус подтверждён AnimeGO. HTTP " + result.httpStatus + " · " + result.durationMs + " мс.");
+      await loadAnimeGoList();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось записать статус через AnimeGO.");
+    } finally {
+      setStatusWriting(false);
     }
   }
 
@@ -384,6 +413,36 @@ export function StreamingAccountManagerPanel({
           </ul>
           {listPreview.total > 12 && <small>И ещё {listPreview.total - 12} записей.</small>}
           {onImportAnimeGoList && <button className="secondary-button" type="button" onClick={() => void importAnimeGoList()} disabled={listImporting || listLoading}>{listImporting ? "Импортируем..." : "Импортировать в библиотеку"}</button>}
+          {runtime?.platform === "windows-native" && runtime.accounts.setStatus && listPreview.items.length > 0 && (
+            <div className="native-account-status-test">
+              <h4>Тест записи статуса через WebView2</h4>
+              <label>
+                Тайтл AnimeGO
+                <select value={selectedAnimeGoItemId} onChange={(event) => setSelectedAnimeGoItemId(event.target.value)} disabled={statusWriting}>
+                  {listPreview.items.map((item) => (
+                    <option key={item.listEntryId} value={item.listEntryId}>{item.title} · тип {item.listType}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Новый статус
+                <select value={targetAnimeGoStatus} onChange={(event) => setTargetAnimeGoStatus(event.target.value as typeof targetAnimeGoStatus)} disabled={statusWriting}>
+                  <option value="PLANNING">В планах</option>
+                  <option value="WATCHING">Смотрю</option>
+                  <option value="COMPLETED">Просмотрено</option>
+                  <option value="ON_HOLD">Отложено</option>
+                  <option value="DROPPED">Брошено</option>
+                  <option value="REWATCHING">Пересматриваю</option>
+                </select>
+              </label>
+              <button className="secondary-button" type="button" onClick={() => void writeAnimeGoStatus()} disabled={statusWriting || !selectedAnimeGoItemId}>
+                {statusWriting ? "Записываем и проверяем..." : "Записать статус на AnimeGO"}
+              </button>
+              {statusWriteMessage && <p role="status">{statusWriteMessage}</p>}
+              <small>Изменится только выбранный тайтл. Перед записью убедись, что выбран правильный аккаунт и статус.</small>
+            </div>
+          )}
+
           {runtime?.accounts.inspectWriteCapabilities && listPreview.items.length > 0 && (
             <button className="secondary-button" type="button" onClick={() => void inspectAnimeGoWriteCapabilities()} disabled={inspectionLoading || listLoading || listImporting}>
               {inspectionLoading ? "Изучаем страницу..." : "Исследовать формы и скрипты (без изменений)"}
