@@ -1937,15 +1937,44 @@ pub async fn animego_account_status_write(
             }});
             if (new URL(postResponse.url).origin !== origin) return fail("Запрос записи перенаправлен за пределы AnimeGO.");
             setStage("status_post_response_http_" + postResponse.status);
+            const postContentType = postResponse.headers.get("content-type") ?? "unknown";
+            const postFinalUrl = new URL(postResponse.url);
             const postBody = await postResponse.text();
             setStage("status_post_body_received");
             if (postBody.length > 2097152) return fail("Ответ AnimeGO после записи превышает лимит 2 МБ.");
-            if (!postResponse.ok) return fail("AnimeGO отклонил изменение статуса (HTTP " + postResponse.status + ").");
+            if (!postResponse.ok) {{
+                return fail("AnimeGO отклонил изменение статуса: HTTP " + postResponse.status
+                    + "; Content-Type=" + postContentType
+                    + "; URL=" + postFinalUrl.pathname
+                    + "; redirected=" + postResponse.redirected + ".");
+            }}
 
             let postData;
             try {{ postData = JSON.parse(postBody); }}
-            catch {{ return fail("AnimeGO вернул некорректный JSON после изменения статуса."); }}
-            if (postData?.status !== "success") return fail("AnimeGO не подтвердил изменение статуса.");
+            catch {{
+                const trimmedBody = postBody.trimStart();
+                let bodyKind = !trimmedBody ? "empty"
+                    : /^<!doctype html|^<html/i.test(trimmedBody) ? "html"
+                    : /^[{{[]/.test(trimmedBody) ? "invalid-json"
+                    : "plain-text";
+                if (bodyKind === "html") {{
+                    const responseDocument = new DOMParser().parseFromString(postBody, "text/html");
+                    const titleText = (responseDocument.querySelector("title")?.textContent ?? "").toLowerCase();
+                    if (/captcha|cloudflare|проверка безопасности/.test(titleText)) bodyKind = "captcha-page";
+                    else if (/login|sign in|вход|авторизац/.test(titleText) || /\\/login(?:[/?#]|$)/i.test(postFinalUrl.pathname)) bodyKind = "login-page";
+                    else if (/403|forbidden|доступ запрещ/.test(titleText)) bodyKind = "forbidden-page";
+                }}
+                return fail("AnimeGO вернул не JSON: HTTP " + postResponse.status
+                    + "; Content-Type=" + postContentType
+                    + "; URL=" + postFinalUrl.pathname
+                    + "; redirected=" + postResponse.redirected
+                    + "; body=" + bodyKind
+                    + "; bytes=" + new TextEncoder().encode(postBody).length + ".");
+            }}
+            if (postData?.status !== "success") {{
+                return fail("AnimeGO вернул JSON, но не подтвердил запись: status="
+                    + String(postData?.status ?? "missing") + "; HTTP=" + postResponse.status + ".");
+            }}
 
             const buttonHtml = postData?.data?.button;
             if (typeof buttonHtml !== "string" || !buttonHtml.trim()) {{
