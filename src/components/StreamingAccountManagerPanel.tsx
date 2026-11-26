@@ -33,7 +33,7 @@ interface Props {
   runtimeRefreshing?: boolean;
   runtimeRefreshError?: string;
   onImportAnimeGoList?: (result: AnimeGoAccountListResponse) => Promise<void>;
-  onSyncAnimeGo?: () => Promise<{ imported: number; queued: number; deleted?: number; conflicts?: number; failed?: number; skipped?: number }>;
+  onSyncAnimeGo?: (onProgress?: (message: string) => void) => Promise<{ imported: number; queued: number; deleted?: number; conflicts?: number; failed?: number; skipped?: number }>;
   onGetAnimeGoConflicts?: () => Promise<AnimeGoSyncConflict[]>;
   onResolveAnimeGoConflict?: (conflictId: string, choice: AnimeGoConflictChoice) => Promise<AnimeGoSyncConflict[]>;
 }
@@ -220,7 +220,7 @@ export function StreamingAccountManagerPanel({
     setSyncMessage("");
     setSyncReport(null);
     try {
-      const result = await onSyncAnimeGo();
+      const result = await onSyncAnimeGo(() => undefined);
       if (onGetAnimeGoConflicts) setSyncConflicts(await onGetAnimeGoConflicts());
       const report = {
         imported: result.imported,
