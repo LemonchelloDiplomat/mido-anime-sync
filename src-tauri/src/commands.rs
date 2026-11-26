@@ -410,6 +410,8 @@ async fn animego_webview_eval_json(
         }
         match state.get("state").and_then(Value::as_str) {
             Some("done") => {
+                let cleanup = format!("delete window[{key_json}]; true");
+                let _ = window.eval(&cleanup);
                 let result = state.get("result").cloned()
                     .ok_or_else(|| "WebView2 AnimeGO завершил операцию без результата.".to_string())?;
                 if let Some(serialized) = result.as_str() {
@@ -419,6 +421,8 @@ async fn animego_webview_eval_json(
                 return Ok(result);
             }
             Some("error") => {
+                let cleanup = format!("delete window[{key_json}]; true");
+                let _ = window.eval(&cleanup);
                 return Err(state.get("error").and_then(Value::as_str)
                     .unwrap_or("Асинхронная операция AnimeGO завершилась ошибкой.").to_string());
             }
