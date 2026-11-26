@@ -365,6 +365,30 @@ fn animego_user_from_html(html: &str) -> Option<(String, Option<String>)> {
     animego_user_from_json(user_json)
 }
 
+async fn animego_webview_eval_json(
+    window: &tauri::WebviewWindow,
+    script: String,
+    timeout: std::time::Duration,
+) -> Result<Value, String> {
+    let (sender, receiver) = std::sync::mpsc::channel::<String>();
+    window.eval_with_callback(&script, move |result| {
+        let _ = sender.send(result);
+    }).map_err(|_| "Не удалось выполнить запрос внутри WebView2 AnimeGO.".to_string())?;
+
+    let callback_result = tauri::async_runtime::spawn_blocking(move || {
+        receiver.recv_timeout(timeout)
+    }).await.map_err(|_| "Не удалось дождаться ответа WebView2 AnimeGO.".to_string())?
+        .map_err(|_| "WebView2 AnimeGO не вернул ответ вовремя.".to_string())?;
+
+    let mut value: Value = serde_json::from_str(&callback_result)
+        .map_err(|_| "WebView2 AnimeGO вернул некорректный ответ.".to_string())?;
+    if let Some(serialized) = value.as_str() {
+        value = serde_json::from_str(serialized)
+            .map_err(|_| "WebView2 AnimeGO вернул некорректные данные.".to_string())?;
+    }
+    Ok(value)
+}
+
 async fn animego_user_from_webview(window: &tauri::WebviewWindow) -> Result<(String, Option<String>), String> {
     let (sender, receiver) = std::sync::mpsc::channel::<String>();
     window.eval_with_callback(
@@ -1768,20 +1792,156 @@ async fn animego_submit_list_mutation(
 
 #[tauri::command]
 pub async fn animego_account_status_write(
+    app: tauri::AppHandle,
     title_url: String,
     status: String,
 ) -> Result<AnimeGoStatusWriteResult, String> {
+    use tauri::Manager;
+
+    let started = std::time::Instant::now();
     let list_type = animego_status_list_type(&status)?;
-    let (safe_title, http_status, submitted, duration_ms) =
-        animego_submit_list_mutation(title_url, Some(list_type)).await?;
-    let fetched = animego_account_list_fetch().await?;
-    let anime_id = safe_title.path().trim_end_matches('/').rsplit('-').next().unwrap_or("");
-    let verified = fetched.items.iter().any(|item|
-        item.anime_id.as_deref() == Some(anime_id) && item.list_type == list_type
-    );
+    let requested = reqwest::Url::parse(&title_url)
+        .map_err(|_| "Некорректная ссылка на тайтл AnimeGO.".to_string())?;
+    let origin = reqwest::Url::parse(ANIMEGO_ORIGIN)
+        .map_err(|_| "Некорректный адрес AnimeGO.".to_string())?;
+    let safe_title = safe_animego_title_url(requested.as_str(), &origin)
+        .ok_or_else(|| "Для изменения статуса нужна HTTPS-ссылка на карточку animego.me/anime/…".to_string())?;
+    let slug = safe_title.path().trim_end_matches('/').rsplit('/').next().unwrap_or("");
+    let anime_id = slug.rsplit_once('-').map(|(_, id)| id)
+        .filter(|id| !id.is_empty() && id.chars().all(|ch| ch.is_ascii_digit()))
+        .ok_or_else(|| "Не удалось определить ID тайтла AnimeGO.".to_string())?;
+
+    let raw = streaming_secret_get(ANIMEGO_SESSION_KEY.to_string())?
+        .ok_or_else(|| "Сначала подключи аккаунт AnimeGO.".to_string())?;
+    let session: AnimeGoStoredSession = serde_json::from_str(&raw)
+        .map_err(|_| "Сохранённая сессия AnimeGO повреждена. Подключи аккаунт заново.".to_string())?;
+    if session.user_id.is_empty() || !session.user_id.chars().all(|ch| ch.is_ascii_digit()) {
+        return Err("Сохранённая сессия AnimeGO неполная. Подключи аккаунт заново.".to_string());
+    }
+
+    let window = app.get_webview_window(ANIMEGO_AUTH_WINDOW)
+        .ok_or_else(|| "Окно авторизованной сессии AnimeGO не найдено. Открой AnimeGO и повтори операцию.".to_string())?;
+    let current_url = window.url()
+        .map_err(|_| "Не удалось проверить адрес окна AnimeGO.".to_string())?;
+    if current_url.scheme() != "https" || current_url.host_str() != Some("animego.me") {
+        return Err("Окно AnimeGO находится вне доверенного домена. Открой AnimeGO и повтори операцию.".to_string());
+    }
+
+    let title_path = format!("{}{}", safe_title.path(),
+        safe_title.query().map(|query| format!("?{query}")).unwrap_or_default());
+    let title_path_json = serde_json::to_string(&title_path)
+        .map_err(|_| "Не удалось подготовить адрес тайтла AnimeGO.".to_string())?;
+    let user_id_json = serde_json::to_string(&session.user_id)
+        .map_err(|_| "Не удалось подготовить идентификатор аккаунта AnimeGO.".to_string())?;
+    let list_type_json = serde_json::to_string(&list_type)
+        .map_err(|_| "Не удалось подготовить категорию списка AnimeGO.".to_string())?;
+    let anime_id_json = serde_json::to_string(anime_id)
+        .map_err(|_| "Не удалось подготовить ID тайтла AnimeGO.".to_string())?;
+
+    let script = format!(r#"(async () => {{
+        const origin = "https://animego.me";
+        const titlePath = {title_path_json};
+        const expectedUserId = {user_id_json};
+        const listType = {list_type_json};
+        const animeId = {anime_id_json};
+        const fail = (message) => JSON.stringify({{ ok: false, error: String(message).slice(0, 500) }});
+        try {{
+            const titleResponse = await fetch(new URL(titlePath, origin).href, {{
+                method: "GET", credentials: "include", redirect: "follow",
+                headers: {{ "Accept": "text/html,application/xhtml+xml" }}
+            }});
+            if (new URL(titleResponse.url).origin !== origin) return fail("Карточка тайтла перенаправила запрос за пределы AnimeGO.");
+            if (!titleResponse.ok) return fail("Не удалось открыть карточку тайтла (HTTP " + titleResponse.status + ").");
+            const titleHtml = await titleResponse.text();
+            if (titleHtml.length > 2097152) return fail("HTML карточки тайтла превышает лимит 2 МБ.");
+            const titleDocument = new DOMParser().parseFromString(titleHtml, "text/html");
+            const userRaw = titleDocument.documentElement?.dataset?.user;
+            if (!userRaw) return fail("AnimeGO не подтвердил авторизованный профиль.");
+            let user;
+            try {{ user = JSON.parse(userRaw); }} catch {{ return fail("Не удалось прочитать профиль AnimeGO."); }}
+            const actualUserId = String(user.id ?? user.userId ?? "");
+            if (actualUserId !== expectedUserId) return fail("Открыта сессия другого аккаунта AnimeGO.");
+
+            const tokenInput = titleDocument.querySelector("input[name='_token'], input[name='token']");
+            const token = tokenInput?.value?.trim();
+            if (!token) return fail("На странице AnimeGO не найден CSRF-токен.");
+
+            const actionPath = "/mylist/anime/" + animeId + "/" + listType + "/add";
+            const postResponse = await fetch(new URL(actionPath, origin).href, {{
+                method: "POST", credentials: "include", redirect: "follow",
+                headers: {{
+                    "Accept": "*/*",
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                    "Referer": new URL(titlePath, origin).href
+                }},
+                body: new URLSearchParams([["_token", token]]).toString()
+            }});
+            if (new URL(postResponse.url).origin !== origin) return fail("Запрос записи перенаправлен за пределы AnimeGO.");
+            const postBody = await postResponse.text();
+            if (postBody.length > 2097152) return fail("Ответ AnimeGO после записи превышает лимит 2 МБ.");
+            if (!postResponse.ok) return fail("AnimeGO отклонил изменение статуса (HTTP " + postResponse.status + ").");
+
+            const profilePath = "/profile/" + expectedUserId + "?type=" + listType;
+            const profileResponse = await fetch(new URL(profilePath, origin).href, {{
+                method: "GET", credentials: "include", redirect: "follow",
+                headers: {{ "Accept": "text/html,application/xhtml+xml" }}
+            }});
+            if (new URL(profileResponse.url).origin !== origin) return fail("Проверка списка перенаправлена за пределы AnimeGO.");
+            if (!profileResponse.ok) return fail("Не удалось проверить личный список (HTTP " + profileResponse.status + ").");
+            const profileHtml = await profileResponse.text();
+            if (profileHtml.length > 2097152) return fail("HTML личного списка превышает лимит 2 МБ.");
+            return JSON.stringify({{
+                ok: true,
+                postStatus: postResponse.status,
+                profileStatus: profileResponse.status,
+                titleHtml,
+                profileHtml
+            }});
+        }} catch (error) {{
+            return fail(error?.message ?? error);
+        }}
+    }})()"#);
+
+    let payload = animego_webview_eval_json(
+        &window, script, std::time::Duration::from_secs(35)
+    ).await?;
+    if payload.get("ok").and_then(Value::as_bool) != Some(true) {
+        let message = payload.get("error").and_then(Value::as_str)
+            .unwrap_or("Не удалось выполнить запись статуса через WebView2 AnimeGO.");
+        return Err(message.to_string());
+    }
+    let post_status = payload.get("postStatus").and_then(Value::as_u64)
+        .and_then(|value| u16::try_from(value).ok())
+        .ok_or_else(|| "AnimeGO не вернул HTTP-статус операции.".to_string())?;
+    let profile_status = payload.get("profileStatus").and_then(Value::as_u64)
+        .and_then(|value| u16::try_from(value).ok())
+        .ok_or_else(|| "AnimeGO не вернул статус проверки списка.".to_string())?;
+    let title_html = payload.get("titleHtml").and_then(Value::as_str)
+        .ok_or_else(|| "AnimeGO не вернул карточку тайтла для проверки аккаунта.".to_string())?;
+    let profile_html = payload.get("profileHtml").and_then(Value::as_str)
+        .ok_or_else(|| "AnimeGO не вернул личный список для проверки.".to_string())?;
+    let (confirmed_user_id, _) = animego_user_from_html(title_html)
+        .ok_or_else(|| "Не удалось подтвердить аккаунт AnimeGO по карточке тайтла.".to_string())?;
+    if confirmed_user_id != session.user_id {
+        return Err("Карточка AnimeGO принадлежит другому аккаунту. Проверка остановлена.".to_string());
+    }
+    if !(200..300).contains(&profile_status) {
+        return Err(format!("Не удалось проверить личный список AnimeGO (HTTP {}).", profile_status));
+    }
+    let base_url = reqwest::Url::parse(ANIMEGO_ORIGIN)
+        .map_err(|_| "Некорректный адрес AnimeGO.".to_string())?;
+    let parsed = parse_animego_mylist_page(profile_html, &base_url, list_type)?;
+    let verified = parsed.items.iter().any(|item| item.anime_id.as_deref() == Some(anime_id));
+    if !verified {
+        return Err("AnimeGO принял запрос, но тайтл не найден в целевой категории. Статус не подтверждён.".to_string());
+    }
+
+    let duration_ms = started.elapsed().as_millis();
+    eprintln!("[AnimeGO Sync] operation=status transport=webview2 endpoint=/mylist/anime/{anime_id}/{list_type}/add httpStatus={post_status} verified=true durationMs={duration_ms}");
     Ok(AnimeGoStatusWriteResult {
         provider: "animego", title_url: safe_title.to_string(), status, list_type,
-        http_status, submitted, verified, duration_ms,
+        http_status: post_status, submitted: true, verified: true, duration_ms,
     })
 }
 
