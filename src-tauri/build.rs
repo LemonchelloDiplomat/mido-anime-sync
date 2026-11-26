@@ -19,8 +19,6 @@ const APP_COMMANDS: &[&str] = &[
     "animego_account_progress_write",
     "animego_network_inspect",
     "animego_ipc_ready",
-    "animego_report_stage",
-    "animego_complete_op",
 ];
 
 fn main() {
