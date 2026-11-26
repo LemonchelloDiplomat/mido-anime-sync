@@ -33,7 +33,7 @@ interface Props {
   runtimeRefreshing?: boolean;
   runtimeRefreshError?: string;
   onImportAnimeGoList?: (result: AnimeGoAccountListResponse) => Promise<void>;
-  onSyncAnimeGo?: (onProgress?: (message: string) => void) => Promise<{ imported: number; queued: number; deleted?: number; conflicts?: number; failed?: number; skipped?: number }>;
+  onSyncAnimeGo?: () => Promise<{ imported: number; queued: number; deleted?: number; conflicts?: number; failed?: number; skipped?: number }>;
   onGetAnimeGoConflicts?: () => Promise<AnimeGoSyncConflict[]>;
   onResolveAnimeGoConflict?: (conflictId: string, choice: AnimeGoConflictChoice) => Promise<AnimeGoSyncConflict[]>;
 }
@@ -55,7 +55,6 @@ export function StreamingAccountManagerPanel({
   const [listLoading, setListLoading] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncMessage, setSyncMessage] = useState("");
-  const [syncProgress, setSyncProgress] = useState("");
   const [syncReport, setSyncReport] = useState<{ imported: number; queued: number; deleted: number; conflicts: number; failed: number; skipped: number; completedAt: string } | null>(null);
   const [syncConflicts, setSyncConflicts] = useState<AnimeGoSyncConflict[]>([]);
   const [resolvingConflict, setResolvingConflict] = useState<string | null>(null);
@@ -219,10 +218,9 @@ export function StreamingAccountManagerPanel({
     setSyncLoading(true);
     setError("");
     setSyncMessage("");
-    setSyncProgress("Подготавливаем синхронизацию…");
     setSyncReport(null);
     try {
-      const result = await onSyncAnimeGo(setSyncProgress);
+      const result = await onSyncAnimeGo();
       if (onGetAnimeGoConflicts) setSyncConflicts(await onGetAnimeGoConflicts());
       const report = {
         imported: result.imported,
@@ -240,7 +238,6 @@ export function StreamingAccountManagerPanel({
     } finally {
       syncInFlightRef.current = false;
       setSyncLoading(false);
-      setSyncProgress("");
     }
   }
 
@@ -432,7 +429,7 @@ export function StreamingAccountManagerPanel({
                       aria-busy={syncLoading}
                     >
                       {syncLoading ? <span className="animego-sync-spinner" aria-hidden="true" /> : <span className="animego-sync-icon" aria-hidden="true">↻</span>}
-                      {syncLoading ? "Синхронизация…" : "Синхронизировать"}
+                      {syncLoading ? "Загружаем..." : "Синхронизировать"}
                     </button>
                   )}
                   {provider.id === "animego" && runtime.accounts.fetchList && (
@@ -454,12 +451,6 @@ export function StreamingAccountManagerPanel({
                     {disconnecting === provider.id ? "Отключаем..." : "Отключить"}
                   </button>
                 </div>
-                {provider.id === "animego" && syncLoading && (
-                  <div className="animego-sync-progress" role="status" aria-live="polite">
-                    <span className="animego-sync-progress-spinner" aria-hidden="true" />
-                    <div><strong>Синхронизация AnimeGO</strong><small>{syncProgress || "Выполняем операции…"}</small></div>
-                  </div>
-                )}
                 {provider.id === "animego" && syncReport && (
                   <section className="animego-sync-report" aria-live="polite">
                     <div className="animego-sync-report-heading"><strong><span aria-hidden="true">✓</span> {syncMessage}</strong><small>{syncReport.completedAt}</small></div>
