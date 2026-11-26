@@ -1,0 +1,21 @@
+[[permission]]
+identifier = "allow-main-commands"
+description = "Allows the trusted main application window to use the application commands."
+commands.allow = [
+  "streaming_secret_get",
+  "streaming_secret_set",
+  "streaming_secret_remove",
+  "streaming_http_request",
+  "animego_auth_open",
+  "animego_auth_complete",
+  "animego_auth_status",
+  "animego_auth_disconnect",
+  "animego_account_list_fetch",
+  "animego_account_write_inspect",
+  "animego_account_rating_write",
+  "animego_account_status_write",
+  "animego_account_delete",
+  "animego_account_progress_fetch",
+  "animego_account_progress_write",
+  "animego_network_inspect"
+]
