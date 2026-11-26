@@ -2972,3 +2972,21 @@ mod animego_episode_progress_tests {
         assert!(super::animego_parse_player_metadata(html, "3803").is_err());
     }
 }
+
+
+/// Minimal readiness probe exposed to the remote AnimeGO page.
+/// This command deliberately returns no account, session, or local-library data.
+#[tauri::command]
+pub fn animego_ipc_ready(window: tauri::WebviewWindow) -> Result<String, String> {
+    if window.label() != ANIMEGO_AUTH_WINDOW {
+        return Err("Unauthorized window caller.".to_string());
+    }
+
+    let current_url = window.url()
+        .map_err(|_| "Could not verify the AnimeGO webview URL.".to_string())?;
+    if current_url.scheme() != "https" || current_url.host_str() != Some("animego.me") {
+        return Err("IPC readiness is allowed only on https://animego.me.".to_string());
+    }
+
+    Ok("animego-ipc-ready".to_string())
+}
