@@ -218,8 +218,8 @@ export function StreamingAccountManagerPanel({
         setStatusWriteMessage("Запрос отправлен, но AnimeGO не подтвердил новый статус. Проверь список на сайте.");
         return;
       }
-      setStatusWriteMessage("Статус подтверждён AnimeGO. HTTP " + result.httpStatus + " · " + result.durationMs + " мс.");
       await loadAnimeGoList();
+      setStatusWriteMessage("Статус подтверждён AnimeGO. HTTP " + result.httpStatus + " · " + result.durationMs + " мс.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Не удалось записать статус через AnimeGO.");
     } finally {
