@@ -1931,15 +1931,41 @@ pub async fn animego_account_status_write(
             if (postBody.length > 2097152) return fail("Ответ AnimeGO после записи превышает лимит 2 МБ.");
             if (!postResponse.ok) return fail("AnimeGO отклонил изменение статуса (HTTP " + postResponse.status + ").");
 
-            const profilePath = "/profile/" + expectedUserId + "?type=" + listType;
-            const profileResponse = await fetch(new URL(profilePath, origin).href, {{
-                method: "GET", credentials: "include", redirect: "follow",
-                headers: {{ "Accept": "text/html,application/xhtml+xml" }}
-            }});
-            if (new URL(profileResponse.url).origin !== origin) return fail("Проверка списка перенаправлена за пределы AnimeGO.");
-            if (!profileResponse.ok) return fail("Не удалось проверить личный список (HTTP " + profileResponse.status + ").");
-            const profileHtml = await profileResponse.text();
+            const requestHtml = async (path) => {
+                const response = await fetch(new URL(path, origin).href, {
+                    method: "GET", credentials: "include", redirect: "follow",
+                    headers: { "Accept": "text/html,application/xhtml+xml" }
+                });
+                if (new URL(response.url).origin !== origin) throw new Error("Проверка списка перенаправлена за пределы AnimeGO.");
+                return { response, html: await response.text() };
+            };
+            let profileResult = await requestHtml("/profile/" + expectedUserId + "?type=" + listType);
+            // Current AnimeGO account lists are served from /user/{id}; /profile/{id}
+            // may return 404 even though the account and its lists are valid.
+            if (profileResult.response.status === 404) {
+                profileResult = await requestHtml("/user/" + expectedUserId + "?type=" + listType);
+            }
+            if (!profileResult.response.ok) return fail("Не удалось проверить личный список (HTTP " + profileResult.response.status + ").");
+            let profileHtml = profileResult.html;
             if (profileHtml.length > 2097152) return fail("HTML личного списка превышает лимит 2 МБ.");
+
+            // Load the authenticated Turbo pagination frames too, so verification
+            // can find a title regardless of its page within the selected category.
+            const visitedPages = new Set();
+            for (let page = 0; page < 50; page++) {
+                const doc = new DOMParser().parseFromString(profileHtml, "text/html");
+                const frame = doc.querySelector('turbo-frame[id^="profile-my-list-page-"][src]');
+                if (!frame) break;
+                const nextUrl = new URL(frame.getAttribute("src"), origin);
+                if (nextUrl.origin !== origin || !nextUrl.pathname.startsWith("/user/mylist/")) break;
+                const nextPath = nextUrl.pathname + nextUrl.search;
+                if (visitedPages.has(nextPath)) break;
+                visitedPages.add(nextPath);
+                const nextResult = await requestHtml(nextPath);
+                if (!nextResult.response.ok) break;
+                profileHtml += nextResult.html;
+                if (profileHtml.length > 8388608) return fail("Личный список AnimeGO превышает лимит 8 МБ.");
+            }
             return JSON.stringify({{
                 ok: true,
                 postStatus: postResponse.status,
