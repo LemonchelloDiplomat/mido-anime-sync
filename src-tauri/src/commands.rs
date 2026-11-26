@@ -1931,14 +1931,14 @@ pub async fn animego_account_status_write(
             if (postBody.length > 2097152) return fail("Ответ AnimeGO после записи превышает лимит 2 МБ.");
             if (!postResponse.ok) return fail("AnimeGO отклонил изменение статуса (HTTP " + postResponse.status + ").");
 
-            const requestHtml = async (path) => {
-                const response = await fetch(new URL(path, origin).href, {
+            const requestHtml = async (path) => {{
+                const response = await fetch(new URL(path, origin).href, {{
                     method: "GET", credentials: "include", redirect: "follow",
-                    headers: { "Accept": "text/html,application/xhtml+xml" }
-                });
+                    headers: {{ "Accept": "text/html,application/xhtml+xml" }}
+                }});
                 if (new URL(response.url).origin !== origin) throw new Error("Проверка списка перенаправлена за пределы AnimeGO.");
-                return { response, html: await response.text() };
-            };
+                return {{ response, html: await response.text() }};
+            }};
             let profileResult = await requestHtml("/profile/" + expectedUserId + "?type=" + listType);
             // Current AnimeGO account lists are served from /user/{id}; /profile/{id}
             // may return 404 even though the account and its lists are valid.
@@ -1969,7 +1969,7 @@ pub async fn animego_account_status_write(
             return JSON.stringify({{
                 ok: true,
                 postStatus: postResponse.status,
-                profileStatus: profileResponse.status,
+                profileStatus: profileResult.response.status,
                 titleHtml,
                 profileHtml
             }});
