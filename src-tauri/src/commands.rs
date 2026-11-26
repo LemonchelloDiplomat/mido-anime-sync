@@ -1961,7 +1961,7 @@ pub async fn animego_account_status_write(
                     const responseDocument = new DOMParser().parseFromString(postBody, "text/html");
                     const titleText = (responseDocument.querySelector("title")?.textContent ?? "").toLowerCase();
                     if (/captcha|cloudflare|проверка безопасности/.test(titleText)) bodyKind = "captcha-page";
-                    else if (/login|sign in|вход|авторизац/.test(titleText) || /\\/login(?:[/?#]|$)/i.test(postFinalUrl.pathname)) bodyKind = "login-page";
+                    else if (/login|sign in|вход|авторизац/.test(titleText) || postFinalUrl.pathname.toLowerCase().includes("/login")) bodyKind = "login-page";
                     else if (/403|forbidden|доступ запрещ/.test(titleText)) bodyKind = "forbidden-page";
                 }}
                 return fail("AnimeGO вернул не JSON: HTTP " + postResponse.status
