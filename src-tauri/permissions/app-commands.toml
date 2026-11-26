@@ -17,5 +17,6 @@ commands.allow = [
   "animego_account_delete",
   "animego_account_progress_fetch",
   "animego_account_progress_write",
-  "animego_network_inspect"
+  "animego_network_inspect",
+  "animego_bridge_ping"
 ]
