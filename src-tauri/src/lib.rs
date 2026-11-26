@@ -28,7 +28,8 @@ pub fn run() {
             commands::animego_account_delete,
             commands::animego_account_progress_fetch,
             commands::animego_account_progress_write,
-            commands::animego_network_inspect
+            commands::animego_network_inspect,
+            commands::animego_ipc_ready
         ])
         .run(tauri::generate_context!())
         .expect("error while running Mido Anime Sync");
