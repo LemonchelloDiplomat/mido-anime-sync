@@ -1942,54 +1942,38 @@ pub async fn animego_account_status_write(
             if (postBody.length > 2097152) return fail("Ответ AnimeGO после записи превышает лимит 2 МБ.");
             if (!postResponse.ok) return fail("AnimeGO отклонил изменение статуса (HTTP " + postResponse.status + ").");
 
-            const requestHtml = async (path) => {{
-                const response = await fetch(new URL(path, origin).href, {{
-                    method: "GET", credentials: "include", redirect: "follow",
-                    headers: {{ "Accept": "text/html,application/xhtml+xml" }}
-                }});
-                if (new URL(response.url).origin !== origin) throw new Error("Проверка списка перенаправлена за пределы AnimeGO.");
-                return {{ response, html: await response.text() }};
-            }};
-            setStage("profile_fetch_start");
-            let profileResult = await requestHtml("/profile/" + expectedUserId + "?type=" + listType);
-            setStage("profile_fetch_response_http_" + profileResult.response.status);
-            // Current AnimeGO account lists are served from /user/{{id}}; /profile/{{id}}
-            // may return 404 even though the account and its lists are valid.
-            if (profileResult.response.status === 404) {{
-                setStage("profile_fallback_fetch_start");
-                profileResult = await requestHtml("/user/" + expectedUserId + "?type=" + listType);
-                setStage("profile_fallback_response_http_" + profileResult.response.status);
-            }}
-            if (!profileResult.response.ok) return fail("Не удалось проверить личный список (HTTP " + profileResult.response.status + ").");
-            let profileHtml = profileResult.html;
-            if (profileHtml.length > 2097152) return fail("HTML личного списка превышает лимит 2 МБ.");
+            let postData;
+            try {{ postData = JSON.parse(postBody); }}
+            catch {{ return fail("AnimeGO вернул некорректный JSON после изменения статуса."); }}
+            if (postData?.status !== "success") return fail("AnimeGO не подтвердил изменение статуса.");
 
-            // Load the authenticated Turbo pagination frames too, so verification
-            // can find a title regardless of its page within the selected category.
-            const visitedPages = new Set();
-            for (let page = 0; page < 50; page++) {{
-                const doc = new DOMParser().parseFromString(profileHtml, "text/html");
-                const frame = doc.querySelector('turbo-frame[id^="profile-my-list-page-"][src]');
-                if (!frame) break;
-                const nextUrl = new URL(frame.getAttribute("src"), origin);
-                if (nextUrl.origin !== origin || !nextUrl.pathname.startsWith("/user/mylist/")) break;
-                const nextPath = nextUrl.pathname + nextUrl.search;
-                if (visitedPages.has(nextPath)) break;
-                visitedPages.add(nextPath);
-                setStage("pagination_fetch_" + (page + 1));
-                const nextResult = await requestHtml(nextPath);
-                setStage("pagination_response_" + (page + 1) + "_http_" + nextResult.response.status);
-                if (!nextResult.response.ok) break;
-                profileHtml += nextResult.html;
-                if (profileHtml.length > 8388608) return fail("Личный список AnimeGO превышает лимит 8 МБ.");
+            const buttonHtml = postData?.data?.button;
+            if (typeof buttonHtml !== "string" || !buttonHtml.trim()) {{
+                return fail("AnimeGO подтвердил запрос, но не вернул кнопку статуса.");
             }}
-            setStage("verification_html_ready");
+            const buttonDocument = new DOMParser().parseFromString(buttonHtml, "text/html");
+            const statusElement = buttonDocument.querySelector("span.mylist-btn");
+            if (!statusElement) return fail("AnimeGO не вернул элемент текущего статуса.");
+            const statusLabel = statusElement.textContent?.trim() ?? "";
+            const expectedStatusLabels = {{
+                1: "Смотрю",
+                2: "Просмотрено",
+                3: "Отложено",
+                4: "Брошено",
+                5: "Запланировано",
+                6: "Пересматриваю"
+            }};
+            if (statusLabel !== expectedStatusLabels[listType]) {{
+                return fail("Ответ AnimeGO не соответствует запрошенной категории.");
+            }}
+
+            setStage("status_api_confirmed");
             return JSON.stringify({{
                 ok: true,
                 postStatus: postResponse.status,
-                profileStatus: profileResult.response.status,
-                titleHtml,
-                profileHtml
+                apiStatus: postData.status,
+                statusLabel,
+                titleHtml
             }});
         }} catch (error) {{
             return fail(error?.message ?? error);
@@ -2007,29 +1991,38 @@ pub async fn animego_account_status_write(
     let post_status = payload.get("postStatus").and_then(Value::as_u64)
         .and_then(|value| u16::try_from(value).ok())
         .ok_or_else(|| "AnimeGO не вернул HTTP-статус операции.".to_string())?;
-    let profile_status = payload.get("profileStatus").and_then(Value::as_u64)
-        .and_then(|value| u16::try_from(value).ok())
-        .ok_or_else(|| "AnimeGO не вернул статус проверки списка.".to_string())?;
+    if !(200..300).contains(&post_status) {
+        return Err(format!("AnimeGO отклонил изменение статуса (HTTP {}).", post_status));
+    }
+    let api_status = payload.get("apiStatus").and_then(Value::as_str)
+        .ok_or_else(|| "AnimeGO не вернул результат операции.".to_string())?;
+    if api_status != "success" {
+        return Err("AnimeGO не подтвердил изменение статуса.".to_string());
+    }
+    let status_label = payload.get("statusLabel").and_then(Value::as_str)
+        .ok_or_else(|| "AnimeGO не вернул подтверждённый статус.".to_string())?;
+    let expected_status_label = match list_type {
+        1 => "Смотрю",
+        2 => "Просмотрено",
+        3 => "Отложено",
+        4 => "Брошено",
+        5 => "Запланировано",
+        6 => "Пересматриваю",
+        _ => return Err("Неизвестная категория AnimeGO.".to_string()),
+    };
+    if status_label != expected_status_label {
+        return Err("Ответ AnimeGO не соответствует запрошенной категории.".to_string());
+    }
+
     let title_html = payload.get("titleHtml").and_then(Value::as_str)
         .ok_or_else(|| "AnimeGO не вернул карточку тайтла для проверки аккаунта.".to_string())?;
-    let profile_html = payload.get("profileHtml").and_then(Value::as_str)
-        .ok_or_else(|| "AnimeGO не вернул личный список для проверки.".to_string())?;
     let (confirmed_user_id, _) = animego_user_from_html(title_html)
         .ok_or_else(|| "Не удалось подтвердить аккаунт AnimeGO по карточке тайтла.".to_string())?;
     if confirmed_user_id != session.user_id {
         return Err("Карточка AnimeGO принадлежит другому аккаунту. Проверка остановлена.".to_string());
     }
-    if !(200..300).contains(&profile_status) {
-        return Err(format!("Не удалось проверить личный список AnimeGO (HTTP {}).", profile_status));
-    }
-    let base_url = reqwest::Url::parse(ANIMEGO_ORIGIN)
-        .map_err(|_| "Некорректный адрес AnimeGO.".to_string())?;
-    let parsed = parse_animego_mylist_page(profile_html, &base_url, list_type)?;
-    let verified = parsed.items.iter().any(|item| item.anime_id.as_deref() == Some(anime_id));
-    if !verified {
-        return Err("AnimeGO принял запрос, но тайтл не найден в целевой категории. Статус не подтверждён.".to_string());
-    }
 
+    let verified = true;
     let duration_ms = started.elapsed().as_millis();
     eprintln!("[AnimeGO Sync] operation=status transport=webview2 endpoint=/mylist/anime/{anime_id}/{list_type}/add httpStatus={post_status} verified=true durationMs={duration_ms}");
     Ok(AnimeGoStatusWriteResult {
