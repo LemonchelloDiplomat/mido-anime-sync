@@ -1,0 +1,8 @@
+[[permission]]
+identifier = "allow-animego-bridge"
+description = "Allows the authenticated AnimeGO webview to use only the IPC bridge commands."
+commands.allow = [
+  "animego_ipc_ready",
+  "animego_report_stage",
+  "animego_complete_op"
+]
