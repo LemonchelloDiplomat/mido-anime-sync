@@ -1996,8 +1996,8 @@ pub async fn animego_account_status_write(
         }}}}
     }}}})()"#);
 
-    let payload = animego_webview_eval_json(
-        &window, script, std::time::Duration::from_secs(35)
+    let payload = crate::animego_event_bridge::evaluate(
+        &app, script, std::time::Duration::from_secs(35)
     ).await?;
     if payload.get("ok").and_then(Value::as_bool) != Some(true) {
         let message = payload.get("error").and_then(Value::as_str)
