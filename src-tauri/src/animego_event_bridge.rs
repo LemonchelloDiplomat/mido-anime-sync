@@ -73,6 +73,44 @@ pub fn animego_bridge_complete(
         .map_err(|_| "AnimeGO operation is no longer waiting for a result.".to_string())
 }
 
+#[tauri::command]
+pub async fn animego_bridge_ping(app: tauri::AppHandle) -> Result<Value, String> {
+    let window = app.get_webview_window(AUTH_WINDOW)
+        .ok_or_else(|| "Open AnimeGO before testing the event bridge.".to_string())?;
+    verify_auth_window(&window)?;
+
+    let op_id = Uuid::new_v4().to_string();
+    let (sender, receiver) = oneshot::channel();
+    {
+        let mut guard = pending().lock()
+            .map_err(|_| "AnimeGO operation registry is unavailable.".to_string())?;
+        guard.insert(op_id.clone(), PendingOperation { sender, stage: "ping-created".into() });
+    }
+    let op_json = serde_json::to_string(&op_id).map_err(|_| "Could not encode operation ID.".to_string())?;
+    let script = format!(r#"(() => {{
+      const invoke = window.__TAURI__?.core?.invoke;
+      if (!invoke) return false;
+      invoke('animego_bridge_complete', {{
+        opId: {op_json},
+        result: {{ pong: true, transport: 'webview-ipc' }},
+        error: null
+      }}).catch(() => {{}});
+      return true;
+    }})()"#);
+    if let Err(error) = window.eval(&script) {
+        if let Ok(mut guard) = pending().lock() { guard.remove(&op_id); }
+        return Err(format!("Could not dispatch AnimeGO bridge ping: {error}"));
+    }
+    match tokio::time::timeout(OP_TIMEOUT, receiver).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("AnimeGO bridge ping ended before completion.".into()),
+        Err(_) => {
+            if let Ok(mut guard) = pending().lock() { guard.remove(&op_id); }
+            Err("AnimeGO event bridge ping timed out.".into())
+        }
+    }
+}
+
 /// Dispatches a narrowly-scoped status-add request inside the authenticated WebView2.
 /// Cookies and CSRF material never leave the browser context.
 pub async fn add_to_list(
