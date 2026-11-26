@@ -370,23 +370,68 @@ async fn animego_webview_eval_json(
     script: String,
     timeout: std::time::Duration,
 ) -> Result<Value, String> {
-    let (sender, receiver) = std::sync::mpsc::channel::<String>();
-    window.eval_with_callback(&script, move |result| {
-        let _ = sender.send(result);
-    }).map_err(|error| format!("WEBVIEW_EVALUATION_FAILED: {error}"))?;
+    // eval_with_callback only reports the immediate JavaScript evaluation result.
+    // Start async work separately, then poll a synchronous JSON snapshot.
+    let operation_key = format!(
+        "__midoAnimeGoOperation{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    );
+    let key_json = serde_json::to_string(&operation_key)
+        .map_err(|_| "Не удалось подготовить идентификатор операции AnimeGO.".to_string())?;
+    let bootstrap = format!(
+        "(() => {{ const key = {key_json}; window[key] = {{ state: 'pending' }}; Promise.resolve().then(() => ({script})).then((result) => {{ window[key] = {{ state: 'done', result: result ?? null }}; }}).catch((error) => {{ window[key] = {{ state: 'error', error: String(error?.message ?? error).slice(0, 500) }}; }}); return true; }})()"
+    );
+    window.eval(&bootstrap)
+        .map_err(|error| format!("WEBVIEW_EVALUATION_FAILED: {error}"))?;
 
-    let callback_result = tauri::async_runtime::spawn_blocking(move || {
-        receiver.recv_timeout(timeout)
-    }).await.map_err(|_| "Не удалось дождаться ответа WebView2 AnimeGO.".to_string())?
-        .map_err(|_| "WebView2 AnimeGO не вернул ответ вовремя.".to_string())?;
+    let poll_script = format!(
+        "JSON.stringify(window[{key_json}] ?? {{ state: 'pending' }})"
+    );
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let (sender, receiver) = std::sync::mpsc::channel::<String>();
+        window.eval_with_callback(&poll_script, move |result| {
+            let _ = sender.send(result);
+        }).map_err(|error| format!("WEBVIEW_POLL_FAILED: {error}"))?;
 
-    let mut value: Value = serde_json::from_str(&callback_result)
-        .map_err(|_| "WebView2 AnimeGO вернул некорректный ответ.".to_string())?;
-    if let Some(serialized) = value.as_str() {
-        value = serde_json::from_str(serialized)
-            .map_err(|_| "WebView2 AnimeGO вернул некорректные данные.".to_string())?;
+        let callback_result = tauri::async_runtime::spawn_blocking(move || {
+            receiver.recv_timeout(std::time::Duration::from_secs(5))
+        }).await.map_err(|error| format!("WEBVIEW_POLL_TASK_FAILED: {error}"))?
+            .map_err(|_| "WebView2 AnimeGO не ответил на проверку результата.".to_string())?;
+
+        let mut state: Value = serde_json::from_str(&callback_result)
+            .map_err(|error| format!("WEBVIEW_POLL_INVALID_JSON: {error}"))?;
+        if let Some(serialized) = state.as_str() {
+            state = serde_json::from_str(serialized)
+                .map_err(|error| format!("WEBVIEW_POLL_INVALID_PAYLOAD: {error}"))?;
+        }
+        match state.get("state").and_then(Value::as_str) {
+            Some("done") => {
+                let result = state.get("result").cloned()
+                    .ok_or_else(|| "WebView2 AnimeGO завершил операцию без результата.".to_string())?;
+                if let Some(serialized) = result.as_str() {
+                    return serde_json::from_str(serialized)
+                        .map_err(|error| format!("WEBVIEW_RESULT_INVALID_JSON: {error}"));
+                }
+                return Ok(result);
+            }
+            Some("error") => {
+                return Err(state.get("error").and_then(Value::as_str)
+                    .unwrap_or("Асинхронная операция AnimeGO завершилась ошибкой.").to_string());
+            }
+            Some("pending") | None => {}
+            Some(other) => return Err(format!("Неизвестное состояние операции WebView2: {other}")),
+        }
+        if tokio::time::Instant::now() >= deadline {
+            let cleanup = format!("delete window[{key_json}]; true");
+            let _ = window.eval(&cleanup);
+            return Err("Истекло время ожидания асинхронной операции AnimeGO.".to_string());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
-    Ok(value)
 }
 
 async fn animego_user_from_webview(window: &tauri::WebviewWindow) -> Result<(String, Option<String>), String> {
