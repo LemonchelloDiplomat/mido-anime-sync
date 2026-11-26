@@ -2833,10 +2833,12 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                   await refreshLibrary();
                   return listAnimeGoConflicts();
                 }}
-                onSyncAnimeGo={async () => {
+                onSyncAnimeGo={async (onProgress) => {
                   const accounts = activeStreamingRuntime?.accounts;
                   if (!accounts?.fetchList) throw new Error("Нативное подключение AnimeGO недоступно.");
+                  onProgress?.("Получаем актуальный список AnimeGO…");
                   const payload = await accounts.fetchList("animego") as AnimeGoAccountListResponse;
+                  onProgress?.("Сравниваем список с локальной библиотекой…");
                   const currentItems = repository ? await repository.getAll() : [];
                   const remoteIds = new Set(payload.items.map((item) => item.animeId).filter((id): id is string => Boolean(id)));
                   const countsMatch = payload.lists.every((list) =>
@@ -2858,6 +2860,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                     }
                   }
                   const summary = await importAnimeGoAccountLists(payload, { silent: true, enrichMetadata: false, reconcile: true });
+                  onProgress?.("Обновляем библиотеку и отправляем локальные изменения…");
                   if (completeSnapshot && repository) {
                     for (const animeId of missingAnimeGoEntries) {
                       await repository.deleteSourceEntry(animeId, "animego");
@@ -2866,9 +2869,12 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                   }
                   await animeGoQueueRunnerRef.current?.start();
                   await animeGoQueueRunnerRef.current?.wake();
-                  const queued = (await animeGoProviderWriteQueue.list()).filter((job) => job.state === "pending" || job.state === "processing").length;
+                  onProgress?.("Собираем результат синхронизации…");
+                  const queueJobs = await animeGoProviderWriteQueue.list();
+                  const queued = queueJobs.filter((job) => job.state === "pending" || job.state === "processing").length;
+                  const failed = queueJobs.filter((job) => job.state === "failed").length;
                   const conflicts = (await listAnimeGoConflicts()).length;
-                  return { imported: summary.imported, queued, deleted: missingAnimeGoEntries.length, conflicts };
+                  return { imported: summary.imported, queued, deleted: missingAnimeGoEntries.length, conflicts, failed, skipped: summary.skipped };
                 }}
               />
               <StreamingTrackerPanel
