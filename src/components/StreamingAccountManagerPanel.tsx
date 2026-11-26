@@ -221,7 +221,18 @@ export function StreamingAccountManagerPanel({
       await loadAnimeGoList();
       setStatusWriteMessage("Статус подтверждён AnimeGO. HTTP " + result.httpStatus + " · " + result.durationMs + " мс.");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Не удалось записать статус через AnimeGO.");
+      const detail = typeof cause === "string"
+        ? cause
+        : cause instanceof Error
+          ? cause.message
+          : cause && typeof cause === "object" && "message" in cause && typeof cause.message === "string"
+            ? cause.message
+            : cause && typeof cause === "object" && "error" in cause && typeof cause.error === "string"
+              ? cause.error
+              : cause && typeof cause === "object" && "code" in cause
+                ? "Ошибка Tauri: " + String(cause.code)
+                : JSON.stringify(cause);
+      setError(detail && detail !== "{}" ? detail : "Не удалось записать статус через AnimeGO. Подробности отсутствуют в ответе Tauri.");
     } finally {
       setStatusWriting(false);
     }
