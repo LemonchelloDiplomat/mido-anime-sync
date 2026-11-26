@@ -373,7 +373,7 @@ async fn animego_webview_eval_json(
     let (sender, receiver) = std::sync::mpsc::channel::<String>();
     window.eval_with_callback(&script, move |result| {
         let _ = sender.send(result);
-    }).map_err(|_| "Не удалось выполнить запрос внутри WebView2 AnimeGO.".to_string())?;
+    }).map_err(|error| format!("WEBVIEW_EVALUATION_FAILED: {error}"))?;
 
     let callback_result = tauri::async_runtime::spawn_blocking(move || {
         receiver.recv_timeout(timeout)
@@ -394,7 +394,7 @@ async fn animego_user_from_webview(window: &tauri::WebviewWindow) -> Result<(Str
     window.eval_with_callback(
         "JSON.stringify({ href: window.location.href, user: document.documentElement?.dataset?.user ?? null })",
         move |result| { let _ = sender.send(result); },
-    ).map_err(|_| "Не удалось проверить страницу AnimeGO внутри WebView2.".to_string())?;
+    ).map_err(|error| format!("WEBVIEW_AUTH_CHECK_FAILED: {error}"))?;
 
     let callback_result = tauri::async_runtime::spawn_blocking(move || {
         receiver.recv_timeout(std::time::Duration::from_secs(5))
