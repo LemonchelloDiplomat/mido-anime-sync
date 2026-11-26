@@ -1167,7 +1167,7 @@ fn parse_animego_write_forms(
         .map_err(|_| "Не удалось подготовить анализатор полей AnimeGO.".to_string())?;
     let meta_selector = Selector::parse("meta[name]")
         .map_err(|_| "Не удалось подготовить анализатор meta-тегов AnimeGO.".to_string())?;
-    let control_selector = Selector::parse("input, select, textarea, button, a, [role='button']")
+    let control_selector = Selector::parse("input, select, textarea, button, a, [role='button'], [data-controller], [data-action]")
         .map_err(|_| "Не удалось подготовить анализатор интерактивных элементов AnimeGO.".to_string())?;
     let script_selector = Selector::parse("script")
         .map_err(|_| "Не удалось подготовить анализатор скриптов AnimeGO.".to_string())?;
@@ -1237,8 +1237,15 @@ fn parse_animego_write_forms(
                 });
             }
         }
-        let has_inline_event_handler = ["onsubmit", "onclick", "onchange", "oninput"]
-            .iter().any(|name| form.value().attr(name).is_some());
+        let has_inline_event_handler =
+            ["onsubmit", "onclick", "onchange", "oninput"]
+                .iter()
+                .any(|name| form.value().attr(name).is_some())
+                || form.select(&control_selector).any(|element| {
+                    ["onclick", "onchange", "oninput", "onsubmit"]
+                        .iter()
+                        .any(|name| element.value().attr(name).is_some())
+                });
         let has_data_action = form.value().attr("data-action").is_some();
         forms.push(AnimeGoWriteFormInspection {
             method,
