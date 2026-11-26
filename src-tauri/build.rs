@@ -22,6 +22,7 @@ const APP_COMMANDS: &[&str] = &[
     "animego_ipc_test",
     "animego_bridge_stage",
     "animego_bridge_complete",
+    "animego_bridge_ping",
 ];
 
 fn main() {
