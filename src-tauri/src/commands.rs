@@ -1919,12 +1919,13 @@ pub async fn animego_account_status_write(
             if (actualUserId !== expectedUserId) return fail("Открыта сессия другого аккаунта AnimeGO.");
 
             setStage("csrf_lookup");
-            const tokenInput = titleDocument.querySelector("input[name='_token'], input[name='token']");
-            const token = tokenInput?.value?.trim();
-            if (!token) return fail("На странице AnimeGO не найден CSRF-токен.");
+            const actionPath = "/mylist/anime/" + animeId + "/" + listType + "/add";
+            const actionButton = Array.from(titleDocument.querySelectorAll("[data-ajax-url]"))
+                .find((el) => el.getAttribute("data-ajax-url") === actionPath);
+            const token = actionButton?.getAttribute("data-csrf-token")?.trim();
+            if (!token) return fail("Для действия AnimeGO не найден CSRF-токен.");
 
             setStage("status_post_start");
-            const actionPath = "/mylist/anime/" + animeId + "/" + listType + "/add";
             const postResponse = await fetch(new URL(actionPath, origin).href, {{
                 method: "POST",
                 credentials: "include",
