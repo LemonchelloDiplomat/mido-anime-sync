@@ -272,12 +272,29 @@ export function StreamingAccountManagerPanel({
       if (disposed || document.visibilityState !== "visible" || !navigator.onLine) return;
       if (syncInFlightRef.current) return;
       syncInFlightRef.current = true;
+      setSyncLoading(true);
+      setError("");
       void syncCallbackRef.current?.()
-        .then(async () => {
+        .then(async (result) => {
           if (onGetAnimeGoConflicts) setSyncConflicts(await onGetAnimeGoConflicts());
+          setSyncReport({
+            imported: result.imported,
+            queued: result.queued,
+            deleted: result.deleted ?? 0,
+            conflicts: result.conflicts ?? 0,
+            failed: result.failed ?? 0,
+            skipped: result.skipped ?? 0,
+            completedAt: new Date().toLocaleTimeString(),
+          });
+          setSyncMessage("Синхронизация завершена.");
         })
-        .catch(() => undefined)
-        .finally(() => { syncInFlightRef.current = false; });
+        .catch((cause) => {
+          setError(cause instanceof Error ? cause.message : "Не удалось синхронизировать AnimeGO.");
+        })
+        .finally(() => {
+          syncInFlightRef.current = false;
+          setSyncLoading(false);
+        });
     };
     timer = setInterval(run, 5 * 60 * 1000);
     window.addEventListener("online", run);
