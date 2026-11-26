@@ -20,6 +20,8 @@ const APP_COMMANDS: &[&str] = &[
     "animego_network_inspect",
     "animego_ipc_ready",
     "animego_ipc_test",
+    "animego_bridge_stage",
+    "animego_bridge_complete",
 ];
 
 fn main() {
