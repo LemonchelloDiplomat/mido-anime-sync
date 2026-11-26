@@ -1,6 +1,7 @@
 [[permission]]
 identifier = "allow-animego-bridge"
-description = "Allows the authenticated AnimeGO webview to call only the IPC readiness probe."
+description = "Allows the authenticated AnimeGO webview to call the IPC readiness and smoke-test probes."
 commands.allow = [
-  "animego_ipc_ready"
+  "animego_ipc_ready",
+  "animego_ipc_test"
 ]
