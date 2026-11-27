@@ -2278,34 +2278,75 @@ async fn animego_progress_webview_operation(
     let current_url = window.url()
         .map_err(|_| "Не удалось проверить адрес окна AnimeGO.".to_string())?;
     if current_url.scheme() != "https" || current_url.host_str() != Some("animego.me") {
-        return Err("Окно AnimeGO находится вне доверенного домена. Открой AnimeGO и повтори операцию.".to_string());
+        return Err("Окно AnimeGO находится вне доверенного домена.".to_string());
     }
 
-    // Navigate the authenticated WebView to the exact AnimeGO title page.
-    window.navigate(safe_title.clone())
-        .map_err(|error| format!("Не удалось открыть карточку тайтла AnimeGO: {error}"))?;
+    // A hidden WebView2 can defer navigation and page scripts. Bring the
+    // authenticated window up for the duration of the operation, navigate it
+    // ourselves, and wait for the actual title DOM rather than only the URL.
+    window.show()
+        .map_err(|error| format!("Не удалось открыть встроенное окно AnimeGO: {error}"))?;
+    let navigation_result = async {
+        window.navigate(safe_title.clone())
+            .map_err(|error| format!("Не удалось открыть карточку тайтла AnimeGO: {error}"))?;
 
-    let navigation_deadline =
-        std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let expected_path = serde_json::to_string(safe_title.path())
+            .map_err(|_| "Не удалось подготовить адрес тайтла AnimeGO.".to_string())?;
+        let readiness_script = format!(r#"(async () => {{
+          const expectedPath = {expected_path};
+          const deadline = Date.now() + 30000;
+          while (Date.now() < deadline) {{
+            const url = new URL(location.href);
+            const player = document.querySelector(
+              ".player-video[data-anime-player-episodes-url-value][data-anime-episode-watched-url-value]"
+            );
+            const user = document.documentElement?.dataset?.user ?? null;
+            if (url.origin === "https://animego.me" && url.pathname === expectedPath
+                && document.readyState === "complete" && player) {{
+              return {{ ready: true, path: url.pathname, hasPlayer: true, hasUser: Boolean(user) }};
+            }}
+            if (url.origin !== "https://animego.me") {{
+              throw new Error("AnimeGO перенаправил встроенное окно за пределы сайта.");
+            }}
+            if (url.pathname === "/login" || url.pathname.startsWith("/login/")) {{
+              return {{ ready: false, loginRequired: true, path: url.pathname }};
+            }}
+            await new Promise(resolve => setTimeout(resolve, 250));
+          }}
+          const url = new URL(location.href);
+          return {{
+            ready: false,
+            path: url.pathname,
+            readyState: document.readyState,
+            hasPlayer: Boolean(document.querySelector(".player-video")),
+            hasUser: Boolean(document.documentElement?.dataset?.user)
+          }};
+        }})()"#);
 
-    loop {
-        let observed_url = window.url()
-            .map_err(|_| "Не удалось проверить навигацию AnimeGO.".to_string())?;
-
-        if observed_url.origin() == safe_title.origin()
-            && observed_url.path() == safe_title.path()
-        {
-            break;
+        let state = animego_webview_eval_json(
+            &window,
+            readiness_script,
+            std::time::Duration::from_secs(35),
+        ).await?;
+        if state.get("ready").and_then(Value::as_bool) != Some(true) {
+            if state.get("loginRequired").and_then(Value::as_bool) == Some(true) {
+                return Err("Сессия AnimeGO в WebView не авторизована. Один раз войди в открывшемся окне, затем повтори операцию.".to_string());
+            }
+            let path = state.get("path").and_then(Value::as_str).unwrap_or("неизвестно");
+            let ready_state = state.get("readyState").and_then(Value::as_str).unwrap_or("неизвестно");
+            let has_player = state.get("hasPlayer").and_then(Value::as_bool).unwrap_or(false);
+            return Err(format!(
+                "AnimeGO открыл страницу {path}, но карточка не готова (readyState={ready_state}, player={has_player})."
+            ));
         }
+        Ok(())
+    }.await;
 
-        if std::time::Instant::now() >= navigation_deadline {
-            return Err("WebView2 не перешёл на страницу выбранного тайтла AnimeGO.".to_string());
-        }
-
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    if let Err(error) = navigation_result {
+        let _ = window.hide();
+        return Err(error);
     }
 
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     let title_path = format!("{}{}", safe_title.path(),
         safe_title.query().map(|query| format!("?{query}")).unwrap_or_default());
     let title_path_json = serde_json::to_string(&title_path)
