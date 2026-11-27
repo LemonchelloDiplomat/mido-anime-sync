@@ -38,6 +38,13 @@ async fn ensure_auth_window_impl(
             .map_err(|error| format!("Не удалось восстановить окно AnimeGO: {error}"))?
     };
 
+    // The progress path uses native eval polling. Show the WebView before
+    // waiting so WebView2 does not defer page loading while the window is hidden.
+    if !require_bridge {
+        window.show()
+            .map_err(|error| format!("Не удалось открыть встроенное окно AnimeGO: {error}"))?;
+    }
+
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     loop {
         let url = window.url()
