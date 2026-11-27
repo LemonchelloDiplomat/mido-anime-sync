@@ -1197,8 +1197,7 @@ fn parse_animego_write_forms(
             _ => "other",
         }.to_string();
         let action_path = action.path().to_string();
-        let purpose = if action_path.to_ascii_lowercase().contains("logout") {
-            "logout"
+        let purpose = if action_path.to_ascii_lowercase().contains("logout") {            "logout"
         } else if action_path.to_ascii_lowercase().contains("rating") || action_path.to_ascii_lowercase().contains("vote") {
             "rating"
         } else if action_path.to_ascii_lowercase().contains("mylist") {
@@ -1574,16 +1573,33 @@ fn animego_rating_form_data(
         }
         let token = token.ok_or_else(|| "В форме оценки AnimeGO отсутствует CSRF-токен. Запись остановлена.".to_string())?;
         let mut selected_rating = None;
+
+        // AnimeGO may render the rating as a select element.
         if let Ok(selects) = Selector::parse("select[name='rate']") {
             if let Some(select) = form.select(&selects).next() {
                 for option in select.select(&options) {
                     if option.value().attr("selected").is_some() {
-                        selected_rating = option.value().attr("value").and_then(|value| value.parse::<u8>().ok());
+                        selected_rating = option.value().attr("value")
+                            .and_then(|value| value.parse::<u8>().ok());
                         break;
                     }
                 }
             }
         }
+
+        // It may also render the rating as radio inputs.
+        if selected_rating.is_none() {
+            if let Ok(radio_inputs) = Selector::parse("input[name='rate']:checked") {
+                selected_rating = form.select(&radio_inputs).next()
+                    .and_then(|input| input.value().attr("value"))
+                    .and_then(|value| value.parse::<u8>().ok());
+            }
+        }
+
+        if selected_rating.is_some_and(|value| !(1..=10).contains(&value)) {
+            selected_rating = None;
+        }
+
         return Ok((action_url.path().to_string(), token, selected_rating));
     }
     Err("На карточке AnimeGO не найдена ожидаемая POST-форма оценки. Ничего не отправлено.".to_string())
@@ -1939,12 +1955,14 @@ pub async fn animego_account_status_write(
 
             setStage("status_post_start");
             const postResponse = await fetch(new URL(actionPath, origin).href, {{
-                method: "POST", credentials: "include", redirect: "follow",
+                method: "POST",
+                credentials: "include",
+                redirect: "follow",
                 referrer: new URL(titlePath, origin).href,
                 headers: {{
                     "Accept": "*/*",
                     "X-Requested-With": "XMLHttpRequest",
-                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
                 }},
                 body: new URLSearchParams([["_token", token]]).toString()
             }});
@@ -2407,8 +2425,7 @@ pub async fn animego_account_progress_write(
         }
         if !(200..300).contains(&final_http_status) {
             return Err(format!("AnimeGO отклонил изменение прогресса (HTTP {}).", final_http_status));
-        }
-        let result: Value = serde_json::from_str(&body)
+        }        let result: Value = serde_json::from_str(&body)
             .map_err(|_| "AnimeGO вернул некорректный ответ записи прогресса.".to_string())?;
         let actual = result.pointer("/data/isSetWatched").and_then(Value::as_bool);
         if result.get("status").and_then(Value::as_str) != Some("success") || actual != Some(desired) {
@@ -2933,6 +2950,21 @@ mod animego_auth_tests {
         assert_eq!(path, "/rating/anime/123/vote");
         assert_eq!(token, "private-csrf-value");
         assert_eq!(selected, Some(9));
+    }
+
+    #[test]
+    fn parses_selected_radio_rating() {
+        use super::animego_rating_form_data;
+        let title = reqwest::Url::parse("https://animego.me/anime/example-123").unwrap();
+        let html = r#"<form method="post" action="/rating/anime/123/vote">
+            <input type="hidden" name="token" value="test-token">
+            <input type="radio" name="rate" value="7">
+            <input type="radio" name="rate" value="8" checked>
+            <input type="radio" name="rate" value="9">
+        </form>"#;
+
+        let (_, _, selected) = animego_rating_form_data(html, &title, "123").unwrap();
+        assert_eq!(selected, Some(8));
     }
 
     #[test]
