@@ -2420,8 +2420,8 @@ async fn animego_progress_webview_operation(
           throw new Error("AnimeGO не подтвердил ожидаемый авторизованный аккаунт.");
         // Reuse the player node validated immediately after parsing the title HTML.
         const playerId = player.getAttribute("data-anime-player-anime-id-value") ?? animeId;
-        if (playerId !== animeId || !/^\d+$/.test(playerId))
-          throw new Error("ID плеера AnimeGO не совпадает с ID выбранного тайтла.");
+        if (!/^\d+$/.test(playerId))
+          throw new Error("AnimeGO не вернул корректный числовой ID плеера.");
         const episodesPath = episodesPathValue || ("/player/" + playerId + "/episodes");
         const episodesSource = episodesPathValue ? "DOM" : "fallback";
         const watchedPath = watchedPathValue || "/anime/episode/watched";
