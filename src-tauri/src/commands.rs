@@ -2335,33 +2335,32 @@ async fn animego_progress_webview_operation(
         stage("progress_wait_title_dom");
 
         const expectedTitleUrl = safeUrl(titlePath);
-        const deadline = Date.now() + 30000;
-        let doc = null;
-
-        while (Date.now() < deadline) {{
-          const currentUrl = new URL(location.href);
-          const player = document.querySelector(
-            ".player-video[data-anime-player-episodes-url-value][data-anime-episode-watched-url-value]"
-          );
-
-          if (
-            currentUrl.origin === origin &&
-            currentUrl.pathname === expectedTitleUrl.pathname &&
-            document.readyState !== "loading" &&
-            player
-          ) {{
-            doc = document;
-            break;
-          }}
-
-          await new Promise(resolve => setTimeout(resolve, 200));
-        }}
-
-        if (!doc) {{
-          const currentUrl = new URL(location.href);
+        stage("progress_title_fetch");
+        const titleResponse = await fetch(expectedTitleUrl.href, {{
+          method: "GET",
+          credentials: "include",
+          redirect: "follow",
+          headers: {{ "Accept": "text/html,application/xhtml+xml" }}
+        }});
+        if (new URL(titleResponse.url).origin !== origin)
+          throw new Error("Карточка тайтла перенаправила запрос за пределы AnimeGO.");
+        if (!titleResponse.ok)
+          throw new Error("Не удалось загрузить карточку AnimeGO (HTTP " + titleResponse.status + ").");
+        const titleHtml = await titleResponse.text();
+        if (titleHtml.length > 2 * 1024 * 1024)
+          throw new Error("HTML карточки AnimeGO превышает лимит 2 МБ.");
+        stage("progress_title_parse");
+        const doc = new DOMParser().parseFromString(titleHtml, "text/html");
+        const player = doc.querySelector(
+          ".player-video[data-anime-player-episodes-url-value][data-anime-episode-watched-url-value]"
+        );
+        if (!player) {{
+          const hasPlayer = titleHtml.includes("player-video");
+          const hasEpisodesUrl = titleHtml.includes("data-anime-player-episodes-url-value");
           throw new Error(
-            "Не удалось дождаться DOM карточки AnimeGO. Текущий адрес: " +
-            currentUrl.pathname
+            "В загруженной карточке AnimeGO не найден блок плеера (HTTP " +
+            titleResponse.status + "; player-video=" + hasPlayer +
+            "; episodes-url=" + hasEpisodesUrl + ")."
           );
         }}
 
