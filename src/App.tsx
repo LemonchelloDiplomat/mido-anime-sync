@@ -2931,7 +2931,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                                 className="secondary-button"
                                 type="button"
                                 disabled={accountSyncing !== null}
-                                onClick={() => void handleSyncToAccount(session.provider)}
+                                onClick={() => void handleSyncToAccount(session.provider as SyncProvider)}
                                 title="Сначала заново сверить текущее состояние сервиса, затем построить новый план"
                               >
                                 {accountSyncing === session.provider ? "Сверяем..." : "Пересверить и продолжить"}
