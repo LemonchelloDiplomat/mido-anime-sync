@@ -2305,9 +2305,9 @@ async fn animego_progress_webview_request(
         // episode state again and compare every episode with the requested boundary.
         stage("progress_verify_after_write");
         episodes = await readEpisodes();
-        if (episodes.some((episode) => episode.watched !== (episode.episodeNumber <= desiredProgress))) {
+        if (episodes.some((episode) => episode.watched !== (episode.episodeNumber <= desiredProgress))) {{
           fail("Повторное чтение не подтвердило итоговый прогресс AnimeGO.");
-        }
+        }}
       }}
       return {{
         ok: true,
