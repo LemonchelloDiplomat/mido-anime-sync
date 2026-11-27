@@ -2209,11 +2209,10 @@ fn animego_find_player_id(html: &str, document: &scraper::Html, expected_anime_i
                 .or_else(|| element.value().attr("data-id"))
                 .or_else(|| element.value().attr("data-url"));
             if let Some(id) = value.and_then(animego_extract_player_id) { return Some(id); }
-            if selector_text == "[data-anime-player-anime-id-value]" {
-                if let Some(id) = element.value().attr("data-anime-player-anime-id-value")
-                    .filter(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit())) {
-                    return Some(id.to_string());
-                }
+            if let Some(id) = element.value().attr("data-anime-player-anime-id-value")
+                .or_else(|| element.value().attr("data-id"))
+                .filter(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit())) {
+                return Some(id.to_string());
             }
         }
     }
@@ -3091,7 +3090,7 @@ mod animego_episode_progress_tests {
         assert_eq!(parsed.0, "3803");
         assert_eq!(parsed.1, "/player/3803/episodes");
         assert_eq!(parsed.2, "/anime/episode/watched");
-        assert_eq!(parsed.3, "81");
+        assert_eq!(parsed.3.as_deref(), Some("81"));
     }
 
     #[test]
@@ -3108,7 +3107,33 @@ mod animego_episode_progress_tests {
         assert_eq!(parsed.0, "692");
         assert_eq!(parsed.1, "/player/692/episodes");
         assert_eq!(parsed.2, "/anime/episode/watched");
-        assert_eq!(parsed.3, "2");
+        assert_eq!(parsed.3.as_deref(), Some("2"));
+    }
+
+    #[test]
+    fn finds_player_id_in_inline_route_without_player_video_controller() {
+        let html = r#"<html><body><button class="player-btn" data-url="/player/692/episodes"></button></body></html>"#;
+        let parsed = super::animego_parse_player_metadata(html, "91").expect("fallback player metadata");
+        assert_eq!(parsed.0, "692");
+        assert_eq!(parsed.1, "/player/692/episodes");
+        assert_eq!(parsed.2, "/anime/episode/watched");
+    }
+
+    #[test]
+    fn uses_numeric_data_id_before_title_id() {
+        let html = r#"<div id="video-carousel"><button data-id="10707"></button></div>"#;
+        let parsed = super::animego_parse_player_metadata(html, "692").expect("data-id player metadata");
+        assert_eq!(parsed.0, "10707");
+        assert_eq!(parsed.1, "/player/10707/episodes");
+    }
+
+    #[test]
+    fn extracts_translation_from_episode_json_payload() {
+        let payload = serde_json::json!({
+            "status": "success",
+            "data": { "translations": [{ "id": 17, "name": "Dub" }] }
+        });
+        assert_eq!(super::animego_translation_id_from_json(&payload).as_deref(), Some("17"));
     }
 
     #[test]
