@@ -834,11 +834,27 @@ async fn animego_fetch_account_page(
         return Err("Сохранённая сессия AnimeGO пуста или превышает допустимый размер.".to_string());
     }
 
+    let is_player_request = path.starts_with("/player/");
+
     let mut outgoing = client.get(url.clone())
-        .header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
-        .header(reqwest::header::USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36")
+        .header(
+            reqwest::header::ACCEPT,
+            if is_player_request {
+                "application/json"
+            } else {
+                "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8"
+            },
+        )
+        .header(
+            reqwest::header::USER_AGENT,
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36",
+        )
         .header(reqwest::header::REFERER, referer)
         .header(reqwest::header::COOKIE, cookie_header);
+
+    if is_player_request {
+        outgoing = outgoing.header("X-Requested-With", "XMLHttpRequest");
+    }
     if let Some(frame_id) = turbo_frame {
         if frame_id.len() > 80 || !frame_id.starts_with("profile-my-list-page-") ||
             !frame_id["profile-my-list-page-".len()..].chars().all(|character| character.is_ascii_digit()) {
