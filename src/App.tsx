@@ -427,8 +427,8 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
     setHistoryLoading(true);
     setHistoryError("");
     const loadHistory = () => Promise.all([
-      repository.getSyncOperations(), repository.getSyncSessions(), animeGoProviderWriteQueue.list(),
-    ]).then(([operations, sessions, providerJobs]) => {
+      repository.getSyncOperations(), repository.getSyncSessions(), animeGoProviderWriteQueue.list(), repository.getImportHistory(),
+    ]).then(([operations, sessions, providerJobs, imports]) => {
       if (active) {
         setHistoryOperations(operations);
         setHistorySessionRecords(sessions);
@@ -1093,15 +1093,17 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
     sessions: SyncSession[],
     operations: SyncOperation[],
     providerWriteJobs: ProviderWriteJob[],
+    imports: ImportHistoryEvent[],
   ) {
     const exportedAt = new Date().toISOString();
     const payload = {
       format: "midahoshi-sync-history",
-      schemaVersion: 3,
+      schemaVersion: 4,
       exportedAt,
       sessions,
       operations,
       providerWriteJobs,
+      imports,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
       type: "application/json",
@@ -2634,6 +2636,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
         setHistoryOperations(operations);
         setHistorySessionRecords(sessions);
         setProviderWriteHistory(providerJobs);
+        setImportHistory(imports);
       })
       .catch((err: unknown) => setHistoryError(err instanceof Error ? err.message : "Не удалось обновить историю."))
       .finally(() => setHistoryLoading(false));
@@ -3004,8 +3007,8 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                   <button
                     className="secondary-button"
                     type="button"
-                    onClick={() => downloadSyncHistory(historySessionRecords, historyOperations, providerWriteHistory)}
-                    disabled={historyOperations.length === 0 && historySessionRecords.length === 0 && providerWriteHistory.length === 0}
+                    onClick={() => downloadSyncHistory(historySessionRecords, historyOperations, providerWriteHistory, importHistory)}
+                    disabled={historyOperations.length === 0 && historySessionRecords.length === 0 && providerWriteHistory.length === 0 && importHistory.length === 0}
                     title="Экспортировать сеансы, операции и журнал отправки AnimeGO, включая скрытые фильтрами записи"
                   >
                     ↓ Экспорт JSON
