@@ -21,6 +21,18 @@ import type {
 
 import { validateSnapshot, validateEntry } from "./snapshot-validation.js";
 
+export interface ImportHistoryEvent {
+  id: string;
+  provider: "animego" | "yummyanime";
+  kind: "account_list_import";
+  status: "succeeded" | "failed";
+  importedCount: number;
+  skippedCount: number;
+  startedAt: string;
+  finishedAt: string;
+  error?: string;
+}
+
 interface AnimeSyncDB extends DBSchema {
   anime: {
     key: string;
@@ -62,6 +74,11 @@ interface AnimeSyncDB extends DBSchema {
     key: string;
     value: SyncDeletionIntent;
     indexes: { "by-provider": string; "by-created-at": string };
+  };
+  importHistory: {
+    key: string;
+    value: ImportHistoryEvent;
+    indexes: { "by-started-at": string; "by-provider": string };
   };
 }
 
@@ -431,7 +448,7 @@ export class BrowserAnimeRepository {
   static async open(
     databaseName = "midahoshi-anime-sync",
   ): Promise<BrowserAnimeRepository> {
-    const db = await openDB<AnimeSyncDB>(databaseName, 7, {
+    const db = await openDB<AnimeSyncDB>(databaseName, 8, {
       upgrade(database, oldVersion, _newVersion, transaction) {
         if (oldVersion < 1) {
           database.createObjectStore("anime", {
@@ -491,6 +508,12 @@ export class BrowserAnimeRepository {
           const deletions = database.createObjectStore("deletionIntents", { keyPath: "id" });
           deletions.createIndex("by-provider", "provider");
           deletions.createIndex("by-created-at", "createdAt");
+        }
+
+        if (oldVersion < 8) {
+          const imports = database.createObjectStore("importHistory", { keyPath: "id" });
+          imports.createIndex("by-started-at", "startedAt");
+          imports.createIndex("by-provider", "provider");
         }
       },
     });
@@ -570,6 +593,15 @@ export class BrowserAnimeRepository {
     return sessions
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
       .map((session) => structuredClone(session));
+  }
+
+  async saveImportHistoryEvent(event: ImportHistoryEvent): Promise<void> {
+    await this.db.put("importHistory", structuredClone(event));
+  }
+
+  async getImportHistory(): Promise<ImportHistoryEvent[]> {
+    const events = await this.db.getAll("importHistory");
+    return events.sort((a, b) => b.startedAt.localeCompare(a.startedAt)).map((event) => structuredClone(event));
   }
 
   async getUnfinishedSyncOperations(provider?: SyncOperation["provider"]): Promise<SyncOperation[]> {
