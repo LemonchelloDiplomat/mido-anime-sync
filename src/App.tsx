@@ -2320,6 +2320,12 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
 
       await repository.saveAnime(anime);
       await repository.saveEntry(entry);
+      if (!previous || JSON.stringify(previous.anime) !== JSON.stringify(anime) || JSON.stringify(previous.entry) !== JSON.stringify(entry)) {
+        await repository.saveImportHistoryEvent({
+          id: crypto.randomUUID(), provider: "local", kind: "local_library_change", status: "succeeded",
+          importedCount: previous ? 0 : 1, skippedCount: 0, startedAt: entry.updatedAt, finishedAt: new Date().toISOString(),
+        });
+      }
 
       // Persist the local edit first, then durably enqueue the remote rating.
       // Offline/expired sessions never roll back the local library.
@@ -2465,6 +2471,10 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
         downloadSnapshot(await repository.snapshot());
       }
       await repository.deleteAnime(id, deletionIntents);
+      await repository.saveImportHistoryEvent({
+        id: crypto.randomUUID(), provider: "local", kind: "local_library_change", status: "succeeded",
+        importedCount: 0, skippedCount: 1, startedAt: createdAt, finishedAt: new Date().toISOString(),
+      });
       await refreshLibrary();
       if (deletionIntents.length > 0) {
         window.alert("Аниме удалено локально. На следующей синхронизации приложение предложит удалить связанные записи на MAL/AniList.");
