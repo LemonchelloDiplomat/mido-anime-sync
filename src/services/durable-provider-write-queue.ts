@@ -2,7 +2,7 @@ import { openDB, type IDBPDatabase } from "idb";
 import type { AnimeStatus } from "../core/types.js";
 
 export type ProviderWriteKind = "rating" | "status" | "progress" | "delete";
-export type ProviderWriteState = "pending" | "processing" | "failed";
+export type ProviderWriteState = "pending" | "processing" | "failed" | "succeeded";
 
 export interface ProviderWritePayload {
   rating?: number;
@@ -202,7 +202,7 @@ export class DurableProviderWriteQueue {
     for (const job of ready) {
       try {
         await execute(structuredClone(job));
-        await db.delete(STORE_NAME, job.id);
+        await db.put(STORE_NAME, { ...job, state: "succeeded", updatedAt: new Date().toISOString(), lastError: null });
         succeeded++;
       } catch (error) {
         const attempts = job.attempts + 1;
@@ -219,6 +219,8 @@ export class DurableProviderWriteQueue {
         failed++;
       }
     }
+    const completed = (await db.getAllFromIndex(STORE_NAME, "by-state", "succeeded")).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    for (const oldJob of completed.slice(500)) await db.delete(STORE_NAME, oldJob.id);
     return { succeeded, failed, deferred: pending.length - ready.length };
   }
 }
