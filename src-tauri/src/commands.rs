@@ -2206,11 +2206,12 @@ async fn animego_progress_webview_request(
         const response = await fetch(url.href, {{
           credentials: "same-origin",
           redirect: "follow",
+          referrer: new URL(titlePath, origin).href,
+          referrerPolicy: "strict-origin-when-cross-origin",
           ...options,
           headers: {{
-            "Accept": "application/json, text/html, */*",
+            "Accept": "application/json, */*",
             "X-Requested-With": "XMLHttpRequest",
-            "Referer": new URL(titlePath, origin).href,
             ...(options.headers || {{}})
           }}
         }});
