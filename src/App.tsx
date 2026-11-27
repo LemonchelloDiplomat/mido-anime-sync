@@ -13,6 +13,7 @@ import type {
   AnimeStatus,
   SyncOperation,
   SyncSession,
+  SyncJournalProvider,
   SyncDeletionIntent,
   SyncProvider,
 } from "./core/types.js";
@@ -289,7 +290,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
   const [historySessionRecords, setHistorySessionRecords] = useState<SyncSession[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
-  const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | SyncProvider>("all");
+  const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | SyncJournalProvider>("all");
   const [historyStatusFilter, setHistoryStatusFilter] = useState<"all" | SyncOperation["status"]>("all");
 
   useEffect(() => {
@@ -650,7 +651,85 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
         ...(entry.sourceMetadata?.favoriteKnown === false ? { favorite: previous.favorite } : {}),
       };
     }));
-    await repository.mergeSnapshot({ ...reconciled, sourceEntries });
+    const importStartedAt = new Date().toISOString();
+    const sessionId = `import-${provider}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const existingExternalIds = new Set(
+      currentItems
+        .map((item) => item.anime.externalIds[provider])
+        .filter((id): id is string => Boolean(id)),
+    );
+    const animeById = new Map(reconciled.anime.map((anime) => [anime.id, anime]));
+    const journalOperations: SyncOperation[] = sourceEntries.flatMap((entry, index) => {
+      const anime = animeById.get(entry.animeId);
+      if (!anime) return [];
+      const externalId = anime.externalIds[provider];
+      const exists = externalId
+        ? existingExternalIds.has(externalId)
+        : currentItems.some((item) => item.anime.id === entry.animeId);
+      return [{
+        id: `${sessionId}-${index}`,
+        sessionId,
+        provider,
+        direction: "local",
+        kind: exists ? "update" : "create",
+        animeId: entry.animeId,
+        ...(externalId ? { externalId } : {}),
+        entry: structuredClone(entry),
+        anime: structuredClone(anime),
+        status: "pending",
+        attempts: 1,
+        createdAt: importStartedAt,
+        updatedAt: importStartedAt,
+      }];
+    });
+
+    try {
+      await repository.mergeSnapshot({ ...reconciled, sourceEntries });
+    } catch (error) {
+      const finishedAt = new Date().toISOString();
+      const message = error instanceof Error ? error.message : "Не удалось применить импортированный список.";
+      await repository.saveSyncJournal({
+        sessionId,
+        provider,
+        status: "failed",
+        startedAt: importStartedAt,
+        finishedAt,
+        operationCount: journalOperations.length,
+        succeededCount: 0,
+        failedCount: journalOperations.length,
+        pendingCount: 0,
+        unchangedCount: 0,
+        conflictCount: 0,
+        recoveredCount: 0,
+        error: message,
+      }, journalOperations.map((operation) => ({
+        ...operation,
+        status: "failed",
+        error: message,
+        updatedAt: finishedAt,
+      })));
+      throw error;
+    }
+
+    const importFinishedAt = new Date().toISOString();
+    await repository.saveSyncJournal({
+      sessionId,
+      provider,
+      status: "succeeded",
+      startedAt: importStartedAt,
+      finishedAt: importFinishedAt,
+      operationCount: journalOperations.length,
+      succeededCount: journalOperations.length,
+      failedCount: 0,
+      pendingCount: 0,
+      unchangedCount: 0,
+      conflictCount: 0,
+      recoveredCount: 0,
+    }, journalOperations.map((operation) => ({
+      ...operation,
+      status: "succeeded",
+      updatedAt: importFinishedAt,
+    })));
 
     // YummyAnime does not publish an exact premiere date in its anime-card schema.
     // When it supplies an exact MAL ID, resolve missing catalog fields by that ID
@@ -2441,6 +2520,13 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
     return sessions.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [historyOperations, historySessionRecords, filteredHistoryOperations, historyProviderFilter, historyStatusFilter]);
 
+  function historyProviderLabel(provider: SyncJournalProvider) {
+    if (provider === "animego") return "AnimeGO";
+    if (provider === "yummyanime") return "YummyAnime";
+    if (provider === "anixart") return "Anixart";
+    return getProviderLabel(provider);
+  }
+
   function formatHistoryDate(value: string) {
     const date = new Date(value);
     return Number.isNaN(date.getTime())
@@ -2789,6 +2875,9 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                     <option value="mal">MyAnimeList</option>
                     <option value="anilist">AniList</option>
                     <option value="shikimori">Shikimori</option>
+                    <option value="animego">AnimeGO</option>
+                    <option value="yummyanime">YummyAnime</option>
+                    <option value="anixart">Anixart</option>
                   </select>
                 </label>
                 <label>
@@ -2825,7 +2914,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                         <header className="history-session-header">
                           <div>
                             <span className="history-session-date">{formatHistoryDate(session.createdAt)}</span>
-                            <h2>{getProviderLabel(session.provider)}</h2>
+                            <h2>{historyProviderLabel(session.provider)}</h2>
                             <small>{session.sessionId}</small>
                             <span className={"history-session-status " + session.status}>
                               {session.status === "running" ? "Выполняется" : session.status === "succeeded" ? "Успешно" : session.status === "failed" ? "Ошибка" : "Отменено"}
@@ -2860,7 +2949,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                                   <small>
                                     {operation.direction === "remote" ? "Отправка в сервис" : "Запись в библиотеку"}
                                     {" · "}{operation.kind === "create" ? "Создание" : operation.kind === "delete" ? "Удаление" : "Обновление"}
-                                    {" · "}{getProviderLabel(operation.provider)}
+                                    {" · "}{historyProviderLabel(operation.provider)}
                                   </small>
                                 </span>
                                 <span className={"history-status-label " + operation.status}>{historyStatusLabel(operation.status)}</span>
