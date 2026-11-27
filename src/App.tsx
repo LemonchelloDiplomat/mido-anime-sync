@@ -17,7 +17,7 @@ import type {
   SyncProvider,
 } from "./core/types.js";
 
-import { BrowserAnimeRepository } from "./storage/browser-repository.js";
+import { BrowserAnimeRepository, type ImportHistoryEvent } from "./storage/browser-repository.js";
 import { resolveLibraryDatabaseName } from "./storage/database-name.js";
 import { validateSnapshot } from "./storage/snapshot-validation.js";
 import { DEFAULT_LIBRARY_FILTERS, filterLibrary, type LibraryFilters } from "./core/library-filter.js";
@@ -300,6 +300,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
   const [historyOperations, setHistoryOperations] = useState<SyncOperation[]>([]);
   const [historySessionRecords, setHistorySessionRecords] = useState<SyncSession[]>([]);
   const [providerWriteHistory, setProviderWriteHistory] = useState<ProviderWriteJob[]>([]);
+  const [importHistory, setImportHistory] = useState<ImportHistoryEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
   const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | SyncProvider | "animego">("all");
@@ -432,6 +433,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
         setHistoryOperations(operations);
         setHistorySessionRecords(sessions);
         setProviderWriteHistory(providerJobs);
+        setImportHistory(imports);
       }
     });
     void loadHistory()
@@ -647,7 +649,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
     }
   }
 
-  async function importStreamingAccountSnapshot(snapshot: AnimeSnapshotV4, provider: "animego" | "yummyanime") {
+  async function importStreamingAccountSnapshot(snapshot: AnimeSnapshotV4, provider: "animego" | "yummyanime", skippedCount = 0) {
     if (!repository) throw new Error("Локальная библиотека ещё не готова.");
     const currentItems = await repository.getAll();
     const reconciled = reconcileStreamingAccountSnapshot(
@@ -667,7 +669,22 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
         ...(entry.sourceMetadata?.favoriteKnown === false ? { favorite: previous.favorite } : {}),
       };
     }));
-    await repository.mergeSnapshot({ ...reconciled, sourceEntries });
+    const importStartedAt = new Date().toISOString();
+    try {
+      await repository.mergeSnapshot({ ...reconciled, sourceEntries });
+      await repository.saveImportHistoryEvent({
+        id: crypto.randomUUID(), provider, kind: "account_list_import", status: "succeeded",
+        importedCount: reconciled.sourceEntries.length, skippedCount, startedAt: importStartedAt,
+        finishedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      await repository.saveImportHistoryEvent({
+        id: crypto.randomUUID(), provider, kind: "account_list_import", status: "failed",
+        importedCount: 0, skippedCount, startedAt: importStartedAt, finishedAt: new Date().toISOString(),
+        error: error instanceof Error ? error.message.slice(0, 500) : "Не удалось сохранить импорт.",
+      });
+      throw error;
+    }
 
     // YummyAnime does not publish an exact premiere date in its anime-card schema.
     // When it supplies an exact MAL ID, resolve missing catalog fields by that ID
@@ -729,7 +746,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       conflictResolutions: [],
       animeRelations: [],
     };
-    await importStreamingAccountSnapshot(snapshot, "animego");
+    await importStreamingAccountSnapshot(snapshot, "animego", normalized.skipped);
     window.alert(
       "Импорт AnimeGO завершён. Добавлено или обновлено записей: " +
       normalized.rows.length + ". Пропущено некорректных строк: " + normalized.skipped +
@@ -923,7 +940,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       conflictResolutions: [],
       animeRelations: [],
     };
-    await importStreamingAccountSnapshot(snapshot, "animego");
+    await importStreamingAccountSnapshot(snapshot, "animego", skipped);
     for (const baseline of baselineUpdates) await saveAnimeGoBaseline(baseline);
     for (const change of outboundChanges) {
       if (change.field === "status") {
@@ -2576,6 +2593,9 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       createdAt: job.updatedAt || job.createdAt,
       job,
     })),
+    ...importHistory.filter((event) => (historyProviderFilter === "all" || historyProviderFilter === event.provider) && (historyStatusFilter === "all" || (event.status === "succeeded" ? historyStatusFilter === "succeeded" : historyStatusFilter === "failed"))).map((event) => ({
+      type: "import" as const, id: event.id, createdAt: event.finishedAt, event,
+    })),
   ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   function formatHistoryDate(value: string) {
@@ -2608,8 +2628,9 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       repository.getSyncOperations(),
       repository.getSyncSessions(),
       animeGoProviderWriteQueue.list(),
+      repository.getImportHistory(),
     ])
-      .then(([operations, sessions, providerJobs]) => {
+      .then(([operations, sessions, providerJobs, imports]) => {
         setHistoryOperations(operations);
         setHistorySessionRecords(sessions);
         setProviderWriteHistory(providerJobs);
@@ -3065,6 +3086,15 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                           <small>{event.session.operationCount} операций · {event.session.unchangedCount} без изменений</small>
                         </div>
                         <span className={"history-status-label " + event.session.status}>{event.session.status === "running" ? "Выполняется" : event.session.status === "succeeded" ? "Успешно" : event.session.status === "failed" ? "Ошибка" : "Отменено"}</span>
+                        <span className="history-operation-time">{formatHistoryDate(event.createdAt)}</span>
+                      </div>
+                    ) : event.type === "import" ? (
+                      <div className="history-operation" key={"import:" + event.id}>
+                        <div className="history-operation-title">
+                          <strong>{event.event.provider === "animego" ? "AnimeGO" : "YummyAnime"} · импорт списка</strong>
+                          <small>{event.event.importedCount} записей · {event.event.skippedCount} пропущено{event.event.error ? " · " + event.event.error : ""}</small>
+                        </div>
+                        <span className={"history-status-label " + event.event.status}>{event.event.status === "succeeded" ? "Импортировано" : "Ошибка"}</span>
                         <span className="history-operation-time">{formatHistoryDate(event.createdAt)}</span>
                       </div>
                     ) : (
