@@ -12,6 +12,69 @@ const AUTH_WINDOW: &str = "animego-auth";
 const MAX_RESULT_BYTES: usize = 1024 * 1024;
 const OP_TIMEOUT: Duration = Duration::from_secs(25);
 
+/// Returns the persistent authenticated AnimeGO WebView, recreating it after
+/// an application restart. Authentication cookies stay inside the WebView2
+/// profile and are never copied into renderer JavaScript.
+#[cfg(desktop)]
+pub async fn ensure_auth_window(app: &tauri::AppHandle) -> Result<WebviewWindow, String> {
+    let window = if let Some(window) = app.get_webview_window(AUTH_WINDOW) {
+        window
+    } else {
+        use tauri::WebviewUrl;
+        use tauri::webview::WebviewWindowBuilder;
+
+        let url = "https://animego.me/login".parse()
+            .map_err(|_| "Некорректный адрес входа AnimeGO.".to_string())?;
+        WebviewWindowBuilder::new(app, AUTH_WINDOW, WebviewUrl::External(url))
+            .title("Вход в AnimeGO")
+            .inner_size(1040.0, 780.0)
+            .min_inner_size(760.0, 560.0)
+            .resizable(true)
+            .visible(false)
+            .build()
+            .map_err(|error| format!("Не удалось восстановить окно AnimeGO: {error}"))?
+    };
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let url = window.url()
+            .map_err(|error| format!("Не удалось проверить адрес окна AnimeGO: {error}"))?;
+        if url.scheme() == "https" && url.host_str() == Some("animego.me") {
+            let (sender, receiver) = std::sync::mpsc::channel::<String>();
+            window.eval_with_callback(
+                "JSON.stringify({ ready: document.readyState === 'complete' || document.readyState === 'interactive', bridge: typeof window.__TAURI__?.core?.invoke === 'function' })",
+                move |result| { let _ = sender.send(result); },
+            ).map_err(|error| format!("Не удалось проверить готовность WebView AnimeGO: {error}"))?;
+
+            let callback = tauri::async_runtime::spawn_blocking(move || {
+                receiver.recv_timeout(Duration::from_secs(2))
+            }).await.map_err(|error| format!("Проверка WebView AnimeGO завершилась ошибкой: {error}"))?
+                .map_err(|_| "WebView AnimeGO не ответил при восстановлении окна.".to_string())?;
+
+            let mut state: Value = serde_json::from_str(&callback)
+                .unwrap_or_else(|_| Value::String(callback));
+            if let Some(serialized) = state.as_str() {
+                state = serde_json::from_str(serialized).unwrap_or(Value::Null);
+            }
+            if state.get("ready").and_then(Value::as_bool) == Some(true)
+                && state.get("bridge").and_then(Value::as_bool) == Some(true)
+            {
+                return Ok(window);
+            }
+        }
+
+        if tokio::time::Instant::now() >= deadline {
+            return Err("Окно AnimeGO создано, но страница или IPC-мост не готовы. Открой окно AnimeGO и проверь авторизацию.".to_string());
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+#[cfg(mobile)]
+pub async fn ensure_auth_window(_app: &tauri::AppHandle) -> Result<WebviewWindow, String> {
+    Err("Встроенное окно AnimeGO доступно только в Windows-приложении.".to_string())
+}
+
 struct PendingOperation {
     sender: oneshot::Sender<Result<Value, String>>,
     stage: String,
@@ -77,8 +140,7 @@ pub fn animego_bridge_complete(
 
 #[tauri::command]
 pub async fn animego_bridge_ping(app: tauri::AppHandle) -> Result<Value, String> {
-    let window = app.get_webview_window(AUTH_WINDOW)
-        .ok_or_else(|| "Open AnimeGO before testing the event bridge.".to_string())?;
+    let window = ensure_auth_window(&app).await?;
     verify_auth_window(&window)?;
 
     let op_id = Uuid::new_v4().to_string();
@@ -121,8 +183,7 @@ pub async fn evaluate(
     script: String,
     timeout: Duration,
 ) -> Result<Value, String> {
-    let window = app.get_webview_window(AUTH_WINDOW)
-        .ok_or_else(|| "Open and connect AnimeGO before changing account data.".to_string())?;
+    let window = ensure_auth_window(app).await?;
     verify_auth_window(&window)?;
 
     let op_id = Uuid::new_v4().to_string();
@@ -204,8 +265,7 @@ pub async fn add_to_list(
     if anime_id == 0 || !(1..=6).contains(&list_type) {
         return Err("Invalid AnimeGO title ID or list status.".into());
     }
-    let window = app.get_webview_window(AUTH_WINDOW)
-        .ok_or_else(|| "Open and connect AnimeGO before changing a list status.".to_string())?;
+    let window = ensure_auth_window(app).await?;
     verify_auth_window(&window)?;
 
     let op_id = Uuid::new_v4().to_string();
