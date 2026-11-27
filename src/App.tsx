@@ -3080,7 +3080,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                   <div>
                     <span className="history-session-date">ОБЩАЯ ХРОНОЛОГИЯ</span>
                     <h2>Последняя активность</h2>
-                    <small>Сеансы синхронизации и изменения AnimeGO в одном порядке по времени</small>
+                    <small>Сеансы, отдельные операции, импорты и отправки во внешние сервисы в единой временной шкале</small>
                   </div>
                   <div className="history-session-summary"><span>{historyTimeline.length} событий</span></div>
                 </header>
