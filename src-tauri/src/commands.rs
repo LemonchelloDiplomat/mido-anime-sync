@@ -2108,7 +2108,7 @@ pub async fn animego_account_delete(
 
 
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnimeGoEpisodeProgressItem {
     episode_id: String,
@@ -2283,9 +2283,180 @@ async fn animego_save_session_cookies(
     streaming_secret_set(ANIMEGO_SESSION_KEY.to_string(), serialized)
 }
 
-async fn animego_account_progress_read_inner(
+async fn animego_progress_webview_operation(
+    app: &tauri::AppHandle,
+    safe_title: &reqwest::Url,
+    anime_id: &str,
+    expected_user_id: &str,
+    desired_progress: Option<u32>,
+) -> Result<(String, String, Vec<AnimeGoEpisodeProgressItem>, u16, u32), String> {
+    let window = app.get_webview_window(ANIMEGO_AUTH_WINDOW)
+        .ok_or_else(|| "Открой авторизованное окно AnimeGO и повтори операцию.".to_string())?;
+    let current_url = window.url()
+        .map_err(|_| "Не удалось проверить адрес окна AnimeGO.".to_string())?;
+    if current_url.scheme() != "https" || current_url.host_str() != Some("animego.me") {
+        return Err("Окно AnimeGO находится вне доверенного домена. Открой AnimeGO и повтори операцию.".to_string());
+    }
+
+    let title_path = format!("{}{}", safe_title.path(),
+        safe_title.query().map(|query| format!("?{query}")).unwrap_or_default());
+    let title_path_json = serde_json::to_string(&title_path)
+        .map_err(|_| "Не удалось подготовить адрес тайтла AnimeGO.".to_string())?;
+    let user_id_json = serde_json::to_string(expected_user_id)
+        .map_err(|_| "Не удалось подготовить идентификатор аккаунта AnimeGO.".to_string())?;
+    let anime_id_json = serde_json::to_string(anime_id)
+        .map_err(|_| "Не удалось подготовить ID тайтла AnimeGO.".to_string())?;
+    let desired_json = serde_json::to_string(&desired_progress)
+        .map_err(|_| "Не удалось подготовить целевой прогресс AnimeGO.".to_string())?;
+
+    let script = format!(r#"(async () => {{
+      const origin = "https://animego.me";
+      const titlePath = {title_path_json};
+      const expectedUserId = {user_id_json};
+      const animeId = {anime_id_json};
+      const desiredProgress = {desired_json};
+      const fail = (message) => ({{ ok: false, error: String(message).slice(0, 500) }});
+      const stage = (value) => window.__midoAnimeGoSetStage?.(value);
+      const safeUrl = (path) => {{
+        const url = new URL(path, origin);
+        if (url.origin !== origin || url.protocol !== "https:" || url.username || url.password)
+          throw new Error("AnimeGO вернул адрес за пределами доверенного домена.");
+        return url;
+      }};
+      const readState = async () => {{
+        stage("progress_title_fetch");
+        const titleResponse = await fetch(safeUrl(titlePath).href, {{
+          method: "GET", credentials: "include", redirect: "follow",
+          headers: {{ "Accept": "text/html,application/xhtml+xml" }}
+        }});
+        if (new URL(titleResponse.url).origin !== origin) throw new Error("Страница тайтла перенаправила запрос за пределы AnimeGO.");
+        if (!titleResponse.ok) throw new Error("Не удалось открыть карточку тайтла (HTTP " + titleResponse.status + ").");
+        const titleHtml = await titleResponse.text();
+        if (titleHtml.length > 2097152) throw new Error("HTML карточки тайтла превышает лимит 2 МБ.");
+        const doc = new DOMParser().parseFromString(titleHtml, "text/html");
+        let user;
+        try {{ user = JSON.parse(doc.documentElement?.dataset?.user ?? "null"); }}
+        catch {{ throw new Error("Не удалось прочитать профиль AnimeGO."); }}
+        if (!user || String(user.id ?? user.userId ?? "") !== expectedUserId)
+          throw new Error("AnimeGO не подтвердил ожидаемый авторизованный аккаунт.");
+        const player = doc.querySelector(".player-video[data-anime-player-episodes-url-value][data-anime-episode-watched-url-value]");
+        if (!player) throw new Error("В HTML карточки AnimeGO не найден блок плеера с адресами списка серий.");
+        const playerId = player.getAttribute("data-anime-player-anime-id-value") ?? "";
+        if (playerId !== animeId || !/^\d+$/.test(playerId))
+          throw new Error("ID плеера AnimeGO не совпадает с ID выбранного тайтла.");
+        const episodesPath = player.getAttribute("data-anime-player-episodes-url-value") ?? "";
+        const watchedPath = player.getAttribute("data-anime-episode-watched-url-value") ?? "";
+        if (watchedPath !== "/anime/episode/watched") throw new Error("Адрес изменения прогресса AnimeGO не прошёл проверку.");
+        const episodesUrl = safeUrl(episodesPath);
+        if (episodesUrl.pathname !== "/player/" + playerId + "/episodes" || episodesUrl.search)
+          throw new Error("Адрес списка серий AnimeGO не прошёл проверку.");
+        const activeTranslation = doc.querySelector("[data-translation-id].active:not([hidden])");
+        const translationId = activeTranslation?.getAttribute("data-translation-id")
+          || player.getAttribute("data-anime-player-default-translation-id-value") || "";
+        if (!/^\d+$/.test(translationId)) throw new Error("Не удалось определить активный перевод AnimeGO.");
+        stage("progress_episodes_fetch");
+        const episodesResponse = await fetch(episodesUrl.href, {{
+          method: "GET", credentials: "include", redirect: "follow",
+          headers: {{ "Accept": "application/json, */*" }}
+        }});
+        if (new URL(episodesResponse.url).origin !== origin) throw new Error("Список серий перенаправил запрос за пределы AnimeGO.");
+        if (!episodesResponse.ok) throw new Error("Не удалось загрузить серии AnimeGO (HTTP " + episodesResponse.status + ").");
+        const payload = await episodesResponse.json();
+        if (payload?.status !== "success" || typeof payload?.data?.content !== "string")
+          throw new Error("AnimeGO не вернул подтверждённый список серий.");
+        const episodeDoc = new DOMParser().parseFromString(payload.data.content, "text/html");
+        const seenIds = new Set(), seenNumbers = new Set();
+        const episodes = Array.from(episodeDoc.querySelectorAll("[data-episode][data-episode-number][data-episode-watched]"))
+          .map((el) => ({{
+            episodeId: (el.getAttribute("data-episode") ?? "").trim(),
+            episodeNumber: Number(el.getAttribute("data-episode-number")),
+            watched: el.getAttribute("data-episode-watched") === "true",
+            watchedRaw: el.getAttribute("data-episode-watched")
+          }}))
+          .filter((ep) => /^\d+$/.test(ep.episodeId) && Number.isInteger(ep.episodeNumber)
+            && ep.episodeNumber > 0 && ep.episodeNumber <= 10000
+            && (ep.watchedRaw === "true" || ep.watchedRaw === "false")
+            && !seenIds.has(ep.episodeId) && !seenNumbers.has(ep.episodeNumber)
+            && (seenIds.add(ep.episodeId), seenNumbers.add(ep.episodeNumber), true))
+          .map(({{episodeId, episodeNumber, watched}}) => ({{episodeId, episodeNumber, watched}}))
+          .sort((a, b) => a.episodeNumber - b.episodeNumber);
+        if (!episodes.length || episodes.length > 500) throw new Error("AnimeGO вернул пустой или слишком большой список серий.");
+        return {{ playerId, translationId, episodes, watchedPath, httpStatus: episodesResponse.status }};
+      }};
+
+      try {{
+        let state = await readState();
+        let changed = 0;
+        if (desiredProgress !== null) {{
+          if (!Number.isInteger(desiredProgress) || desiredProgress < 0)
+            return fail("Количество просмотренных серий должно быть целым неотрицательным числом.");
+          const maxEpisode = Math.max(...state.episodes.map((ep) => ep.episodeNumber));
+          if (desiredProgress > maxEpisode) return fail("Запрошенный прогресс превышает количество серий на AnimeGO.");
+          for (const episode of state.episodes) {{
+            const desired = episode.episodeNumber <= desiredProgress;
+            if (episode.watched === desired) continue;
+            stage("progress_toggle_episode_" + episode.episodeNumber);
+            const response = await fetch(safeUrl(state.watchedPath).href, {{
+              method: "POST", credentials: "include", redirect: "follow",
+              referrer: safeUrl(titlePath).href,
+              headers: {{
+                "Accept": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+                "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"
+              }},
+              body: new URLSearchParams([["id", episode.episodeId], ["translationId", state.translationId]]).toString()
+            }});
+            if (new URL(response.url).origin !== origin) throw new Error("Запись серии перенаправлена за пределы AnimeGO.");
+            if (!response.ok) throw new Error("AnimeGO отклонил изменение серии " + episode.episodeNumber + " (HTTP " + response.status + ").");
+            let result;
+            try {{ result = await response.json(); }} catch {{ throw new Error("AnimeGO вернул некорректный ответ для серии " + episode.episodeNumber + "."); }}
+            if (result?.status !== "success" || result?.data?.isSetWatched !== desired)
+              throw new Error("AnimeGO не подтвердил изменение серии " + episode.episodeNumber + ".");
+            changed++;
+          }}
+          stage("progress_verify_fresh_read");
+          state = await readState();
+          const mismatch = state.episodes.find((ep) => ep.watched !== (ep.episodeNumber <= desiredProgress));
+          if (mismatch) throw new Error("Повторное чтение не подтвердило состояние серии " + mismatch.episodeNumber + ".");
+        }}
+        return {{
+          ok: true, playerId: state.playerId, translationId: state.translationId,
+          episodes: state.episodes, httpStatus: state.httpStatus, changedEpisodes: changed
+        }};
+      }} catch (error) {{
+        return fail(error?.message ?? error);
+      }}
+    }})()"#);
+
+    let payload = crate::animego_event_bridge::evaluate(
+        app, script, std::time::Duration::from_secs(90)
+    ).await?;
+    if payload.get("ok").and_then(Value::as_bool) != Some(true) {
+        let message = payload.get("error").and_then(Value::as_str)
+            .unwrap_or("Не удалось прочитать прогресс через авторизованный WebView2 AnimeGO.");
+        return Err(message.to_string());
+    }
+    let player_id = payload.get("playerId").and_then(Value::as_str)
+        .ok_or_else(|| "AnimeGO не вернул ID плеера.".to_string())?.to_string();
+    let translation_id = payload.get("translationId").and_then(Value::as_str)
+        .ok_or_else(|| "AnimeGO не вернул ID перевода.".to_string())?.to_string();
+    let episodes: Vec<AnimeGoEpisodeProgressItem> = serde_json::from_value(
+        payload.get("episodes").cloned().ok_or_else(|| "AnimeGO не вернул серии.".to_string())?
+    ).map_err(|_| "Не удалось разобрать список серий AnimeGO.".to_string())?;
+    if episodes.is_empty() { return Err("AnimeGO вернул пустой список серий.".to_string()); }
+    let http_status = payload.get("httpStatus").and_then(Value::as_u64)
+        .and_then(|v| u16::try_from(v).ok()).unwrap_or(200);
+    let changed = payload.get("changedEpisodes").and_then(Value::as_u64)
+        .and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
+    Ok((player_id, translation_id, episodes, http_status, changed))
+}
+
+#[tauri::command]
+pub async fn animego_account_progress_fetch(
+    app: tauri::AppHandle,
     title_url: String,
-) -> Result<(AnimeGoProgressSnapshot, AnimeGoStoredSession, HashMap<String, String>), String> {
+) -> Result<AnimeGoProgressSnapshot, String> {
+    let started = std::time::Instant::now();
     let requested = reqwest::Url::parse(&title_url)
         .map_err(|_| "Некорректная ссылка на тайтл AnimeGO.".to_string())?;
     let origin = reqwest::Url::parse(ANIMEGO_ORIGIN).map_err(|_| "Некорректный адрес AnimeGO.".to_string())?;
@@ -2294,57 +2465,30 @@ async fn animego_account_progress_read_inner(
     let anime_id = safe_title.path().trim_end_matches('/').rsplit('-').next().unwrap_or("");
     let raw = streaming_secret_get(ANIMEGO_SESSION_KEY.to_string())?
         .ok_or_else(|| "Сначала подключи аккаунт AnimeGO.".to_string())?;
-    let mut session: AnimeGoStoredSession = serde_json::from_str(&raw)
+    let session: AnimeGoStoredSession = serde_json::from_str(&raw)
         .map_err(|_| "Сохранённая сессия AnimeGO повреждена. Подключи аккаунт заново.".to_string())?;
-    if session.cookies.is_empty() || session.user_id.is_empty() ||
-        !session.user_id.chars().all(|ch| ch.is_ascii_digit()) {
-        return Err("Сохранённая сессия AnimeGO неполная. Подключи аккаунт заново.".to_string());
+    if session.user_id.is_empty() || !session.user_id.chars().all(|ch| ch.is_ascii_digit()) {
+        return Err("Сохранённый профиль AnimeGO неполный. Подключи аккаунт заново.".to_string());
     }
-    let mut cookies = session.cookies.iter().cloned().collect::<HashMap<_, _>>();
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(20))
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len() >= 5 { attempt.stop() }
-            else if attempt.url().scheme() == "https" && attempt.url().host_str() == Some("animego.me") { attempt.follow() }
-            else { attempt.stop() }
-        }))
-        .build().map_err(|_| "Не удалось запустить защищённый HTTP-клиент AnimeGO.".to_string())?;
-    let home = animego_fetch_account_page(&client, &mut cookies, "/", ANIMEGO_ORIGIN, None).await?;
-    if !(200..300).contains(&home.status) {
-        return Err(format!("AnimeGO не подтвердил сессию (HTTP {}). Повтори вход.", home.status));
-    }
-    let (user_id, _) = animego_user_from_html(&home.text)
-        .ok_or_else(|| "AnimeGO не подтвердил действующую авторизацию.".to_string())?;
-    if user_id != session.user_id {
-        return Err("AnimeGO вернул другой аккаунт. Чтение прогресса остановлено.".to_string());
-    }
-    let state = animego_load_episode_state(&client, &mut cookies, &safe_title, anime_id).await?;
-    let watched_episode_number = state.episodes.iter().filter(|episode| episode.watched)
+    let (player_id, translation_id, episodes, http_status, _) =
+        animego_progress_webview_operation(&app, &safe_title, anime_id, &session.user_id, None).await?;
+    let watched_episode_number = episodes.iter().filter(|episode| episode.watched)
         .map(|episode| episode.episode_number).max().unwrap_or(0);
-    let snapshot = AnimeGoProgressSnapshot {
+    Ok(AnimeGoProgressSnapshot {
         provider: "animego",
         title_url: safe_title.to_string(),
-        player_id: state.player_id,
-        translation_id: state.translation_id,
+        player_id,
+        translation_id,
         watched_episode_number,
-        episodes: state.episodes,
-        http_status: 200,
-        duration_ms: 0,
-    };
-    animego_save_session_cookies(&mut session, cookies.clone()).await?;
-    Ok((snapshot, session, cookies))
-}
-
-#[tauri::command]
-pub async fn animego_account_progress_fetch(title_url: String) -> Result<AnimeGoProgressSnapshot, String> {
-    let started = std::time::Instant::now();
-    let (mut snapshot, _, _) = animego_account_progress_read_inner(title_url).await?;
-    snapshot.duration_ms = started.elapsed().as_millis();
-    Ok(snapshot)
+        episodes,
+        http_status,
+        duration_ms: started.elapsed().as_millis(),
+    })
 }
 
 #[tauri::command]
 pub async fn animego_account_progress_write(
+    app: tauri::AppHandle,
     title_url: String,
     progress: u32,
 ) -> Result<AnimeGoProgressWriteResult, String> {
@@ -2357,99 +2501,24 @@ pub async fn animego_account_progress_write(
     let anime_id = safe_title.path().trim_end_matches('/').rsplit('-').next().unwrap_or("");
     let raw = streaming_secret_get(ANIMEGO_SESSION_KEY.to_string())?
         .ok_or_else(|| "Сначала подключи аккаунт AnimeGO.".to_string())?;
-    let mut session: AnimeGoStoredSession = serde_json::from_str(&raw)
+    let session: AnimeGoStoredSession = serde_json::from_str(&raw)
         .map_err(|_| "Сохранённая сессия AnimeGO повреждена. Подключи аккаунт заново.".to_string())?;
-    if session.cookies.is_empty() || session.user_id.is_empty() ||
-        !session.user_id.chars().all(|ch| ch.is_ascii_digit()) {
-        return Err("Сохранённая сессия AnimeGO неполная. Подключи аккаунт заново.".to_string());
+    if session.user_id.is_empty() || !session.user_id.chars().all(|ch| ch.is_ascii_digit()) {
+        return Err("Сохранённый профиль AnimeGO неполный. Подключи аккаунт заново.".to_string());
     }
-    let mut cookies = session.cookies.iter().cloned().collect::<HashMap<_, _>>();
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(20))
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len() >= 5 { attempt.stop() }
-            else if attempt.url().scheme() == "https" && attempt.url().host_str() == Some("animego.me") { attempt.follow() }
-            else { attempt.stop() }
-        }))
-        .build().map_err(|_| "Не удалось запустить защищённый HTTP-клиент AnimeGO.".to_string())?;
-    let home = animego_fetch_account_page(&client, &mut cookies, "/", ANIMEGO_ORIGIN, None).await?;
-    if !(200..300).contains(&home.status) {
-        return Err(format!("AnimeGO не подтвердил сессию (HTTP {}). Повтори вход.", home.status));
-    }
-    let (user_id, _) = animego_user_from_html(&home.text)
-        .ok_or_else(|| "AnimeGO не подтвердил действующую авторизацию.".to_string())?;
-    if user_id != session.user_id {
-        return Err("AnimeGO вернул другой аккаунт. Запись прогресса остановлена.".to_string());
-    }
-
-    let initial = animego_load_episode_state(&client, &mut cookies, &safe_title, anime_id).await?;
-    let translation_id = initial.translation_id.clone();
-    let watched_path = initial.watched_path.clone();
-    let cookie_header = cookies.iter().map(|(name, value)| format!("{name}={value}")).collect::<Vec<_>>().join("; ");
-    if cookie_header.is_empty() || cookie_header.len() > 16 * 1024 {
-        return Err("Сохранённая сессия AnimeGO пуста или превышает допустимый размер.".to_string());
-    }
-    let mut changed = 0u32;
-    let mut final_http_status = 200u16;
-    for episode in &initial.episodes {
-        let desired = episode.episode_number <= progress;
-        if episode.watched == desired { continue; }
-        let current_cookie_header = cookies.iter().map(|(name, value)| format!("{name}={value}")).collect::<Vec<_>>().join("; ");
-        if current_cookie_header.is_empty() || current_cookie_header.len() > 16 * 1024 {
-            return Err("Сохранённая сессия AnimeGO пуста или превышает допустимый размер.".to_string());
-        }
-        let response = client.post(format!("{ANIMEGO_ORIGIN}{watched_path}"))
-            .header(reqwest::header::ACCEPT, "application/json")
-            .header(reqwest::header::CONTENT_TYPE, "application/x-www-form-urlencoded;charset=UTF-8")
-            .header(reqwest::header::USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36")
-            .header(reqwest::header::REFERER, safe_title.as_str())
-            .header(reqwest::header::ORIGIN, ANIMEGO_ORIGIN)
-            .header(reqwest::header::COOKIE, current_cookie_header)
-            .header("X-Requested-With", "XMLHttpRequest")
-            .form(&[("id", episode.episode_id.as_str()), ("translationId", translation_id.as_str())])
-            .send().await
-            .map_err(|_| "Неизвестен результат записи прогресса AnimeGO. При повторной попытке приложение сначала перечитает состояние.".to_string())?;
-        final_http_status = response.status().as_u16();
-        let final_url = response.url().clone();
-        if final_url.scheme() != "https" || final_url.host_str() != Some("animego.me") {
-            return Err("AnimeGO перенаправил запись за пределы разрешённого домена.".to_string());
-        }
-        update_animego_cookie_jar(&mut cookies, response.headers());
-        let body = response.text().await
-            .map_err(|_| "Не удалось прочитать ответ AnimeGO. Состояние будет сверено перед повтором.".to_string())?;
-        if body.len() > 64 * 1024 {
-            return Err("Ответ записи прогресса AnimeGO превышает допустимый размер.".to_string());
-        }
-        if !(200..300).contains(&final_http_status) {
-            return Err(format!("AnimeGO отклонил изменение прогресса (HTTP {}).", final_http_status));
-        }        let result: Value = serde_json::from_str(&body)
-            .map_err(|_| "AnimeGO вернул некорректный ответ записи прогресса.".to_string())?;
-        let actual = result.pointer("/data/isSetWatched").and_then(Value::as_bool);
-        if result.get("status").and_then(Value::as_str) != Some("success") || actual != Some(desired) {
-            return Err("AnimeGO не подтвердил запрошенное состояние серии.".to_string());
-        }
-        changed = changed.saturating_add(1);
-    }
-
-    // A fresh read is mandatory because this endpoint is a toggle, not an idempotent setter.
-    let verified_state = animego_load_episode_state(&client, &mut cookies, &safe_title, anime_id).await?;
-    let verified = verified_state.episodes.iter()
-        .all(|episode| episode.watched == (episode.episode_number <= progress));
-    if !verified {
-        return Err("AnimeGO не подтвердил итоговый прогресс после повторного чтения списка серий.".to_string());
-    }
-    let watched_episode_number = verified_state.episodes.iter().filter(|episode| episode.watched)
+    let (player_id, translation_id, episodes, http_status, changed_episodes) =
+        animego_progress_webview_operation(&app, &safe_title, anime_id, &session.user_id, Some(progress)).await?;
+    let watched_episode_number = episodes.iter().filter(|episode| episode.watched)
         .map(|episode| episode.episode_number).max().unwrap_or(0);
-    animego_save_session_cookies(&mut session, cookies).await?;
     Ok(AnimeGoProgressWriteResult {
         provider: "animego",
         title_url: safe_title.to_string(),
         requested_progress: progress,
         translation_id,
-        changed_episodes: changed,
-        verified: true,
+        changed_episodes,
+        verified: episodes.iter().all(|episode| episode.watched == (episode.episode_number <= progress)),
         watched_episode_number,
-        http_status: final_http_status,
+        http_status,
         duration_ms: started.elapsed().as_millis(),
     })
 }
