@@ -82,6 +82,17 @@ describe("local library field history", () => {
       before: false,
       after: true,
     })).toBe("Избранное: Нет → Да");
+    expect(formatLocalLibraryFieldChange({
+      field: "score",
+      before: 80,
+      after: 90,
+    })).toBe("Оценка: 8 → 9");
+    expect(formatLocalLibraryFieldChange({
+      field: "progress",
+      before: 7,
+      after: 8,
+      total: 12,
+    })).toBe("Прогресс: 7/12 → 8/12");
   });
 
   it("returns no changes for identical entries", () => {
