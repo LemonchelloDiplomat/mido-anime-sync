@@ -21,6 +21,18 @@ import type {
 
 import { validateSnapshot, validateEntry } from "./snapshot-validation.js";
 
+export interface ImportHistoryEvent {
+  id: string;
+  provider: "animego" | "yummyanime";
+  kind: "account_list_import";
+  status: "succeeded" | "failed";
+  importedCount: number;
+  skippedCount: number;
+  startedAt: string;
+  finishedAt: string;
+  error?: string;
+}
+
 interface AnimeSyncDB extends DBSchema {
   anime: {
     key: string;
@@ -62,6 +74,17 @@ interface AnimeSyncDB extends DBSchema {
     key: string;
     value: SyncDeletionIntent;
     indexes: { "by-provider": string; "by-created-at": string };
+  };
+
+  appMetadata: {
+    key: string;
+    value: { key: string; value: number | string; updatedAt: string };
+  };
+
+  importHistory: {
+    key: string;
+    value: ImportHistoryEvent;
+    indexes: { "by-started-at": string; "by-provider": string };
   };
 }
 
@@ -425,13 +448,18 @@ function assertRelationsReferenceExistingAnime(
   }
 }
 
+export const LIBRARY_DATABASE_SCHEMA_VERSION = 9;
+
 export class BrowserAnimeRepository {
   private constructor(private readonly db: IDBPDatabase<AnimeSyncDB>) {}
 
   static async open(
     databaseName = "midahoshi-anime-sync",
   ): Promise<BrowserAnimeRepository> {
-    const db = await openDB<AnimeSyncDB>(databaseName, 7, {
+    const db = await openDB<AnimeSyncDB>(
+      databaseName,
+      LIBRARY_DATABASE_SCHEMA_VERSION,
+      {
       upgrade(database, oldVersion, _newVersion, transaction) {
         if (oldVersion < 1) {
           database.createObjectStore("anime", {
@@ -491,6 +519,30 @@ export class BrowserAnimeRepository {
           const deletions = database.createObjectStore("deletionIntents", { keyPath: "id" });
           deletions.createIndex("by-provider", "provider");
           deletions.createIndex("by-created-at", "createdAt");
+        }
+
+        // Version 8 was created independently in two development branches.
+        // Repair both possible schemas without recreating existing stores.
+        const metadata = database.objectStoreNames.contains("appMetadata")
+          ? transaction.objectStore("appMetadata")
+          : database.createObjectStore("appMetadata", { keyPath: "key" });
+
+        metadata.put({
+          key: "schemaVersion",
+          value: LIBRARY_DATABASE_SCHEMA_VERSION,
+          updatedAt: new Date().toISOString(),
+        });
+
+        const imports = database.objectStoreNames.contains("importHistory")
+          ? transaction.objectStore("importHistory")
+          : database.createObjectStore("importHistory", { keyPath: "id" });
+
+        if (!imports.indexNames.contains("by-started-at")) {
+          imports.createIndex("by-started-at", "startedAt");
+        }
+
+        if (!imports.indexNames.contains("by-provider")) {
+          imports.createIndex("by-provider", "provider");
         }
       },
     });

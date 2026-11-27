@@ -2292,6 +2292,202 @@ describe("BrowserAnimeRepository identity reconciliation", () => {
 
 
 describe("BrowserAnimeRepository migration regression", () => {
+  async function createVersion8Database(
+    name: string,
+    includeMetadata: boolean,
+    includeImportHistory: boolean,
+  ): Promise<IDBDatabase> {
+    const request = indexedDB.open(name, 8);
+
+    request.onupgradeneeded = () => {
+      const database = request.result;
+
+      database.createObjectStore("anime", { keyPath: "id" });
+      database.createObjectStore("entries", { keyPath: "animeId" });
+      database.createObjectStore("sourceEntries", {
+        keyPath: ["animeId", "source"],
+      });
+      database.createObjectStore("conflictResolutions", {
+        keyPath: "animeId",
+      });
+      database.createObjectStore("animeRelations", { keyPath: "id" });
+
+      const operations = database.createObjectStore("syncOperations", {
+        keyPath: "id",
+      });
+      operations.createIndex("by-session", "sessionId");
+      operations.createIndex("by-status", "status");
+      operations.createIndex("by-provider", "provider");
+
+      const sessions = database.createObjectStore("syncSessions", {
+        keyPath: "sessionId",
+      });
+      sessions.createIndex("by-started-at", "startedAt");
+      sessions.createIndex("by-provider", "provider");
+      sessions.createIndex("by-status", "status");
+
+      const deletions = database.createObjectStore("deletionIntents", {
+        keyPath: "id",
+      });
+      deletions.createIndex("by-provider", "provider");
+      deletions.createIndex("by-created-at", "createdAt");
+
+      if (includeMetadata) {
+        database.createObjectStore("appMetadata", { keyPath: "key" });
+      }
+
+      if (includeImportHistory) {
+        const imports = database.createObjectStore("importHistory", {
+          keyPath: "id",
+        });
+        imports.createIndex("by-started-at", "startedAt");
+        imports.createIndex("by-provider", "provider");
+      }
+    };
+
+    return new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  function requestValue<T>(request: IDBRequest<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  it("repairs a version 8 database containing appMetadata but no importHistory", async () => {
+    const name = `anime-sync-v8-metadata-${Date.now()}-${Math.random()}`;
+    const oldDatabase = await createVersion8Database(name, true, false);
+    const anime = makeAnime("legacy-v8-metadata");
+
+    await new Promise<void>((resolve, reject) => {
+      const transaction = oldDatabase.transaction(
+        ["anime", "appMetadata"],
+        "readwrite",
+      );
+      transaction.objectStore("anime").put(anime);
+      transaction.objectStore("appMetadata").put({
+        key: "legacy-marker",
+        value: "preserve-me",
+        updatedAt: "2026-11-20T12:00:00.000Z",
+      });
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    oldDatabase.close();
+
+    const upgraded = await BrowserAnimeRepository.open(name);
+    repositories.push(upgraded);
+
+    expect(await upgraded.getAnime(anime.id)).toEqual(anime);
+
+    const checkRequest = indexedDB.open(name);
+    const checkDatabase = await requestValue(checkRequest);
+
+    expect(checkDatabase.version).toBe(9);
+    expect(checkDatabase.objectStoreNames.contains("appMetadata")).toBe(true);
+    expect(checkDatabase.objectStoreNames.contains("importHistory")).toBe(true);
+
+    const transaction = checkDatabase.transaction(
+      ["appMetadata", "importHistory"],
+      "readonly",
+    );
+    const metadata = await requestValue(
+      transaction.objectStore("appMetadata").get("legacy-marker"),
+    );
+    const schemaVersion = await requestValue(
+      transaction.objectStore("appMetadata").get("schemaVersion"),
+    );
+
+    expect(metadata).toMatchObject({
+      key: "legacy-marker",
+      value: "preserve-me",
+    });
+    expect(schemaVersion).toMatchObject({
+      key: "schemaVersion",
+      value: 9,
+    });
+
+    expect(
+      transaction.objectStore("importHistory").indexNames.contains("by-started-at"),
+    ).toBe(true);
+    expect(
+      transaction.objectStore("importHistory").indexNames.contains("by-provider"),
+    ).toBe(true);
+
+    checkDatabase.close();
+  });
+
+  it("repairs a version 8 database containing importHistory but no appMetadata", async () => {
+    const name = `anime-sync-v8-imports-${Date.now()}-${Math.random()}`;
+    const oldDatabase = await createVersion8Database(name, false, true);
+    const anime = makeAnime("legacy-v8-imports");
+    const importEvent = {
+      id: "legacy-import-event",
+      provider: "animego" as const,
+      kind: "account_list_import" as const,
+      status: "succeeded" as const,
+      importedCount: 12,
+      skippedCount: 3,
+      startedAt: "2026-11-20T12:00:00.000Z",
+      finishedAt: "2026-11-20T12:00:05.000Z",
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      const transaction = oldDatabase.transaction(
+        ["anime", "importHistory"],
+        "readwrite",
+      );
+      transaction.objectStore("anime").put(anime);
+      transaction.objectStore("importHistory").put(importEvent);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    oldDatabase.close();
+
+    const upgraded = await BrowserAnimeRepository.open(name);
+    repositories.push(upgraded);
+
+    expect(await upgraded.getAnime(anime.id)).toEqual(anime);
+
+    const checkRequest = indexedDB.open(name);
+    const checkDatabase = await requestValue(checkRequest);
+
+    expect(checkDatabase.version).toBe(9);
+    expect(checkDatabase.objectStoreNames.contains("appMetadata")).toBe(true);
+    expect(checkDatabase.objectStoreNames.contains("importHistory")).toBe(true);
+
+    const transaction = checkDatabase.transaction(
+      ["appMetadata", "importHistory"],
+      "readonly",
+    );
+    const preservedEvent = await requestValue(
+      transaction.objectStore("importHistory").get(importEvent.id),
+    );
+    const schemaVersion = await requestValue(
+      transaction.objectStore("appMetadata").get("schemaVersion"),
+    );
+
+    expect(preservedEvent).toEqual(importEvent);
+    expect(schemaVersion).toMatchObject({
+      key: "schemaVersion",
+      value: 9,
+    });
+
+    expect(
+      transaction.objectStore("importHistory").indexNames.contains("by-started-at"),
+    ).toBe(true);
+    expect(
+      transaction.objectStore("importHistory").indexNames.contains("by-provider"),
+    ).toBe(true);
+
+    checkDatabase.close();
+  });
   it("upgrades a version 2 database while preserving its provider baseline", async () => {
     const name = `anime-sync-v2-upgrade-${Date.now()}-${Math.random()}`;
     const request = indexedDB.open(name, 2);
@@ -2564,4 +2760,3 @@ describe("three-tracker import order integration", () => {
       .toMatchObject({ status: "COMPLETED", progress: 12, score: 80, favorite: false });
   });
 });
-
