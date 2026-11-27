@@ -36,7 +36,7 @@ import { initializeStreamingRuntimeFromHost } from "./services/platform/runtime-
 import { reconcileStreamingAccountSnapshot } from "./services/streaming-account-import.js";
 import { mergeAnimeGoTitleMetadata, normalizeAnimeGoAccountList, normalizeAnimeGoFetchedAt, type AnimeGoAccountListPayload } from "./services/animego-account-import.js";
 import { AnimeGoCatalogProvider } from "./services/animego.js";
-import { animeGoProviderWriteQueue, ProviderWriteQueueRunner } from "./services/durable-provider-write-queue.js";
+import { animeGoProviderWriteQueue, ProviderWriteQueueRunner, type ProviderWriteJob } from "./services/durable-provider-write-queue.js";
 import { commitAnimeGoWrite, listAnimeGoConflicts, reconcileAnimeGoEntry, resolveAnimeGoConflict, saveAnimeGoBaseline, type AnimeGoConflictChoice } from "./services/animego-sync-state.js";
 import { parseAnixartBookmarkExport } from "./services/anixart-export-import.js";
 import { canAdvanceSyncBaseline, createBidirectionalSyncPlan } from "./core/bidirectional-sync.js";
@@ -187,8 +187,9 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
         // mutation, the unchanged baseline makes the next sync enqueue it again.
         if (result.verified) {
           await commitAnimeGoWrite(job.externalId, "status", job.payload.status);
+          return;
         }
-        return;
+        return { verification: "submitted" };
       }
       if (job.kind === "delete" && accounts.deleteFromList) {
         const result = await accounts.deleteFromList("animego", job.titleUrl);
@@ -298,6 +299,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyOperations, setHistoryOperations] = useState<SyncOperation[]>([]);
   const [historySessionRecords, setHistorySessionRecords] = useState<SyncSession[]>([]);
+  const [providerWriteHistory, setProviderWriteHistory] = useState<ProviderWriteJob[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
   const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | SyncProvider>("all");
@@ -423,20 +425,24 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
     let active = true;
     setHistoryLoading(true);
     setHistoryError("");
-    void Promise.all([repository.getSyncOperations(), repository.getSyncSessions()])
-      .then(([operations, sessions]) => {
-        if (active) {
-          setHistoryOperations(operations);
-          setHistorySessionRecords(sessions);
-        }
-      })
+    const loadHistory = () => Promise.all([
+      repository.getSyncOperations(), repository.getSyncSessions(), animeGoProviderWriteQueue.list(),
+    ]).then(([operations, sessions, providerJobs]) => {
+      if (active) {
+        setHistoryOperations(operations);
+        setHistorySessionRecords(sessions);
+        setProviderWriteHistory(providerJobs);
+      }
+    });
+    void loadHistory()
       .catch((err: unknown) => {
         if (active) setHistoryError(err instanceof Error ? err.message : "Не удалось загрузить историю синхронизации.");
       })
       .finally(() => {
         if (active) setHistoryLoading(false);
       });
-    return () => { active = false; };
+    const refreshTimer = window.setInterval(() => { void loadHistory().catch(() => undefined); }, 2_000);
+    return () => { active = false; window.clearInterval(refreshTimer); };
   }, [historyOpen, repository]);
 
   useEffect(() => {
@@ -2570,10 +2576,15 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
     if (!repository) return;
     setHistoryLoading(true);
     setHistoryError("");
-    void Promise.all([repository.getSyncOperations(), repository.getSyncSessions()])
-      .then(([operations, sessions]) => {
+    void Promise.all([
+      repository.getSyncOperations(),
+      repository.getSyncSessions(),
+      animeGoProviderWriteQueue.list(),
+    ])
+      .then(([operations, sessions, providerJobs]) => {
         setHistoryOperations(operations);
         setHistorySessionRecords(sessions);
+        setProviderWriteHistory(providerJobs);
       })
       .catch((err: unknown) => setHistoryError(err instanceof Error ? err.message : "Не удалось обновить историю."))
       .finally(() => setHistoryLoading(false));
@@ -2958,6 +2969,54 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
 
               {historyError && <div className="error-message" role="alert">{historyError}</div>}
 
+
+              <section className="history-session" aria-label="Очередь синхронизации AnimeGO">
+                <header className="history-session-header">
+                  <div>
+                    <span className="history-session-date">ОТДЕЛЬНЫЙ ЖУРНАЛ ОТПРАВКИ</span>
+                    <h2>AnimeGO · изменения аккаунта</h2>
+                    <small>Локальные изменения, отправка и подтверждение на стороне сервиса</small>
+                  </div>
+                  <div className="history-session-summary">
+                    <span>{providerWriteHistory.length} записей</span>
+                    <span className="history-count-pending">{providerWriteHistory.filter((job) => job.state === "pending" || job.state === "processing").length} ожидают</span>
+                    <span className="history-count-failed">{providerWriteHistory.filter((job) => job.state === "failed").length} ошибок</span>
+                    <span className="history-count-success">{providerWriteHistory.filter((job) => job.state === "succeeded").length} успешно</span>
+                  </div>
+                </header>
+                {providerWriteHistory.length === 0 ? (
+                  <p className="history-operation-details">Операций отправки AnimeGO пока нет. После изменения статуса, прогресса или оценки запись появится здесь.</p>
+                ) : (
+                  <div className="history-operation-list">
+                    {[...providerWriteHistory].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((job) => {
+                      const anime = library.find((item) => item.anime.externalIds.animego === job.externalId)?.anime;
+                      const title = anime?.titles.english ?? anime?.titles.romaji ?? anime?.titles.native ?? ("AnimeGO ID: " + job.externalId);
+                      const stateLabel = job.state === "succeeded" ? (job.verification === "submitted" ? "Отправлено, не подтверждено" : "Подтверждено") : job.state === "failed" ? "Ошибка" : job.state === "processing" ? "Отправляется" : "В очереди";
+                      const kindLabel = job.kind === "status" ? "Статус" : job.kind === "progress" ? "Прогресс" : job.kind === "rating" ? "Оценка" : "Удаление";
+                      return (
+                        <details className={"history-operation " + (job.state === "succeeded" ? "succeeded" : job.state === "failed" ? "failed" : "pending")} key={job.id}>
+                          <summary>
+                            <span className={"history-status-dot " + (job.state === "succeeded" ? "succeeded" : job.state === "failed" ? "failed" : "pending")} />
+                            <span className="history-operation-title">
+                              <strong>{title}</strong>
+                              <small>AnimeGO · {kindLabel}{job.kind === "status" && job.payload.status ? " · " + statusLabels[job.payload.status] : ""}{job.kind === "progress" ? " · " + (job.payload.progress ?? 0) + " эп." : ""}{job.kind === "rating" ? " · " + (job.payload.rating ?? "?") + "/10" : ""}</small>
+                            </span>
+                            <span className={"history-status-label " + (job.state === "succeeded" ? "succeeded" : job.state === "failed" ? "failed" : "pending")}>{stateLabel}</span>
+                            <span className="history-operation-time">{formatHistoryDate(job.updatedAt)}</span>
+                          </summary>
+                          <div className="history-operation-details">
+                            <div><span>Создано</span><strong>{formatHistoryDate(job.createdAt)}</strong></div>
+                            <div><span>Попытки</span><strong>{job.attempts}</strong></div>
+                            <div><span>Внешний ID</span><strong>{job.externalId}</strong></div>
+                            {job.lastError && <div><span>Последняя ошибка</span><strong>{job.lastError}</strong></div>}
+                            {job.state === "succeeded" && <div><span>Результат</span><strong>{job.verification === "submitted" ? "Запрос отправлен, но фактическое изменение на AnimeGO ещё не подтверждено" : "Операция завершилась и подтверждена исполнителем"}</strong></div>}
+                          </div>
+                        </details>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
               <div className="history-overview">
                 <article><span>Всего сеансов</span><strong>{historySessionRecords.length}</strong></article>
                 <article><span>Без изменений</span><strong>{historySessionRecords.filter((session) => session.status === "succeeded" && session.operationCount === 0).length}</strong></article>

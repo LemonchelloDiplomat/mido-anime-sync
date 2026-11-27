@@ -2,7 +2,7 @@ import { openDB, type IDBPDatabase } from "idb";
 import type { AnimeStatus } from "../core/types.js";
 
 export type ProviderWriteKind = "rating" | "status" | "progress" | "delete";
-export type ProviderWriteState = "pending" | "processing" | "failed";
+export type ProviderWriteState = "pending" | "processing" | "failed" | "succeeded";
 
 export interface ProviderWritePayload {
   rating?: number;
@@ -23,6 +23,7 @@ export interface ProviderWriteJob {
   updatedAt: string;
   nextAttemptAt: number;
   lastError: string | null;
+  verification?: "confirmed" | "submitted";
 }
 
 interface QueueSchema {
@@ -180,7 +181,7 @@ export class DurableProviderWriteQueue {
   }
 
   async process(
-    execute: (job: ProviderWriteJob) => Promise<void>,
+    execute: (job: ProviderWriteJob) => Promise<void | { verification: "submitted" }>,
     options: { now?: number; limit?: number } = {},
   ): Promise<{ succeeded: number; failed: number; deferred: number }> {
     const nowMs = options.now ?? Date.now();
@@ -201,8 +202,8 @@ export class DurableProviderWriteQueue {
     let failed = 0;
     for (const job of ready) {
       try {
-        await execute(structuredClone(job));
-        await db.delete(STORE_NAME, job.id);
+        const outcome = await execute(structuredClone(job));
+        await db.put(STORE_NAME, { ...job, state: "succeeded", verification: outcome?.verification ?? "confirmed", updatedAt: new Date().toISOString(), lastError: null });
         succeeded++;
       } catch (error) {
         const attempts = job.attempts + 1;
@@ -219,6 +220,8 @@ export class DurableProviderWriteQueue {
         failed++;
       }
     }
+    const completed = (await db.getAllFromIndex(STORE_NAME, "by-state", "succeeded")).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    for (const oldJob of completed.slice(500)) await db.delete(STORE_NAME, oldJob.id);
     return { succeeded, failed, deferred: pending.length - ready.length };
   }
 }
@@ -234,7 +237,7 @@ export class ProviderWriteQueueRunner {
 
   constructor(
     private readonly queue: DurableProviderWriteQueue,
-    private readonly execute: (job: ProviderWriteJob) => Promise<void>,
+    private readonly execute: (job: ProviderWriteJob) => Promise<void | { verification: "submitted" }>,
   ) {}
 
   async start(): Promise<void> {
