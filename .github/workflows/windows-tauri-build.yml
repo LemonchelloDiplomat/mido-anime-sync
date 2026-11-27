@@ -2,6 +2,9 @@ name: Windows Tauri Build
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - ci/windows-tauri-build-artifact
 
 permissions:
   contents: read
