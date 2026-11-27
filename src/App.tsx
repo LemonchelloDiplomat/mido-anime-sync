@@ -3164,6 +3164,9 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                     <option value="anilist">AniList</option>
                     <option value="shikimori">Shikimori</option>
                     <option value="animego">AnimeGO</option>
+                    <option value="yummyanime">YummyAnime</option>
+                    <option value="file">Файл / XML</option>
+                    <option value="restore">Восстановление</option>
                   </select>
                 </label>
                 <label>
