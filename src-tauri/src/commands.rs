@@ -3027,6 +3027,23 @@ mod animego_episode_progress_tests {
     }
 
     #[test]
+    fn falls_back_to_the_player_default_translation_when_no_visible_active_button_exists() {
+        let html = r#"
+          <div class="player-video"
+            data-anime-player-anime-id-value="692"
+            data-anime-player-episodes-url-value="/player/692/episodes"
+            data-anime-episode-watched-url-value="/anime/episode/watched"
+            data-anime-player-default-translation-id-value="2"></div>
+          <div class="d-none"><button class="active" data-translation-id="99"></button></div>
+        "#;
+        let parsed = super::animego_parse_player_metadata(html, "692").expect("player metadata");
+        assert_eq!(parsed.0, "692");
+        assert_eq!(parsed.1, "/player/692/episodes");
+        assert_eq!(parsed.2, "/anime/episode/watched");
+        assert_eq!(parsed.3, "2");
+    }
+
+    #[test]
     fn rejects_a_player_for_a_different_anime() {
         let html = r#"<div class="player-video"
           data-anime-player-anime-id-value="999"
