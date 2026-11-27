@@ -2423,10 +2423,14 @@ async fn animego_progress_webview_operation(
         if (playerId !== animeId || !/^\d+$/.test(playerId))
           throw new Error("ID плеера AnimeGO не совпадает с ID выбранного тайтла.");
         const episodesPath = episodesPathValue || ("/player/" + playerId + "/episodes");
+        const episodesSource = episodesPathValue ? "DOM" : "fallback";
         const watchedPath = watchedPathValue || "/anime/episode/watched";
         const episodesUrl = safeUrl(episodesPath);
-        if (episodesUrl.pathname !== "/player/" + playerId + "/episodes" || episodesUrl.search)
-          throw new Error("Адрес списка серий AnimeGO не прошёл проверку.");
+        // AnimeGO's Symfony endpoint may require an XMLHttpRequest request.
+        // Trust the actual same-origin endpoint exposed by the hydrated player DOM;
+        // do not force it to match a guessed /player/{id}/episodes template.
+        if (!episodesUrl.pathname.startsWith("/player/"))
+          throw new Error("Неожиданный адрес списка серий AnimeGO: " + episodesUrl.pathname);
         const watchedUrl = safeUrl(watchedPath);
         if (watchedUrl.pathname !== "/anime/episode/watched" || watchedUrl.search)
           throw new Error("Адрес изменения прогресса AnimeGO не прошёл проверку.");
@@ -2437,11 +2441,29 @@ async fn animego_progress_webview_operation(
         stage("progress_episodes_fetch");
         const episodesResponse = await fetch(episodesUrl.href, {{
           method: "GET", credentials: "include", redirect: "follow",
-          headers: {{ "Accept": "application/json, */*" }}
+          headers: {{
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "X-Requested-With": "XMLHttpRequest"
+          }}
         }});
-        if (new URL(episodesResponse.url).origin !== origin) throw new Error("Список серий перенаправил запрос за пределы AnimeGO.");
-        if (!episodesResponse.ok) throw new Error("Не удалось загрузить серии AnimeGO (HTTP " + episodesResponse.status + ").");
-        const payload = await episodesResponse.json();
+        const responseUrl = new URL(episodesResponse.url);
+        if (responseUrl.origin !== origin) throw new Error("Список серий перенаправил запрос за пределы AnimeGO.");
+        const responseText = await episodesResponse.text();
+        if (!episodesResponse.ok) {{
+          const preview = responseText.replace(/\\s+/g, " ").slice(0, 180);
+          throw new Error(
+            "Не удалось загрузить серии AnimeGO (HTTP " + episodesResponse.status +
+            "). URL: " + episodesUrl.pathname + episodesUrl.search +
+            " | Source: " + episodesSource +
+            " | Player: " + playerId +
+            " | Page: " + location.pathname +
+            " | Response: " + responseUrl.pathname +
+            " | Body: " + preview
+          );
+        }}
+        let payload;
+        try {{ payload = JSON.parse(responseText); }}
+        catch {{ throw new Error("AnimeGO вернул некорректный JSON списка серий. URL: " + episodesUrl.pathname + " | Source: " + episodesSource + " | Page: " + location.pathname); }}
         if (payload?.status !== "success" || typeof payload?.data?.content !== "string")
           throw new Error("AnimeGO не вернул подтверждённый список серий.");
         const episodeDoc = new DOMParser().parseFromString(payload.data.content, "text/html");
