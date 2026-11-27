@@ -12,7 +12,7 @@ import { fetchAniListAnimeList } from "./anilist-list.mjs";
 import { fetchShikimoriAnimeRates, getShikimoriIdentityCoverage } from "./shikimori-enrichment.mjs";
 
 const ROOT = process.cwd();
-const DATA_DIR = path.join(ROOT, ".local-data");
+const DATA_DIR = process.env.MIDO_DATA_DIR || path.join(ROOT, ".local-data");
 const TOKEN_FILE = path.join(DATA_DIR, "tokens.enc.json");
 const KEY_FILE = path.join(DATA_DIR, "local.key");
 const PORT = Number(process.env.PORT || 3001);

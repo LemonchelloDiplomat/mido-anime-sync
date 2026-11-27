@@ -50,5 +50,14 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+      - name: Prepare packaged API resources for Tauri config validation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $resourceRoot = Join-Path $PWD "src-tauri/resources"
+          $serverRoot = Join-Path $resourceRoot "server"
+          New-Item -ItemType Directory -Force -Path $serverRoot | Out-Null
+          Invoke-WebRequest -Uri "https://nodejs.org/dist/v22.23.5/win-x64/node.exe" -OutFile (Join-Path $resourceRoot "node.exe")
+          Copy-Item (Join-Path $PWD "server/*.mjs") $serverRoot -Force
       - name: Check Windows Tauri native shell
         run: cargo check --manifest-path src-tauri/Cargo.toml
