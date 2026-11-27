@@ -477,24 +477,9 @@ async fn animego_user_from_webview(window: &tauri::WebviewWindow) -> Result<(Str
 pub async fn animego_auth_open(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(desktop)]
     {
-        use tauri::{Manager, WebviewUrl};
-        use tauri::webview::WebviewWindowBuilder;
-
-        if let Some(window) = app.get_webview_window(ANIMEGO_AUTH_WINDOW) {
-            window.show().map_err(|_| "Не удалось показать окно AnimeGO.".to_string())?;
-            window.set_focus().map_err(|_| "Не удалось активировать окно AnimeGO.".to_string())?;
-            return Ok(());
-        }
-
-        let url = format!("{ANIMEGO_ORIGIN}/login").parse()
-            .map_err(|_| "Некорректный адрес входа AnimeGO.".to_string())?;
-        WebviewWindowBuilder::new(&app, ANIMEGO_AUTH_WINDOW, WebviewUrl::External(url))
-            .title("Вход в AnimeGO")
-            .inner_size(1040.0, 780.0)
-            .min_inner_size(760.0, 560.0)
-            .resizable(true)
-            .build()
-            .map_err(|_| "Не удалось открыть встроенное окно AnimeGO.".to_string())?;
+        let window = crate::animego_event_bridge::ensure_auth_window(&app).await?;
+        window.show().map_err(|error| format!("Не удалось показать окно AnimeGO: {error}"))?;
+        window.set_focus().map_err(|error| format!("Не удалось активировать окно AnimeGO: {error}"))?;
         Ok(())
     }
     #[cfg(mobile)]
@@ -1899,8 +1884,7 @@ pub async fn animego_account_status_write(
         return Err("Сохранённая сессия AnimeGO неполная. Подключи аккаунт заново.".to_string());
     }
 
-    let window = app.get_webview_window(ANIMEGO_AUTH_WINDOW)
-        .ok_or_else(|| "Окно авторизованной сессии AnimeGO не найдено. Открой AnimeGO и повтори операцию.".to_string())?;
+    let window = crate::animego_event_bridge::ensure_auth_window(&app).await?;
     let current_url = window.url()
         .map_err(|_| "Не удалось проверить адрес окна AnimeGO.".to_string())?;
     if current_url.scheme() != "https" || current_url.host_str() != Some("animego.me") {
@@ -2292,8 +2276,7 @@ async fn animego_progress_webview_operation(
     expected_user_id: &str,
     desired_progress: Option<u32>,
 ) -> Result<(String, String, Vec<AnimeGoEpisodeProgressItem>, u16, u32), String> {
-    let window = app.get_webview_window(ANIMEGO_AUTH_WINDOW)
-        .ok_or_else(|| "Открой авторизованное окно AnimeGO и повтори операцию.".to_string())?;
+    let window = crate::animego_event_bridge::ensure_auth_window(app).await?;
     let current_url = window.url()
         .map_err(|_| "Не удалось проверить адрес окна AnimeGO.".to_string())?;
     if current_url.scheme() != "https" || current_url.host_str() != Some("animego.me") {
