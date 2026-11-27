@@ -23,6 +23,7 @@ export interface ProviderWriteJob {
   updatedAt: string;
   nextAttemptAt: number;
   lastError: string | null;
+  verification?: "confirmed" | "submitted";
 }
 
 interface QueueSchema {
@@ -180,7 +181,7 @@ export class DurableProviderWriteQueue {
   }
 
   async process(
-    execute: (job: ProviderWriteJob) => Promise<void>,
+    execute: (job: ProviderWriteJob) => Promise<void | { verification: "submitted" }>,
     options: { now?: number; limit?: number } = {},
   ): Promise<{ succeeded: number; failed: number; deferred: number }> {
     const nowMs = options.now ?? Date.now();
@@ -201,8 +202,8 @@ export class DurableProviderWriteQueue {
     let failed = 0;
     for (const job of ready) {
       try {
-        await execute(structuredClone(job));
-        await db.put(STORE_NAME, { ...job, state: "succeeded", updatedAt: new Date().toISOString(), lastError: null });
+        const outcome = await execute(structuredClone(job));
+        await db.put(STORE_NAME, { ...job, state: "succeeded", verification: outcome?.verification ?? "confirmed", updatedAt: new Date().toISOString(), lastError: null });
         succeeded++;
       } catch (error) {
         const attempts = job.attempts + 1;

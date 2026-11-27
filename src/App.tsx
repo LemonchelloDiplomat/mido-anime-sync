@@ -187,8 +187,9 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
         // mutation, the unchanged baseline makes the next sync enqueue it again.
         if (result.verified) {
           await commitAnimeGoWrite(job.externalId, "status", job.payload.status);
+          return;
         }
-        return;
+        return { verification: "submitted" };
       }
       if (job.kind === "delete" && accounts.deleteFromList) {
         const result = await accounts.deleteFromList("animego", job.titleUrl);
@@ -2985,7 +2986,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                     {[...providerWriteHistory].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((job) => {
                       const anime = library.find((item) => item.anime.externalIds.animego === job.externalId)?.anime;
                       const title = anime?.titles.english ?? anime?.titles.romaji ?? anime?.titles.native ?? ("AnimeGO ID: " + job.externalId);
-                      const stateLabel = job.state === "succeeded" ? "Подтверждено" : job.state === "failed" ? "Ошибка" : job.state === "processing" ? "Отправляется" : "В очереди";
+                      const stateLabel = job.state === "succeeded" ? (job.verification === "submitted" ? "Отправлено, не подтверждено" : "Подтверждено") : job.state === "failed" ? "Ошибка" : job.state === "processing" ? "Отправляется" : "В очереди";
                       const kindLabel = job.kind === "status" ? "Статус" : job.kind === "progress" ? "Прогресс" : job.kind === "rating" ? "Оценка" : "Удаление";
                       return (
                         <details className={"history-operation " + (job.state === "succeeded" ? "succeeded" : job.state === "failed" ? "failed" : "pending")} key={job.id}>
@@ -3003,7 +3004,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                             <div><span>Попытки</span><strong>{job.attempts}</strong></div>
                             <div><span>Внешний ID</span><strong>{job.externalId}</strong></div>
                             {job.lastError && <div><span>Последняя ошибка</span><strong>{job.lastError}</strong></div>}
-                            {job.state === "succeeded" && <div><span>Результат</span><strong>Исполнитель завершился без ошибки; операция сохранена в истории</strong></div>}
+                            {job.state === "succeeded" && <div><span>Результат</span><strong>{job.verification === "submitted" ? "Запрос отправлен, но фактическое изменение на AnimeGO ещё не подтверждено" : "Операция завершилась и подтверждена исполнителем"}</strong></div>}
                           </div>
                         </details>
                       );
