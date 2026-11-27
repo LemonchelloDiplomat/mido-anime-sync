@@ -303,7 +303,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
   const [importHistory, setImportHistory] = useState<ImportHistoryEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
-  const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | SyncProvider | "animego">("all");
+  const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | SyncProvider | "animego" | "yummyanime" | "file" | "restore">("all");
   const [historyStatusFilter, setHistoryStatusFilter] = useState<"all" | SyncOperation["status"]>("all");
 
   useEffect(() => {
