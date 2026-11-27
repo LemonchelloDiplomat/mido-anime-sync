@@ -1,5 +1,8 @@
 export type SyncProvider = "mal" | "anilist" | "shikimori";
 
+/** Providers represented in the chronological journal, including streaming accounts. */
+export type SyncJournalProvider = SyncProvider | "animego" | "yummyanime" | "anixart";
+
 export type ServiceId =
   | "myanimelist"
   | "anilist"
@@ -154,7 +157,7 @@ export type SyncOperationKind = "create" | "update" | "delete";
 export interface SyncOperation {
   id: string;
   sessionId: string;
-  provider: SyncProvider;
+  provider: SyncJournalProvider;
   direction: SyncOperationDirection;
   kind: SyncOperationKind;
   animeId: string;
@@ -182,7 +185,7 @@ export interface SyncDeletionIntent {
 
 export interface SyncSession {
   sessionId: string;
-  provider: SyncProvider;
+  provider: SyncJournalProvider;
   status: SyncSessionStatus;
   startedAt: string;
   finishedAt?: string;
