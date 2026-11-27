@@ -2926,7 +2926,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                             {failed > 0 && <span className="history-count-failed">! {failed}</span>}
                             <span>{session.operationCount} операций</span>
                             {session.unchangedCount > 0 && <span>{session.unchangedCount} без изменений</span>}
-                            {hasUnfinished && (
+                            {hasUnfinished && (session.provider === "mal" || session.provider === "anilist" || session.provider === "shikimori") && (
                               <button
                                 className="secondary-button"
                                 type="button"
