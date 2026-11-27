@@ -16,7 +16,10 @@ const OP_TIMEOUT: Duration = Duration::from_secs(25);
 /// an application restart. Authentication cookies stay inside the WebView2
 /// profile and are never copied into renderer JavaScript.
 #[cfg(desktop)]
-pub async fn ensure_auth_window(app: &tauri::AppHandle) -> Result<WebviewWindow, String> {
+async fn ensure_auth_window_impl(
+    app: &tauri::AppHandle,
+    require_bridge: bool,
+) -> Result<WebviewWindow, String> {
     let window = if let Some(window) = app.get_webview_window(AUTH_WINDOW) {
         window
     } else {
@@ -56,22 +59,40 @@ pub async fn ensure_auth_window(app: &tauri::AppHandle) -> Result<WebviewWindow,
             if let Some(serialized) = state.as_str() {
                 state = serde_json::from_str(serialized).unwrap_or(Value::Null);
             }
-            if state.get("ready").and_then(Value::as_bool) == Some(true)
-                && state.get("bridge").and_then(Value::as_bool) == Some(true)
-            {
+            let page_ready = state.get("ready").and_then(Value::as_bool) == Some(true);
+            let bridge_ready = state.get("bridge").and_then(Value::as_bool) == Some(true);
+            if page_ready && (!require_bridge || bridge_ready) {
                 return Ok(window);
             }
         }
 
         if tokio::time::Instant::now() >= deadline {
-            return Err("Окно AnimeGO создано, но страница или IPC-мост не готовы. Открой окно AnimeGO и проверь авторизацию.".to_string());
+            let reason = if require_bridge { "страница или IPC-мост" } else { "страница" };
+            return Err(format!("Окно AnimeGO создано, но {reason} не готовы. Открой окно AnimeGO и проверь авторизацию."));
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
 }
 
+#[cfg(desktop)]
+pub async fn ensure_auth_window(app: &tauri::AppHandle) -> Result<WebviewWindow, String> {
+    ensure_auth_window_impl(app, true).await
+}
+
+/// Progress polling uses eval_with_callback and does not require the Tauri
+/// IPC bridge exposed to remote page JavaScript.
+#[cfg(desktop)]
+pub async fn ensure_auth_window_for_polling(app: &tauri::AppHandle) -> Result<WebviewWindow, String> {
+    ensure_auth_window_impl(app, false).await
+}
+
 #[cfg(mobile)]
 pub async fn ensure_auth_window(_app: &tauri::AppHandle) -> Result<WebviewWindow, String> {
+    Err("Встроенное окно AnimeGO доступно только в Windows-приложении.".to_string())
+}
+
+#[cfg(mobile)]
+pub async fn ensure_auth_window_for_polling(_app: &tauri::AppHandle) -> Result<WebviewWindow, String> {
     Err("Встроенное окно AnimeGO доступно только в Windows-приложении.".to_string())
 }
 
