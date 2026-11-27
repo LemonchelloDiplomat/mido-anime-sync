@@ -285,18 +285,30 @@ export function StreamingAccountManagerPanel({
 
   async function readAnimeGoProgress() {
     const item = listPreview?.items.find((candidate) => candidate.listEntryId === selectedAnimeGoItemId);
-    if (!item || !runtime?.accounts.fetchProgress) return;
+    if (!selectedAnimeGoItemId) {
+      setProgressWriteMessage("Сначала выбери тайтл AnimeGO.");
+      return;
+    }
+    if (!item) {
+      setProgressWriteMessage("Выбранный тайтл не найден в загруженном списке. Обнови список AnimeGO и выбери его снова.");
+      return;
+    }
+    if (!runtime?.accounts.fetchProgress) {
+      setProgressWriteMessage("Чтение прогресса недоступно в текущей версии runtime. Перезапусти приложение и проверь обновление.");
+      return;
+    }
+
     setProgressLoading(true);
     setError("");
-    setProgressWriteMessage("");
+    setProgressWriteMessage("Запрашиваем прогресс AnimeGO для: " + item.title + "…");
     try {
       const result = await runtime.accounts.fetchProgress("animego", item.url);
       setProgressSnapshot(result);
       setTargetAnimeGoProgress(String(result.watchedEpisodeNumber));
-      setProgressWriteMessage("Прочитано с AnimeGO: просмотрено " + result.watchedEpisodeNumber + " из " + result.episodes.length + " эпизодов · HTTP " + result.httpStatus + ".");
+      setProgressWriteMessage("Прочитано с AnimeGO: просмотрено " + result.watchedEpisodeNumber + " из " + result.episodes.length + " эпизодов · HTTP " + result.httpStatus + " · " + result.durationMs + " мс.");
     } catch (cause) {
       setProgressSnapshot(null);
-      setError(cause instanceof Error ? cause.message : "Не удалось прочитать прогресс AnimeGO.");
+      setProgressWriteMessage("Ошибка чтения прогресса: " + (cause instanceof Error ? cause.message : "неизвестная ошибка."));
     } finally {
       setProgressLoading(false);
     }
