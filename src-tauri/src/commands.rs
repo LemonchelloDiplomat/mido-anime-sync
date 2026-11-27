@@ -2893,6 +2893,66 @@ mod animego_account_list_tests {
 
 
 #[cfg(test)]
+mod animego_progress_webview_tests {
+    use super::animego_progress_episodes_from_value;
+    use serde_json::json;
+
+    #[test]
+    fn parses_and_sorts_webview_episode_snapshot() {
+        let value = json!({
+            "episodes": [
+                {"episodeId":"10707","episodeNumber":12,"watched":true},
+                {"episodeId":"10696","episodeNumber":1,"watched":false},
+                {"episodeId":"10700","episodeNumber":5,"watched":true}
+            ]
+        });
+        let episodes = animego_progress_episodes_from_value(&value).unwrap();
+        assert_eq!(episodes.iter().map(|item| item.episode_number).collect::<Vec<_>>(), vec![1, 5, 12]);
+        assert!(!episodes[0].watched);
+        assert!(episodes[1].watched);
+    }
+
+    #[test]
+    fn rejects_duplicate_episode_ids_and_numbers() {
+        let duplicate_id = json!({"episodes":[
+            {"episodeId":"100","episodeNumber":1,"watched":true},
+            {"episodeId":"100","episodeNumber":2,"watched":false}
+        ]});
+        let duplicate_number = json!({"episodes":[
+            {"episodeId":"100","episodeNumber":1,"watched":true},
+            {"episodeId":"101","episodeNumber":1,"watched":false}
+        ]});
+        assert!(animego_progress_episodes_from_value(&duplicate_id).is_err());
+        assert!(animego_progress_episodes_from_value(&duplicate_number).is_err());
+    }
+
+    #[test]
+    fn rejects_missing_empty_or_oversized_episode_arrays() {
+        assert!(animego_progress_episodes_from_value(&json!({})).is_err());
+        assert!(animego_progress_episodes_from_value(&json!({"episodes":[]})).is_err());
+        let oversized = (1..=501).map(|number| json!({
+            "episodeId": number.to_string(),
+            "episodeNumber": number,
+            "watched": false
+        })).collect::<Vec<_>>();
+        assert!(animego_progress_episodes_from_value(&json!({"episodes":oversized})).is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_episode_fields() {
+        let invalid = json!({"episodes":[
+            {"episodeId":"../10707","episodeNumber":1,"watched":true}
+        ]});
+        let missing_watched = json!({"episodes":[
+            {"episodeId":"10707","episodeNumber":1}
+        ]});
+        assert!(animego_progress_episodes_from_value(&invalid).is_err());
+        assert!(animego_progress_episodes_from_value(&missing_watched).is_err());
+    }
+}
+
+
+#[cfg(test)]
 mod animego_auth_tests {
     use super::animego_user_from_html;
 
