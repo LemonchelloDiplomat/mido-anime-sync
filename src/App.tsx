@@ -599,7 +599,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
           importedCount: 1, skippedCount: 0, startedAt: newEntry.updatedAt, finishedAt: new Date().toISOString(),
           animeId: targetId,
           animeTitle: mergedAnime.titles.english || mergedAnime.titles.romaji || targetId,
-          changes: createLocalLibraryFieldChanges(undefined, newEntry),
+          changes: createLocalLibraryFieldChanges(undefined, newEntry, mergedAnime.episodes),
         });
       }
 
@@ -2330,7 +2330,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
           : {}),
       };
 
-      const fieldChanges = createLocalLibraryFieldChanges(previous?.entry, entry);
+      const fieldChanges = createLocalLibraryFieldChanges(previous?.entry, entry, anime.episodes);
       await repository.saveAnime(anime);
       await repository.saveEntry(entry);
       if (!previous || JSON.stringify(previous.anime) !== JSON.stringify(anime) || JSON.stringify(previous.entry) !== JSON.stringify(entry)) {
@@ -2495,7 +2495,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
         importedCount: 0, skippedCount: 1, startedAt: createdAt, finishedAt: new Date().toISOString(),
         animeId: id,
         animeTitle: anime.titles.english || anime.titles.romaji || id,
-        ...(previousEntry ? { changes: createLocalLibraryFieldChanges(previousEntry, undefined) } : {}),
+        ...(previousEntry ? { changes: createLocalLibraryFieldChanges(previousEntry, undefined, anime.episodes) } : {}),
       });
       await refreshLibrary();
       if (deletionIntents.length > 0) {
