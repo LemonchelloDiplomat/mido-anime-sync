@@ -2576,10 +2576,15 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
     if (!repository) return;
     setHistoryLoading(true);
     setHistoryError("");
-    void Promise.all([repository.getSyncOperations(), repository.getSyncSessions()])
-      .then(([operations, sessions]) => {
+    void Promise.all([
+      repository.getSyncOperations(),
+      repository.getSyncSessions(),
+      animeGoProviderWriteQueue.list(),
+    ])
+      .then(([operations, sessions, providerJobs]) => {
         setHistoryOperations(operations);
         setHistorySessionRecords(sessions);
+        setProviderWriteHistory(providerJobs);
       })
       .catch((err: unknown) => setHistoryError(err instanceof Error ? err.message : "Не удалось обновить историю."))
       .finally(() => setHistoryLoading(false));
