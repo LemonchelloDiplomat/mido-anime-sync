@@ -1861,8 +1861,6 @@ pub async fn animego_account_status_write(
     title_url: String,
     status: String,
 ) -> Result<AnimeGoStatusWriteResult, String> {
-    use tauri::Manager;
-
     let started = std::time::Instant::now();
     let list_type = animego_status_list_type(&status)?;
     let requested = reqwest::Url::parse(&title_url)
