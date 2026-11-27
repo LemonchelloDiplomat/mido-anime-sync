@@ -11,6 +11,10 @@ use std::sync::Mutex;
 use std::net::{SocketAddr, TcpStream};
 #[cfg(all(windows, not(debug_assertions)))]
 use std::time::{Duration, Instant};
+#[cfg(all(windows, not(debug_assertions)))]
+use std::fs::OpenOptions;
+#[cfg(all(windows, not(debug_assertions)))]
+use std::io::Write;
 
 #[cfg(all(windows, not(debug_assertions)))]
 use tauri::Manager;
@@ -39,20 +43,30 @@ fn start_local_api(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     if !node.is_file() || !entrypoint.is_file() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
-            "Bundled Node.js runtime or local API server is missing.",
+            format!(
+                "Bundled runtime missing. node={}, server={}",
+                node.display(),
+                entrypoint.display()
+            ),
         ).into());
     }
     std::fs::create_dir_all(&data_dir)?;
 
+    let api_log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(data_dir.join("api.log"))?;
+    let api_error_log = api_log.try_clone()?;
+
     let mut child = Command::new(node)
         .arg(entrypoint)
         .current_dir(&server_dir)
-        .env("MIDO_DATA_DIR", data_dir)
+        .env("MIDO_DATA_DIR", &data_dir)
         .env("HOST", "127.0.0.1")
         .env("PORT", "3001")
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::from(api_log))
+        .stderr(Stdio::from(api_error_log))
         .spawn()?;
 
     let address = SocketAddr::from(([127, 0, 0, 1], 3001));
@@ -62,7 +76,7 @@ fn start_local_api(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(status) = child.try_wait()? {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
-                format!("Local API server exited during startup: {status}"),
+                format!("Local API server exited during startup: {status}. See api.log."),
             ).into());
         }
         if TcpStream::connect_timeout(&address, Duration::from_millis(200)).is_ok() {
@@ -77,7 +91,7 @@ fn start_local_api(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         let _ = child.wait();
         return Err(std::io::Error::new(
             std::io::ErrorKind::TimedOut,
-            "Local API server did not become ready within 12 seconds.",
+            "Local API server did not become ready within 12 seconds. See api.log.",
         ).into());
     }
 
@@ -90,7 +104,20 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             #[cfg(all(windows, not(debug_assertions)))]
-            start_local_api(app)?;
+            if let Err(error) = start_local_api(app) {
+                let message = format!("Local API startup failed: {error}");
+                eprintln!("{message}");
+                if let Ok(data_dir) = app.path().app_data_dir() {
+                    let _ = std::fs::create_dir_all(&data_dir);
+                    if let Ok(mut log) = OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(data_dir.join("startup.log"))
+                    {
+                        let _ = writeln!(log, "{message}");
+                    }
+                }
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
