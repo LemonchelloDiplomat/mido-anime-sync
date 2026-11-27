@@ -1230,6 +1230,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
     restoreInProgressRef.current = true;
     setRestoring(true);
     setError("");
+    const restoreStartedAt = new Date().toISOString();
 
     try {
       // Re-check the preview immediately before replacing anything. If the
@@ -1244,6 +1245,12 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       // The current library is downloaded as a safety backup before any write.
       downloadSnapshot(current);
       await repository.restoreSnapshot(restoreBackup);
+      await repository.saveImportHistoryEvent({
+        id: crypto.randomUUID(), provider: "restore", kind: "account_list_import", status: "succeeded",
+        importedCount: restorePreview.summary.added + restorePreview.summary.updated,
+        skippedCount: restorePreview.summary.unchanged,
+        startedAt: restoreStartedAt, finishedAt: new Date().toISOString(),
+      });
       await refreshLibrary();
 
       const [operations, sessions] = await Promise.all([
