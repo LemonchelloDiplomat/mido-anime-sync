@@ -670,13 +670,13 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
         id: `${sessionId}-${index}`,
         sessionId,
         provider,
-        direction: "local",
-        kind: exists ? "update" : "create",
+        direction: "local" as const,
+        kind: exists ? "update" as const : "create" as const,
         animeId: entry.animeId,
         ...(externalId ? { externalId } : {}),
         entry: structuredClone(entry),
         anime: structuredClone(anime),
-        status: "pending",
+        status: "pending" as const,
         attempts: 1,
         createdAt: importStartedAt,
         updatedAt: importStartedAt,
@@ -704,7 +704,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
         error: message,
       }, journalOperations.map((operation) => ({
         ...operation,
-        status: "failed",
+        status: "failed" as const,
         error: message,
         updatedAt: finishedAt,
       })));
@@ -727,7 +727,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       recoveredCount: 0,
     }, journalOperations.map((operation) => ({
       ...operation,
-      status: "succeeded",
+      status: "succeeded" as const,
       updatedAt: importFinishedAt,
     })));
 
