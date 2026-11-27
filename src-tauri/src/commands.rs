@@ -2411,8 +2411,7 @@ async fn animego_progress_webview_operation(
         catch {{ throw new Error("Не удалось прочитать профиль AnimeGO."); }}
         if (!user || String(user.id ?? user.userId ?? "") !== expectedUserId)
           throw new Error("AnimeGO не подтвердил ожидаемый авторизованный аккаунт.");
-        const player = doc.querySelector(".player-video[data-anime-player-episodes-url-value][data-anime-episode-watched-url-value]");
-        if (!player) throw new Error("В HTML карточки AnimeGO не найден блок плеера с адресами списка серий.");
+        // Reuse the player node validated immediately after parsing the title HTML.
         const playerId = player.getAttribute("data-anime-player-anime-id-value") ?? "";
         if (playerId !== animeId || !/^\d+$/.test(playerId))
           throw new Error("ID плеера AnimeGO не совпадает с ID выбранного тайтла.");
