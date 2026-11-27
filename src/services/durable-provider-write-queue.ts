@@ -237,7 +237,7 @@ export class ProviderWriteQueueRunner {
 
   constructor(
     private readonly queue: DurableProviderWriteQueue,
-    private readonly execute: (job: ProviderWriteJob) => Promise<void>,
+    private readonly execute: (job: ProviderWriteJob) => Promise<void | { verification: "submitted" }>,
   ) {}
 
   async start(): Promise<void> {
