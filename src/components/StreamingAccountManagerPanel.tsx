@@ -390,7 +390,7 @@ export function StreamingAccountManagerPanel({
               {connected && runtime ? (
                 <>
                 <div className="native-account-actions">
-                  {provider.id === "animego" && runtime.platform === "windows-native" && runtime.accounts.openSessionWindow && (
+                  {false && provider.id === "animego" && runtime.platform === "windows-native" && runtime.accounts.openSessionWindow && (
                     <button
                       className="secondary-button"
                       type="button"
@@ -400,7 +400,7 @@ export function StreamingAccountManagerPanel({
                       {networkWindowOpening ? "Открываем..." : "Открыть окно AnimeGO"}
                     </button>
                   )}
-                  {provider.id === "animego" && runtime.platform === "windows-native" && runtime.accounts.inspectNetwork && (
+                  {false && provider.id === "animego" && runtime.platform === "windows-native" && runtime.accounts.inspectNetwork && (
                     <button
                       className="secondary-button"
                       type="button"
@@ -417,10 +417,10 @@ export function StreamingAccountManagerPanel({
                       onClick={() => void syncAnimeGo()}
                       disabled={syncLoading || listLoading || disconnecting !== null}
                     >
-                      {syncLoading ? "Синхронизируем..." : "Синхронизировать"}
+                      {syncLoading ? "Синхронизируем..." : "Синхронизировать сейчас"}
                     </button>
                   )}
-                  {provider.id === "animego" && runtime.accounts.fetchList && (
+                  {false && provider.id === "animego" && runtime.accounts.fetchList && (
                     <button
                       className="secondary-button"
                       type="button"
@@ -481,7 +481,7 @@ export function StreamingAccountManagerPanel({
         })}
       </div>
 
-      {listPreview && (
+      {false && listPreview && (
         <div className="native-account-list-preview">
           <h3>Личный список AnimeGO получен</h3>
           <p>Найдено записей: <strong>{listPreview.total}</strong>. Это снимок личного списка для проверки и ручного импорта.</p>
@@ -589,7 +589,7 @@ export function StreamingAccountManagerPanel({
           {listImportMessage && <p role="status">{listImportMessage}</p>}
         </div>
       )}
-      {networkInspection && (
+      {false && networkInspection && (
         <div className="native-account-write-inspection" role="status">
           <strong>Пассивное наблюдение завершено. Запросы не отправлялись инспектором.</strong>
           <p>Страница: {networkInspection.pagePath} · Окно наблюдения: {networkInspection.durationSeconds} сек. · Событий: {networkInspection.events.length}</p>
