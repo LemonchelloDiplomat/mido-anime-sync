@@ -49,12 +49,24 @@ describe("durable provider write queue", () => {
     expect(await queue.list()).toEqual([expect.objectContaining({ id: deletion.id, kind: "delete" })]);
   });
 
-  it("removes a job after successful execution", async () => {
+  it("retains successful execution as an audit-history record", async () => {
     const queue = new DurableProviderWriteQueue();
     await queue.enqueue(sample);
     const result = await queue.process(async () => undefined, { now: Date.now() + 1 });
     expect(result.succeeded).toBe(1);
-    expect(await queue.list()).toHaveLength(0);
+    expect(await queue.list()).toMatchObject([{
+      state: "succeeded",
+      verification: "confirmed",
+      attempts: 0,
+      lastError: null,
+    }]);
+  });
+
+  it("retains submitted-but-unverified outcomes without marking them confirmed", async () => {
+    const queue = new DurableProviderWriteQueue();
+    await queue.enqueue({ ...sample, kind: "status", payload: { status: "COMPLETED" } });
+    await queue.process(async () => ({ verification: "submitted" }), { now: Date.now() + 1 });
+    expect(await queue.list()).toMatchObject([{ state: "succeeded", verification: "submitted" }]);
   });
 
   it("rejects unsafe title URLs and invalid progress", async () => {
@@ -115,7 +127,10 @@ describe("durable provider write queue", () => {
 
     expect(result.succeeded).toBe(1);
     expect(executions).toBe(1);
-    expect(await queue.list()).toHaveLength(1);
+    const jobs = await queue.list();
+    expect(jobs).toHaveLength(2);
+    expect(jobs.filter(job => job.state === "succeeded")).toHaveLength(1);
+    expect(jobs.filter(job => job.state === "pending")).toHaveLength(1);
   });
 
   it("does not recover a fresh processing job owned by another window", async () => {
@@ -150,7 +165,7 @@ describe("durable provider write queue", () => {
     await Promise.all([starting, overlappingWake]);
 
     expect(executions).toBe(1);
-    expect(await queue.list()).toHaveLength(0);
+    expect(await queue.list()).toMatchObject([{ state: "succeeded", verification: "confirmed" }]);
     runner.stop();
     vi.unstubAllGlobals();
   });
