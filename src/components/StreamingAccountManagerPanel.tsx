@@ -26,6 +26,24 @@ const PROVIDERS: ProviderCard[] = [
   },
 ];
 
+function describeOperationError(cause: unknown, fallback: string): string {
+  if (typeof cause === "string" && cause.trim()) return cause;
+  if (cause instanceof Error && cause.message) return cause.message;
+  if (cause && typeof cause === "object") {
+    const value = cause as { message?: unknown; error?: unknown; code?: unknown };
+    if (typeof value.message === "string" && value.message.trim()) return value.message;
+    if (typeof value.error === "string" && value.error.trim()) return value.error;
+    if (typeof value.code === "string" && value.code.trim()) return "Ошибка Tauri: " + value.code;
+    try {
+      const serialized = JSON.stringify(cause);
+      if (serialized && serialized !== "{}") return serialized;
+    } catch {
+      // Fall through to the stable user-facing message.
+    }
+  }
+  return fallback;
+}
+
 interface Props {
   runtime: StreamingRuntime | null;
   onRetryRuntime?: () => void | Promise<void>;
@@ -308,7 +326,7 @@ export function StreamingAccountManagerPanel({
       setProgressWriteMessage("Прочитано с AnimeGO: просмотрено " + result.watchedEpisodeNumber + " из " + result.episodes.length + " эпизодов · HTTP " + result.httpStatus + " · " + result.durationMs + " мс.");
     } catch (cause) {
       setProgressSnapshot(null);
-      setProgressWriteMessage("Ошибка чтения прогресса: " + (cause instanceof Error ? cause.message : "неизвестная ошибка."));
+      setProgressWriteMessage("Ошибка чтения прогресса: " + describeOperationError(cause, "AnimeGO не вернул подробности ошибки."));
     } finally {
       setProgressLoading(false);
     }
