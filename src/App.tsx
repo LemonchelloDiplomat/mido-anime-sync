@@ -2089,6 +2089,11 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
 
     setImporting(true);
     setError("");
+    const importStartedAt = new Date().toISOString();
+    const importProvider: ImportHistoryEvent["provider"] =
+      importFormat.startsWith("MyAnimeList account") ? "mal" :
+      importFormat.startsWith("AniList account") ? "anilist" :
+      importFormat.startsWith("Shikimori account") ? "shikimori" : "file";
 
     try {
       const currentLibrary = await repository.getAll();
@@ -2153,6 +2158,12 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
         snapshotToMerge = { ...importSnapshot, sourceEntries };
       }
       await repository.mergeSnapshotWithMappings(snapshotToMerge, mappings);
+      await repository.saveImportHistoryEvent({
+        id: crypto.randomUUID(), provider: importProvider, kind: "account_list_import", status: "succeeded",
+        importedCount: importSnapshot.anime.length,
+        skippedCount: freshAnalysis.summary.matched + manualMappedCount,
+        startedAt: importStartedAt, finishedAt: new Date().toISOString(),
+      });
       await refreshLibrary();
 
       const importedCount = freshAnalysis.summary.new - manualMappedCount;
@@ -2171,6 +2182,13 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
         void runMetadataEnrichment();
       }
     } catch (err) {
+      try {
+        await repository.saveImportHistoryEvent({
+          id: crypto.randomUUID(), provider: importProvider, kind: "account_list_import", status: "failed",
+          importedCount: 0, skippedCount: 0, startedAt: importStartedAt, finishedAt: new Date().toISOString(),
+          error: err instanceof Error ? err.message.slice(0, 500) : "Не удалось импортировать библиотеку.",
+        });
+      } catch { /* Keep the original import error if journal persistence fails. */ }
       setError(
         err instanceof Error
           ? err.message
