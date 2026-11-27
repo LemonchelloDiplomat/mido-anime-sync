@@ -382,14 +382,20 @@ async fn animego_webview_eval_json(
     );
     let key_json = serde_json::to_string(&operation_key)
         .map_err(|_| "Не удалось подготовить идентификатор операции AnimeGO.".to_string())?;
+    // Keep the operation snapshot in the DOM as well as window state. WebView2
+    // page scripts can replace window properties during hydration/navigation;
+    // DOM attributes survive isolated-world differences and remain pollable.
+    let state_attribute = format!("data-{operation_key}");
+    let attribute_json = serde_json::to_string(&state_attribute)
+        .map_err(|_| "Не удалось подготовить хранилище состояния AnimeGO.".to_string())?;
     let bootstrap = format!(
-        "(() => {{ const key = {key_json}; window[key] = {{ state: 'pending', stage: 'bootstrap' }}; window.__midoAnimeGoSetStage = (stage) => {{ if (window[key]?.state === 'pending') window[key].stage = String(stage).slice(0, 120); }}; Promise.resolve().then(() => ({script})).then((result) => {{ window[key] = {{ state: 'done', stage: window[key]?.stage ?? 'completed', result: result ?? null }}; delete window.__midoAnimeGoSetStage; }}).catch((error) => {{ window[key] = {{ state: 'error', stage: window[key]?.stage ?? 'unknown', error: String(error?.message ?? error).slice(0, 500) }}; delete window.__midoAnimeGoSetStage; }}); return true; }})()"
+        "(() => {{ const key = {key_json}; const attr = {attribute_json}; const write = (state) => {{ window[key] = state; document.documentElement?.setAttribute(attr, JSON.stringify(state)); }}; write({{ state: 'pending', stage: 'bootstrap' }}); window.__midoAnimeGoSetStage = (stage) => {{ const current = window[key]; if (current?.state === 'pending') write({{ ...current, stage: String(stage).slice(0, 120) }}); }}; Promise.resolve().then(() => ({script})).then((result) => {{ const current = window[key] ?? {{}}; write({{ state: 'done', stage: current.stage ?? 'completed', result: result ?? null }}); delete window.__midoAnimeGoSetStage; }}).catch((error) => {{ const current = window[key] ?? {{}}; write({{ state: 'error', stage: current.stage ?? 'unknown', error: String(error?.message ?? error).slice(0, 500) }}); delete window.__midoAnimeGoSetStage; }}); return true; }})()"
     );
     window.eval(&bootstrap)
         .map_err(|error| format!("WEBVIEW_EVALUATION_FAILED: {error}"))?;
 
     let poll_script = format!(
-        "JSON.stringify(window[{key_json}] ?? {{ state: 'pending' }})"
+        "document.documentElement?.getAttribute({attribute_json}) ?? JSON.stringify({{ state: 'missing', stage: 'operation_state_missing' }})"
     );
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
@@ -411,7 +417,7 @@ async fn animego_webview_eval_json(
         }
         match state.get("state").and_then(Value::as_str) {
             Some("done") => {
-                let cleanup = format!("delete window[{key_json}]; true");
+                let cleanup = format!("delete window[{key_json}]; document.documentElement?.removeAttribute({attribute_json}); true");
                 let _ = window.eval(&cleanup);
                 let result = state.get("result").cloned()
                     .ok_or_else(|| "WebView2 AnimeGO завершил операцию без результата.".to_string())?;
@@ -422,7 +428,7 @@ async fn animego_webview_eval_json(
                 return Ok(result);
             }
             Some("error") => {
-                let cleanup = format!("delete window[{key_json}]; true");
+                let cleanup = format!("delete window[{key_json}]; document.documentElement?.removeAttribute({attribute_json}); true");
                 let _ = window.eval(&cleanup);
                 return Err(state.get("error").and_then(Value::as_str)
                     .unwrap_or("Асинхронная операция AnimeGO завершилась ошибкой.").to_string());
@@ -432,7 +438,7 @@ async fn animego_webview_eval_json(
         }
         if tokio::time::Instant::now() >= deadline {
             let stage = state.get("stage").and_then(Value::as_str).unwrap_or("unknown");
-            let cleanup = format!("delete window[{key_json}]; delete window.__midoAnimeGoSetStage; true");
+            let cleanup = format!("delete window[{key_json}]; document.documentElement?.removeAttribute({attribute_json}); delete window.__midoAnimeGoSetStage; true");
             let _ = window.eval(&cleanup);
             return Err(format!("Истекло время ожидания асинхронной операции AnimeGO. Последний этап: {stage}."));
         }
