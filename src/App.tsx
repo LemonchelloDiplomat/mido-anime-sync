@@ -1072,14 +1072,19 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
     }, 1000);
   }
 
-  function downloadSyncHistory(sessions: SyncSession[], operations: SyncOperation[]) {
+  function downloadSyncHistory(
+    sessions: SyncSession[],
+    operations: SyncOperation[],
+    providerWriteJobs: ProviderWriteJob[],
+  ) {
     const exportedAt = new Date().toISOString();
     const payload = {
       format: "midahoshi-sync-history",
-      schemaVersion: 2,
+      schemaVersion: 3,
       exportedAt,
       sessions,
       operations,
+      providerWriteJobs,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
       type: "application/json",
@@ -2955,9 +2960,9 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                   <button
                     className="secondary-button"
                     type="button"
-                    onClick={() => downloadSyncHistory(historySessionRecords, historyOperations)}
-                    disabled={historyOperations.length === 0 && historySessionRecords.length === 0}
-                    title="Экспортировать все сеансы и операции, включая скрытые текущими фильтрами"
+                    onClick={() => downloadSyncHistory(historySessionRecords, historyOperations, providerWriteHistory)}
+                    disabled={historyOperations.length === 0 && historySessionRecords.length === 0 && providerWriteHistory.length === 0}
+                    title="Экспортировать сеансы, операции и журнал отправки AnimeGO, включая скрытые фильтрами записи"
                   >
                     ↓ Экспорт JSON
                   </button>
