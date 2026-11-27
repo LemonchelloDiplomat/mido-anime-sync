@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-animego-network-inspect"
+description = "Enables the animego_network_inspect command without any pre-configured scope."
+commands.allow = ["animego_network_inspect"]
+
+[[permission]]
+identifier = "deny-animego-network-inspect"
+description = "Denies the animego_network_inspect command without any pre-configured scope."
+commands.deny = ["animego_network_inspect"]

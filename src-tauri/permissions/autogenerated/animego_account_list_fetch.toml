@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-animego-account-list-fetch"
+description = "Enables the animego_account_list_fetch command without any pre-configured scope."
+commands.allow = ["animego_account_list_fetch"]
+
+[[permission]]
+identifier = "deny-animego-account-list-fetch"
+description = "Denies the animego_account_list_fetch command without any pre-configured scope."
+commands.deny = ["animego_account_list_fetch"]

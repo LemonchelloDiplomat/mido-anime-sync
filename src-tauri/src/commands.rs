@@ -1167,7 +1167,7 @@ fn parse_animego_write_forms(
         .map_err(|_| "Не удалось подготовить анализатор полей AnimeGO.".to_string())?;
     let meta_selector = Selector::parse("meta[name]")
         .map_err(|_| "Не удалось подготовить анализатор meta-тегов AnimeGO.".to_string())?;
-    let control_selector = Selector::parse("input, select, textarea, button, a, [role='button']")
+    let control_selector = Selector::parse("input, select, textarea, button, a, [role='button'], [data-controller], [data-action]")
         .map_err(|_| "Не удалось подготовить анализатор интерактивных элементов AnimeGO.".to_string())?;
     let script_selector = Selector::parse("script")
         .map_err(|_| "Не удалось подготовить анализатор скриптов AnimeGO.".to_string())?;
@@ -1238,8 +1238,15 @@ fn parse_animego_write_forms(
                 });
             }
         }
-        let has_inline_event_handler = ["onsubmit", "onclick", "onchange", "oninput"]
-            .iter().any(|name| form.value().attr(name).is_some());
+        let has_inline_event_handler =
+            ["onsubmit", "onclick", "onchange", "oninput"]
+                .iter()
+                .any(|name| form.value().attr(name).is_some())
+                || form.select(&control_selector).any(|element| {
+                    ["onclick", "onchange", "oninput", "onsubmit"]
+                        .iter()
+                        .any(|name| element.value().attr(name).is_some())
+                });
         let has_data_action = form.value().attr("data-action").is_some();
         forms.push(AnimeGoWriteFormInspection {
             method,
@@ -1289,11 +1296,16 @@ fn parse_animego_write_forms(
         };
         let href_path = control.value().attr("href").and_then(safe_same_origin_path);
         let ajax_url_path = control.value().attr("data-ajax-url").and_then(safe_same_origin_path);
-        let controller_names = control.value().attr("data-controller").unwrap_or("")
+        let mut controller_names = control.value().attr("data-controller").unwrap_or("")
             .split_whitespace()
             .filter_map(safe_identifier)
-            .take(12)
             .collect::<Vec<_>>();
+        for class_name in &class_names {
+            if !controller_names.contains(class_name) {
+                controller_names.push(class_name.clone());
+            }
+        }
+        controller_names.truncate(12);
         let action_hints = control.value().attr("data-action").unwrap_or("")
             .split_whitespace()
             .filter_map(|action| {
@@ -1919,19 +1931,20 @@ pub async fn animego_account_status_write(
             if (actualUserId !== expectedUserId) return fail("Открыта сессия другого аккаунта AnimeGO.");
 
             setStage("csrf_lookup");
-            const tokenInput = titleDocument.querySelector("input[name='_token'], input[name='token']");
-            const token = tokenInput?.value?.trim();
-            if (!token) return fail("На странице AnimeGO не найден CSRF-токен.");
+            const actionPath = "/mylist/anime/" + animeId + "/" + listType + "/add";
+            const actionButton = Array.from(titleDocument.querySelectorAll("[data-ajax-url]"))
+                .find((el) => el.getAttribute("data-ajax-url") === actionPath);
+            const token = actionButton?.getAttribute("data-csrf-token")?.trim();
+            if (!token) return fail("Для действия AnimeGO не найден CSRF-токен.");
 
             setStage("status_post_start");
-            const actionPath = "/mylist/anime/" + animeId + "/" + listType + "/add";
             const postResponse = await fetch(new URL(actionPath, origin).href, {{
                 method: "POST", credentials: "include", redirect: "follow",
+                referrer: new URL(titlePath, origin).href,
                 headers: {{
                     "Accept": "*/*",
                     "X-Requested-With": "XMLHttpRequest",
                     "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                    "Referer": new URL(titlePath, origin).href
                 }},
                 body: new URLSearchParams([["_token", token]]).toString()
             }});
@@ -1955,7 +1968,7 @@ pub async fn animego_account_status_write(
                 const trimmedBody = postBody.trimStart();
                 let bodyKind = !trimmedBody ? "empty"
                     : /^<!doctype html|^<html/i.test(trimmedBody) ? "html"
-                    : (trimmedBody.startsWith("{") || trimmedBody.startsWith("[")) ? "invalid-json"
+                    : (trimmedBody.startsWith("{{") || trimmedBody.startsWith("[")) ? "invalid-json"
                     : "plain-text";
                 if (bodyKind === "html") {{
                     const responseDocument = new DOMParser().parseFromString(postBody, "text/html");

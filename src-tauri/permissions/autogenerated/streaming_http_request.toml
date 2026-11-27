@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-streaming-http-request"
+description = "Enables the streaming_http_request command without any pre-configured scope."
+commands.allow = ["streaming_http_request"]
+
+[[permission]]
+identifier = "deny-streaming-http-request"
+description = "Denies the streaming_http_request command without any pre-configured scope."
+commands.deny = ["streaming_http_request"]

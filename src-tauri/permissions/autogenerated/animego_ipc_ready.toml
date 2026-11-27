@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-animego-ipc-ready"
+description = "Enables the animego_ipc_ready command without any pre-configured scope."
+commands.allow = ["animego_ipc_ready"]
+
+[[permission]]
+identifier = "deny-animego-ipc-ready"
+description = "Denies the animego_ipc_ready command without any pre-configured scope."
+commands.deny = ["animego_ipc_ready"]

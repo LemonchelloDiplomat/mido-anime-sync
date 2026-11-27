@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-animego-account-status-write"
+description = "Enables the animego_account_status_write command without any pre-configured scope."
+commands.allow = ["animego_account_status_write"]
+
+[[permission]]
+identifier = "deny-animego-account-status-write"
+description = "Denies the animego_account_status_write command without any pre-configured scope."
+commands.deny = ["animego_account_status_write"]
