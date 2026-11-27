@@ -303,7 +303,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
   const [importHistory, setImportHistory] = useState<ImportHistoryEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
-  const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | SyncProvider | "animego" | "yummyanime" | "file" | "restore">("all");
+  const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | SyncProvider | "animego" | "yummyanime" | "file" | "restore" | "local">("all");
   const [historyStatusFilter, setHistoryStatusFilter] = useState<"all" | SyncOperation["status"]>("all");
 
   useEffect(() => {
@@ -3148,8 +3148,8 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                     ) : event.type === "import" ? (
                       <div className="history-operation" key={"import:" + event.id}>
                         <div className="history-operation-title">
-                          <strong>{({ animego: "AnimeGO", yummyanime: "YummyAnime", mal: "MyAnimeList", anilist: "AniList", shikimori: "Shikimori", file: "Файл / XML", restore: "Резервная копия" })[event.event.provider]} · импорт списка</strong>
-                          <small>{event.event.importedCount} записей · {event.event.skippedCount} пропущено{event.event.error ? " · " + event.event.error : ""}</small>
+                          <strong>{({ animego: "AnimeGO", yummyanime: "YummyAnime", mal: "MyAnimeList", anilist: "AniList", shikimori: "Shikimori", file: "Файл / XML", restore: "Резервная копия", local: "Локальная библиотека" })[event.event.provider]} · {event.event.kind === "local_library_change" ? "изменение библиотеки" : "импорт списка"}</strong>
+                          <small>{event.event.kind === "local_library_change" ? (event.event.provider === "local" && event.event.skippedCount > 0 ? event.event.skippedCount + " удалено / очищено" : event.event.importedCount > 0 ? event.event.importedCount + " добавлено" : "Изменения сохранены") : event.event.importedCount + " записей · " + event.event.skippedCount + " пропущено"}{event.event.error ? " · " + event.event.error : ""}</small>
                         </div>
                         <span className={"history-status-label " + event.event.status}>{event.event.status === "succeeded" ? "Импортировано" : "Ошибка"}</span>
                         <span className="history-operation-time">{formatHistoryDate(event.createdAt)}</span>
@@ -3188,6 +3188,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                     <option value="yummyanime">YummyAnime</option>
                     <option value="file">Файл / XML</option>
                     <option value="restore">Восстановление</option>
+                    <option value="local">Локальная библиотека</option>
                   </select>
                 </label>
                 <label>
