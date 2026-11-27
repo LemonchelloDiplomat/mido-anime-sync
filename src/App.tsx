@@ -1356,6 +1356,10 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       const backup = await activeRepository.snapshot();
       downloadSnapshot(backup);
       await activeRepository.clearLibrary();
+      await activeRepository.saveImportHistoryEvent({
+        id: crypto.randomUUID(), provider: "local", kind: "local_library_change", status: "succeeded",
+        importedCount: 0, skippedCount: backup.anime.length, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
+      });
       await refreshLibrary();
 
       const [operations, sessions] = await Promise.all([
