@@ -2297,9 +2297,7 @@ async fn animego_progress_webview_operation(
           const deadline = Date.now() + 30000;
           while (Date.now() < deadline) {{
             const url = new URL(location.href);
-            const player = document.querySelector(
-              ".player-video[data-anime-player-episodes-url-value][data-anime-episode-watched-url-value]"
-            );
+            const player = document.querySelector(".player-video");
             const user = document.documentElement?.dataset?.user ?? null;
             if (url.origin === "https://animego.me" && url.pathname === expectedPath
                 && document.readyState === "complete" && player) {{
@@ -2409,17 +2407,10 @@ async fn animego_progress_webview_operation(
             "; episodes-url-in-response=" + hasEpisodesUrlInResponse + ")."
           );
         }}
+        // Confirmed AnimeGO routes are used when Stimulus data attributes are absent.
+        // These attributes are optional hints, not prerequisites for progress sync.
         const episodesPathValue = player.getAttribute("data-anime-player-episodes-url-value");
         const watchedPathValue = player.getAttribute("data-anime-episode-watched-url-value");
-        if (!episodesPathValue || !watchedPathValue) {{
-          const attributes = Array.from(player.attributes).map((attribute) => attribute.name).join(", ");
-          throw new Error(
-            "AnimeGO нашёл блок плеера, но не инициализировал адреса серий (live-title=" +
-            isCurrentTitle + "; episodes-url=" + Boolean(episodesPathValue) +
-            "; watched-url=" + Boolean(watchedPathValue) +
-            "; attributes=" + attributes.slice(0, 300) + ")."
-          );
-        }}
 
         stage("progress_title_dom_ready");
         let user;
@@ -2428,18 +2419,20 @@ async fn animego_progress_webview_operation(
         if (!user || String(user.id ?? user.userId ?? "") !== expectedUserId)
           throw new Error("AnimeGO не подтвердил ожидаемый авторизованный аккаунт.");
         // Reuse the player node validated immediately after parsing the title HTML.
-        const playerId = player.getAttribute("data-anime-player-anime-id-value") ?? "";
+        const playerId = player.getAttribute("data-anime-player-anime-id-value") ?? animeId;
         if (playerId !== animeId || !/^\d+$/.test(playerId))
           throw new Error("ID плеера AnimeGO не совпадает с ID выбранного тайтла.");
-        const episodesPath = episodesPathValue;
-        const watchedPath = watchedPathValue;
-        if (watchedPath !== "/anime/episode/watched") throw new Error("Адрес изменения прогресса AnimeGO не прошёл проверку.");
+        const episodesPath = episodesPathValue || ("/player/" + playerId + "/episodes");
+        const watchedPath = watchedPathValue || "/anime/episode/watched";
         const episodesUrl = safeUrl(episodesPath);
         if (episodesUrl.pathname !== "/player/" + playerId + "/episodes" || episodesUrl.search)
           throw new Error("Адрес списка серий AnimeGO не прошёл проверку.");
+        const watchedUrl = safeUrl(watchedPath);
+        if (watchedUrl.pathname !== "/anime/episode/watched" || watchedUrl.search)
+          throw new Error("Адрес изменения прогресса AnimeGO не прошёл проверку.");
         const activeTranslation = doc.querySelector("[data-translation-id].active:not([hidden])");
         const translationId = activeTranslation?.getAttribute("data-translation-id")
-          || player.getAttribute("data-anime-player-default-translation-id-value") || "";
+          || player.getAttribute("data-anime-player-default-translation-id-value") || "2";
         if (!/^\d+$/.test(translationId)) throw new Error("Не удалось определить активный перевод AnimeGO.");
         stage("progress_episodes_fetch");
         const episodesResponse = await fetch(episodesUrl.href, {{
@@ -2515,8 +2508,8 @@ async fn animego_progress_webview_operation(
       }}
     }})()"#);
 
-    let evaluation = crate::animego_event_bridge::evaluate(
-        app, script, std::time::Duration::from_secs(90)
+    let evaluation = animego_webview_eval_json(
+        &window, script, std::time::Duration::from_secs(90)
     ).await;
     let _ = window.hide();
     let payload = evaluation?;
