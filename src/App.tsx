@@ -2589,6 +2589,12 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       createdAt: session.createdAt,
       session,
     })),
+    ...filteredHistoryOperations.map((operation) => ({
+      type: "operation" as const,
+      id: operation.id,
+      createdAt: operation.updatedAt || operation.createdAt,
+      operation,
+    })),
     ...filteredProviderWriteHistory.map((job) => ({
       type: "animego" as const,
       id: job.id,
@@ -3089,6 +3095,15 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                           <small>{event.session.operationCount} операций · {event.session.unchangedCount} без изменений</small>
                         </div>
                         <span className={"history-status-label " + event.session.status}>{event.session.status === "running" ? "Выполняется" : event.session.status === "succeeded" ? "Успешно" : event.session.status === "failed" ? "Ошибка" : "Отменено"}</span>
+                        <span className="history-operation-time">{formatHistoryDate(event.createdAt)}</span>
+                      </div>
+                    ) : event.type === "operation" ? (
+                      <div className="history-operation" key={"operation:" + event.id}>
+                        <div className="history-operation-title">
+                          <strong>{getProviderLabel(event.operation.provider)} · {event.operation.kind === "create" ? "Добавление" : event.operation.kind === "delete" ? "Удаление" : "Обновление"}</strong>
+                          <small>{historyAnimeTitle(event.operation)} · {event.operation.direction === "remote" ? "Локально → сервис" : "Сервис → локально"}{event.operation.externalId ? " · ID " + event.operation.externalId : ""}</small>
+                        </div>
+                        <span className={"history-status-label " + event.operation.status}>{historyStatusLabel(event.operation.status)}</span>
                         <span className="history-operation-time">{formatHistoryDate(event.createdAt)}</span>
                       </div>
                     ) : event.type === "import" ? (
