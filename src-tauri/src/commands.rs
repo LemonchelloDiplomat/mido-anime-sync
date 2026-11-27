@@ -3137,13 +3137,15 @@ mod animego_episode_progress_tests {
     }
 
     #[test]
-    fn rejects_a_player_for_a_different_anime() {
+    fn accepts_player_id_distinct_from_catalog_anime_id() {
         let html = r#"<div class="player-video"
           data-anime-player-anime-id-value="999"
           data-anime-player-episodes-url-value="/player/999/episodes"
           data-anime-episode-watched-url-value="/anime/episode/watched"></div>
           <button class="active" data-translation-id="81"></button>"#;
-        assert!(super::animego_parse_player_metadata(html, "3803").is_err());
+        let parsed = super::animego_parse_player_metadata(html, "3803").expect("distinct player id");
+        assert_eq!(parsed.0, "999");
+        assert_eq!(parsed.1, "/player/999/episodes");
     }
 }
 
