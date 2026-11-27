@@ -20,6 +20,7 @@ import type {
 } from "../core/types.js";
 
 import { validateSnapshot, validateEntry } from "./snapshot-validation.js";
+import type { LocalLibraryFieldChange } from "../core/local-library-changes.js";
 
 export interface ImportHistoryEvent {
   id: string;
@@ -31,6 +32,10 @@ export interface ImportHistoryEvent {
   startedAt: string;
   finishedAt: string;
   error?: string;
+  /** Optional detail for local library edits; older persisted events remain valid. */
+  animeId?: string;
+  animeTitle?: string;
+  changes?: LocalLibraryFieldChange[];
 }
 
 interface AnimeSyncDB extends DBSchema {
