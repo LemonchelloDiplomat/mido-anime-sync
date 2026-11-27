@@ -15,6 +15,7 @@ export interface LocalLibraryFieldChange {
   field: LocalLibraryChangeField;
   before: LocalLibraryChangeValue;
   after: LocalLibraryChangeValue;
+  total?: number;
 }
 
 const statusLabels: Record<AnimeStatus, string> = {
@@ -52,16 +53,24 @@ const fields: LocalLibraryChangeField[] = [
 export function createLocalLibraryFieldChanges(
   previous: AnimeListEntry | undefined,
   next: AnimeListEntry | undefined,
+  totalEpisodes?: number | null,
 ): LocalLibraryFieldChange[] {
   return fields.flatMap((field) => {
     const before = valueOf(previous, field);
     const after = valueOf(next, field);
     if (Object.is(before, after)) return [];
-    return [{ field, before, after }];
+    return [{
+      field,
+      before,
+      after,
+      ...(field === "progress" && typeof totalEpisodes === "number" && totalEpisodes > 0
+        ? { total: totalEpisodes }
+        : {}),
+    }];
   });
 }
 
-function displayValue(field: LocalLibraryChangeField, value: LocalLibraryChangeValue): string {
+function displayValue(field: LocalLibraryChangeField, value: LocalLibraryChangeValue, total?: number): string {
   if (value === null) return "Нет";
   if (field === "status" && typeof value === "string" && value in statusLabels) {
     return statusLabels[value as AnimeStatus];
@@ -71,7 +80,8 @@ function displayValue(field: LocalLibraryChangeField, value: LocalLibraryChangeV
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("ru-RU");
   }
-  if (field === "score" && typeof value === "number") return String(value);
+  if (field === "score" && typeof value === "number") return String(value / 10);
+  if (field === "progress" && typeof value === "number" && total) return `${value}/${total}`;
   return String(value);
 }
 
@@ -86,5 +96,5 @@ const fieldLabels: Record<LocalLibraryChangeField, string> = {
 };
 
 export function formatLocalLibraryFieldChange(change: LocalLibraryFieldChange): string {
-  return `${fieldLabels[change.field]}: ${displayValue(change.field, change.before)} → ${displayValue(change.field, change.after)}`;
+  return `${fieldLabels[change.field]}: ${displayValue(change.field, change.before, change.total)} → ${displayValue(change.field, change.after, change.total)}`;
 }
