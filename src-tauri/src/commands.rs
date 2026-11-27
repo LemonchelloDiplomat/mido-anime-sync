@@ -2245,6 +2245,12 @@ fn animego_translation_id_from_json(value: &Value) -> Option<String> {
     fn visit(value: &Value, in_translation_branch: bool) -> Option<String> {
         match value {
             Value::Object(map) => {
+                if in_translation_branch {
+                    if let Some(id) = map.get("id")
+                        .and_then(|id| id.as_u64().map(|n| n.to_string()).or_else(|| id.as_str().map(str::to_string))) {
+                        if !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()) { return Some(id); }
+                    }
+                }
                 for (key, child) in map {
                     let key = key.to_ascii_lowercase();
                     let branch = in_translation_branch || key.contains("translation")
