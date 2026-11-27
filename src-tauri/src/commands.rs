@@ -1,3 +1,4 @@
+use tauri::Manager;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -1587,10 +1588,11 @@ fn animego_rating_form_data(
             }
         }
 
-        // It may also render the rating as radio inputs.
+        // Radio inputs: inspect the static HTML checked attribute directly.
         if selected_rating.is_none() {
-            if let Ok(radio_inputs) = Selector::parse("input[name='rate']:checked") {
-                selected_rating = form.select(&radio_inputs).next()
+            if let Ok(radio_inputs) = Selector::parse("input[name='rate']") {
+                selected_rating = form.select(&radio_inputs)
+                    .find(|input| input.value().attr("checked").is_some())
                     .and_then(|input| input.value().attr("value"))
                     .and_then(|value| value.parse::<u8>().ok());
             }
@@ -2298,6 +2300,31 @@ async fn animego_progress_webview_operation(
         return Err("Окно AnimeGO находится вне доверенного домена. Открой AnimeGO и повтори операцию.".to_string());
     }
 
+    // Navigate the authenticated WebView to the exact AnimeGO title page.
+    window.navigate(safe_title.clone())
+        .map_err(|error| format!("Не удалось открыть карточку тайтла AnimeGO: {error}"))?;
+
+    let navigation_deadline =
+        std::time::Instant::now() + std::time::Duration::from_secs(30);
+
+    loop {
+        let observed_url = window.url()
+            .map_err(|_| "Не удалось проверить навигацию AnimeGO.".to_string())?;
+
+        if observed_url.origin() == safe_title.origin()
+            && observed_url.path() == safe_title.path()
+        {
+            break;
+        }
+
+        if std::time::Instant::now() >= navigation_deadline {
+            return Err("WebView2 не перешёл на страницу выбранного тайтла AnimeGO.".to_string());
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     let title_path = format!("{}{}", safe_title.path(),
         safe_title.query().map(|query| format!("?{query}")).unwrap_or_default());
     let title_path_json = serde_json::to_string(&title_path)
@@ -2324,16 +2351,40 @@ async fn animego_progress_webview_operation(
         return url;
       }};
       const readState = async () => {{
-        stage("progress_title_fetch");
-        const titleResponse = await fetch(safeUrl(titlePath).href, {{
-          method: "GET", credentials: "include", redirect: "follow",
-          headers: {{ "Accept": "text/html,application/xhtml+xml" }}
-        }});
-        if (new URL(titleResponse.url).origin !== origin) throw new Error("Страница тайтла перенаправила запрос за пределы AnimeGO.");
-        if (!titleResponse.ok) throw new Error("Не удалось открыть карточку тайтла (HTTP " + titleResponse.status + ").");
-        const titleHtml = await titleResponse.text();
-        if (titleHtml.length > 2097152) throw new Error("HTML карточки тайтла превышает лимит 2 МБ.");
-        const doc = new DOMParser().parseFromString(titleHtml, "text/html");
+        stage("progress_wait_title_dom");
+
+        const expectedTitleUrl = safeUrl(titlePath);
+        const deadline = Date.now() + 30000;
+        let doc = null;
+
+        while (Date.now() < deadline) {{
+          const currentUrl = new URL(location.href);
+          const player = document.querySelector(
+            ".player-video[data-anime-player-episodes-url-value][data-anime-episode-watched-url-value]"
+          );
+
+          if (
+            currentUrl.origin === origin &&
+            currentUrl.pathname === expectedTitleUrl.pathname &&
+            document.readyState !== "loading" &&
+            player
+          ) {{
+            doc = document;
+            break;
+          }}
+
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }}
+
+        if (!doc) {{
+          const currentUrl = new URL(location.href);
+          throw new Error(
+            "Не удалось дождаться DOM карточки AnimeGO. Текущий адрес: " +
+            currentUrl.pathname
+          );
+        }}
+
+        stage("progress_title_dom_ready");
         let user;
         try {{ user = JSON.parse(doc.documentElement?.dataset?.user ?? "null"); }}
         catch {{ throw new Error("Не удалось прочитать профиль AnimeGO."); }}

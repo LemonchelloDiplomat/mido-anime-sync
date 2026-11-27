@@ -45,7 +45,8 @@ pub fn animego_bridge_stage(
     }
     let mut guard = pending().lock().map_err(|_| "AnimeGO operation registry is unavailable.".to_string())?;
     let operation = guard.get_mut(&op_id).ok_or_else(|| "Unknown or expired AnimeGO operation.".to_string())?;
-    operation.stage = stage;
+    operation.stage = stage.clone();
+    eprintln!("[AnimeGO][{}] stage={}", op_id, stage);
     Ok(())
 }
 
@@ -65,6 +66,7 @@ pub fn animego_bridge_complete(
         .map_err(|_| "AnimeGO operation registry is unavailable.".to_string())?
         .remove(&op_id)
         .ok_or_else(|| "Unknown or already completed AnimeGO operation.".to_string())?;
+    eprintln!("[AnimeGO][{}] bridge_complete error={}", op_id, error.is_some());
     let completion = match error {
         Some(message) => Err(message.chars().take(500).collect()),
         None => Ok(payload),
@@ -130,6 +132,7 @@ pub async fn evaluate(
             .map_err(|_| "AnimeGO operation registry is unavailable.".to_string())?;
         guard.insert(op_id.clone(), PendingOperation { sender, stage: "dispatched".into() });
     }
+    eprintln!("[AnimeGO][{}] operation_started", op_id);
 
     let op_json = serde_json::to_string(&op_id)
         .map_err(|_| "Could not encode AnimeGO operation ID.".to_string())?;
@@ -160,19 +163,32 @@ pub async fn evaluate(
       return true;
     }})()"#);
 
+    eprintln!("[AnimeGO][{}] dispatching_script", op_id);
     if let Err(error) = window.eval(&bootstrap) {
+        eprintln!("[AnimeGO][{}] dispatch_failed: {}", op_id, error);
         if let Ok(mut guard) = pending().lock() { guard.remove(&op_id); }
         return Err(format!("Could not dispatch AnimeGO WebView operation: {error}"));
     }
 
     match tokio::time::timeout(timeout, receiver).await {
-        Ok(Ok(result)) => result,
-        Ok(Err(_)) => Err("AnimeGO operation ended before returning a result.".into()),
+        Ok(Ok(Ok(value))) => {
+            eprintln!("[AnimeGO][{}] operation_succeeded", op_id);
+            Ok(value)
+        }
+        Ok(Ok(Err(error))) => {
+            eprintln!("[AnimeGO][{}] operation_failed: {}", op_id, error);
+            Err(error)
+        }
+        Ok(Err(_)) => {
+            eprintln!("[AnimeGO][{}] result_channel_closed", op_id);
+            Err("AnimeGO operation ended before returning a result.".into())
+        }
         Err(_) => {
             let stage = pending().lock().ok()
                 .and_then(|mut guard| guard.remove(&op_id))
                 .map(|operation| operation.stage)
                 .unwrap_or_else(|| "unknown".into());
+            eprintln!("[AnimeGO][{}] timeout stage={}", op_id, stage);
             Err(format!("AnimeGO operation timed out at stage: {stage}."))
         }
     }
