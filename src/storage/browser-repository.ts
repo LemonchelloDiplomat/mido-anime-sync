@@ -23,8 +23,8 @@ import { validateSnapshot, validateEntry } from "./snapshot-validation.js";
 
 export interface ImportHistoryEvent {
   id: string;
-  provider: "animego" | "yummyanime" | "mal" | "anilist" | "shikimori" | "file" | "restore";
-  kind: "account_list_import";
+  provider: "animego" | "yummyanime" | "mal" | "anilist" | "shikimori" | "file" | "restore" | "local";
+  kind: "account_list_import" | "local_library_change";
   status: "succeeded" | "failed";
   importedCount: number;
   skippedCount: number;
