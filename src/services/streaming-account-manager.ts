@@ -13,6 +13,75 @@ export interface StreamingAccountStatus extends StreamingAccountSessionInfo {
 }
 
 /** Shared UI-facing account lifecycle contract implemented by native and web runtimes. */
+export interface AnimeGoWriteFieldInspection {
+  name: string;
+  tag: string;
+  inputType: string;
+  required: boolean;
+}
+
+export interface AnimeGoWriteFormInspection {
+  method: string;
+  actionPath: string;
+  enctype: string;
+  purpose: string;
+  fieldNames: string[];
+  fields: AnimeGoWriteFieldInspection[];
+  hasCsrfField: boolean;
+  hasInlineEventHandler: boolean;
+  hasDataAction: boolean;
+}
+
+export interface AnimeGoInteractiveControlInspection {
+  tag: string;
+  name: string | null;
+  inputType: string | null;
+  id: string | null;
+  classNames: string[];
+  required: boolean;
+  hasInlineEventHandler: boolean;
+  hasDataAction: boolean;
+}
+
+export interface AnimeGoScriptRouteCandidateInspection {
+  path: string;
+  methods: string[];
+  capabilities: string[];
+  fieldHints: string[];
+  signals: string[];
+}
+
+export interface AnimeGoNetworkEventInspection {
+  method: string;
+  path: string;
+  transport: "fetch" | "xhr" | "form" | "beacon";
+  fieldNames: string[];
+  status: number | null;
+}
+
+export interface AnimeGoNetworkInspection {
+  provider: "animego";
+  pagePath: string;
+  durationSeconds: number;
+  events: AnimeGoNetworkEventInspection[];
+  note: string;
+}
+
+export interface AnimeGoWriteInspection {
+  provider: "animego";
+  titleUrl: string;
+  httpStatus: number;
+  forms: AnimeGoWriteFormInspection[];
+  csrfMetaNames: string[];
+  interactiveControls: AnimeGoInteractiveControlInspection[];
+  sameOriginScriptPaths: string[];
+  inlineScriptHints: string[];
+  scriptsInspected: number;
+  scriptsSkipped: number;
+  scriptRouteCandidates: AnimeGoScriptRouteCandidateInspection[];
+  note: string;
+}
+
 export interface StreamingAccountManagerPort {
   hasAdapter(provider: StreamingProviderId): boolean;
   getStatus(provider: StreamingProviderId): StreamingAccountStatus;
@@ -22,8 +91,12 @@ export interface StreamingAccountManagerPort {
   /** Optional two-step sign-in flow for providers that authenticate in a native WebView. */
   beginConnect?(provider: StreamingProviderId): Promise<void>;
   completeConnect?(provider: StreamingProviderId): Promise<StreamingAccountStatus>;
+  /** Reopen the authenticated provider WebView without changing account state. */
+  openSessionWindow?(provider: StreamingProviderId): Promise<void>;
+  inspectNetwork?(provider: StreamingProviderId): Promise<AnimeGoNetworkInspection>;
   /** Optional read-only provider list fetch; secrets remain inside the trusted adapter. */
   fetchList?(provider: StreamingProviderId): Promise<unknown>;
+  inspectWriteCapabilities?(provider: StreamingProviderId, titleUrl: string): Promise<AnimeGoWriteInspection>;
 }
 
 export interface StreamingAccountConnectResult {
@@ -41,8 +114,12 @@ export interface StreamingAccountAdapter {
   beginConnect?(): Promise<void>;
   completeConnect?(): Promise<StreamingAccountConnectResult>;
   getSessionInfo?(): Promise<{ accountLabel?: string | null; expiresAt?: string | null }>;
+  /** Reopen the authenticated provider WebView without changing account state. */
+  openSessionWindow?(): Promise<void>;
+  inspectNetwork?(): Promise<AnimeGoNetworkInspection>;
   /** Read-only account-list import. The adapter must keep session material native. */
   fetchList?(): Promise<unknown>;
+  inspectWriteCapabilities?(titleUrl: string): Promise<AnimeGoWriteInspection>;
 }
 
 /**
@@ -152,6 +229,28 @@ export class StreamingAccountManager {
       this.states.set(provider, status);
       return { ...status };
     }
+  }
+
+  async inspectWriteCapabilities(provider: StreamingProviderId, titleUrl: string): Promise<AnimeGoWriteInspection> {
+    const adapter = this.requireAdapter(provider);
+    if (!adapter.inspectWriteCapabilities) throw new Error(`Write inspection is unavailable for ${provider}.`);
+    const status = await this.restore(provider);
+    if (!status.connected) throw new Error(`Сначала подключи аккаунт ${provider}.`);
+    return adapter.inspectWriteCapabilities(titleUrl);
+  }
+
+  async openSessionWindow(provider: StreamingProviderId): Promise<void> {
+    const adapter = this.requireAdapter(provider);
+    if (!adapter.openSessionWindow) throw new Error(`Opening the provider session window is unavailable for ${provider}.`);
+    await adapter.openSessionWindow();
+  }
+
+  async inspectNetwork(provider: StreamingProviderId): Promise<AnimeGoNetworkInspection> {
+    const adapter = this.requireAdapter(provider);
+    if (!adapter.inspectNetwork) throw new Error(`Network inspection is unavailable for ${provider}.`);
+    const status = await this.restore(provider);
+    if (!status.connected) throw new Error(`Сначала подключи аккаунт ${provider}.`);
+    return adapter.inspectNetwork();
   }
 
   async fetchList(provider: StreamingProviderId): Promise<unknown> {

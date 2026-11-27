@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { StreamingProviderId } from "../services/streaming-provider.js";
-import type { StreamingAccountStatus } from "../services/streaming-account-manager.js";
+import type { AnimeGoNetworkInspection, AnimeGoWriteInspection, StreamingAccountStatus } from "../services/streaming-account-manager.js";
 import type { StreamingRuntime } from "../services/platform/streaming-runtime.js";
 import type { AnimeGoAccountListResponse } from "../services/platform/web-streaming-account-manager.js";
 
@@ -50,6 +50,11 @@ export function StreamingAccountManagerPanel({
   const [listImportMessage, setListImportMessage] = useState("");
   const [authWindowOpened, setAuthWindowOpened] = useState(false);
   const [listPreview, setListPreview] = useState<AnimeGoAccountListResponse | null>(null);
+  const [writeInspection, setWriteInspection] = useState<AnimeGoWriteInspection | null>(null);
+  const [inspectionLoading, setInspectionLoading] = useState(false);
+  const [networkInspection, setNetworkInspection] = useState<AnimeGoNetworkInspection | null>(null);
+  const [networkInspectionLoading, setNetworkInspectionLoading] = useState(false);
+  const [networkWindowOpening, setNetworkWindowOpening] = useState(false);
   const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
@@ -131,6 +136,7 @@ export function StreamingAccountManagerPanel({
     try {
       const result = await runtime.accounts.fetchList("animego") as AnimeGoAccountListResponse;
       setListPreview(result);
+      setWriteInspection(null);
       setListImportMessage("");
     } catch (cause) {
       const message = typeof cause === "string"
@@ -143,6 +149,52 @@ export function StreamingAccountManagerPanel({
       setError(message);
     } finally {
       setListLoading(false);
+    }
+  }
+
+  async function inspectAnimeGoWriteCapabilities() {
+    const firstItem = listPreview?.items[0];
+    if (!firstItem || !runtime?.accounts.inspectWriteCapabilities) return;
+    setInspectionLoading(true);
+    setError("");
+    setWriteInspection(null);
+    try {
+      const result = await runtime.accounts.inspectWriteCapabilities("animego", firstItem.url);
+      setWriteInspection(result);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось исследовать формы AnimeGO.");
+    } finally {
+      setInspectionLoading(false);
+    }
+  }
+
+  async function openAnimeGoSessionWindow() {
+    if (!runtime?.accounts.openSessionWindow) return;
+    setNetworkWindowOpening(true);
+    setError("");
+    setNetworkInspection(null);
+    try {
+      await runtime.accounts.openSessionWindow("animego");
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось открыть окно AnimeGO.");
+    } finally {
+      setNetworkWindowOpening(false);
+    }
+  }
+
+  async function inspectAnimeGoNetwork() {
+    if (!runtime?.accounts.inspectNetwork) return;
+    setNetworkInspectionLoading(true);
+    setError("");
+    setNetworkInspection(null);
+    try {
+      const result = await runtime.accounts.inspectNetwork("animego");
+      setNetworkInspection(result);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось собрать сетевые метаданные AnimeGO.");
+    } finally {
+      setNetworkInspectionLoading(false);
     }
   }
 
@@ -253,7 +305,28 @@ export function StreamingAccountManagerPanel({
               </div>
 
               {connected && runtime ? (
+                <>
                 <div className="native-account-actions">
+                  {provider.id === "animego" && runtime.platform === "windows-native" && runtime.accounts.openSessionWindow && (
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => void openAnimeGoSessionWindow()}
+                      disabled={networkWindowOpening || networkInspectionLoading || disconnecting !== null}
+                    >
+                      {networkWindowOpening ? "Открываем..." : "Открыть окно AnimeGO"}
+                    </button>
+                  )}
+                  {provider.id === "animego" && runtime.platform === "windows-native" && runtime.accounts.inspectNetwork && (
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => void inspectAnimeGoNetwork()}
+                      disabled={networkInspectionLoading || networkWindowOpening || disconnecting !== null}
+                    >
+                      {networkInspectionLoading ? "Наблюдаем 90 секунд..." : "Начать пассивное наблюдение"}
+                    </button>
+                  )}
                   {provider.id === "animego" && runtime.accounts.fetchList && (
                     <button
                       className="secondary-button"
@@ -273,6 +346,10 @@ export function StreamingAccountManagerPanel({
                     {disconnecting === provider.id ? "Отключаем..." : "Отключить"}
                   </button>
                 </div>
+                {provider.id === "animego" && runtime.platform === "windows-native" && (
+                  <small>Открой окно AnimeGO, перейди на страницу нужного тайтла и только затем запусти наблюдение. Во время 90 секунд выполни обычные действия на сайте. Инспектор не нажимает кнопки и не меняет данные.</small>
+                )}
+                </>
               ) : provider.id !== "animego" ? (
                 <button
                   className="secondary-button"
@@ -307,7 +384,82 @@ export function StreamingAccountManagerPanel({
           </ul>
           {listPreview.total > 12 && <small>И ещё {listPreview.total - 12} записей.</small>}
           {onImportAnimeGoList && <button className="secondary-button" type="button" onClick={() => void importAnimeGoList()} disabled={listImporting || listLoading}>{listImporting ? "Импортируем..." : "Импортировать в библиотеку"}</button>}
+          {runtime?.accounts.inspectWriteCapabilities && listPreview.items.length > 0 && (
+            <button className="secondary-button" type="button" onClick={() => void inspectAnimeGoWriteCapabilities()} disabled={inspectionLoading || listLoading || listImporting}>
+              {inspectionLoading ? "Изучаем страницу..." : "Исследовать формы и скрипты (без изменений)"}
+            </button>
+          )}
+          {writeInspection && (
+            <div className="native-account-write-inspection" role="status">
+              <strong>Проверка страницы завершена. Изменения не отправлялись.</strong>
+              <p>Найдено форм: {writeInspection.forms.length}. CSRF meta-поля: {writeInspection.csrfMetaNames.join(", ") || "не найдены"}.</p>
+              {writeInspection.forms.map((form, index) => (
+                <div key={index}>
+                  <p>
+                    <strong>{form.method} {form.actionPath}</strong>
+                    <small>Назначение: {form.purpose} · Кодировка: {form.enctype}</small>
+                    <small>Поля: {form.fieldNames.join(", ") || "нет"}{form.hasCsrfField ? " · CSRF-поле обнаружено" : ""}</small>
+                    <small>{form.fields.map((field) => `${field.name} (${field.tag}/${field.inputType}${field.required ? ", обязательно" : ""})`).join(" · ")}</small>
+                    {(form.hasInlineEventHandler || form.hasDataAction) && (
+                      <small>Обработчики: {form.hasInlineEventHandler ? "inline JS" : ""}{form.hasInlineEventHandler && form.hasDataAction ? " · " : ""}{form.hasDataAction ? "data-action" : ""}</small>
+                    )}
+                  </p>
+                </div>
+              ))}
+              {writeInspection.interactiveControls.length > 0 && (
+                <div>
+                  <strong>Интерактивные элементы, похожие на управление списком</strong>
+                  {writeInspection.interactiveControls.map((control, index) => (
+                    <p key={index}>
+                      {control.tag}{control.name ? ` name=${control.name}` : ""}{control.id ? ` #${control.id}` : ""}
+                      <small>{control.classNames.join(" ")}{control.required ? " · обязательно" : ""}{control.hasInlineEventHandler ? " · inline JS" : ""}{control.hasDataAction ? " · data-action" : ""}</small>
+                    </p>
+                  ))}
+                </div>
+              )}
+              {writeInspection.sameOriginScriptPaths.length > 0 && (
+                <p><strong>Скрипты AnimeGO:</strong><small>{writeInspection.sameOriginScriptPaths.join(", ")}</small></p>
+              )}
+              {writeInspection.inlineScriptHints.length > 0 && (
+                <p><strong>Подсказки из inline JS:</strong><small>{writeInspection.inlineScriptHints.join(", ")}</small></p>
+              )}
+              <p>
+                <strong>Анализ JavaScript-бандлов:</strong>
+                <small>Изучено: {writeInspection.scriptsInspected} · пропущено: {writeInspection.scriptsSkipped}</small>
+              </p>
+              {writeInspection.scriptRouteCandidates.length > 0 && (
+                <div>
+                  <strong>Кандидаты запросов из скриптов (не подтверждённые API)</strong>
+                  {writeInspection.scriptRouteCandidates.map((candidate, index) => (
+                    <p key={index}>
+                      <strong>{candidate.path}</strong>
+                      <small>Методы: {candidate.methods.join(", ")} · Возможности: {candidate.capabilities.join(", ") || "не определены"}</small>
+                      <small>Поля: {candidate.fieldHints.join(", ") || "не обнаружены"}{candidate.signals.length ? " · Сигналы: " + candidate.signals.join(", ") : ""}</small>
+                    </p>
+                  ))}
+                </div>
+              )}
+              <small>{writeInspection.note}</small>
+            </div>
+          )}
           {listImportMessage && <p role="status">{listImportMessage}</p>}
+        </div>
+      )}
+      {networkInspection && (
+        <div className="native-account-write-inspection" role="status">
+          <strong>Пассивное наблюдение завершено. Запросы не отправлялись инспектором.</strong>
+          <p>Страница: {networkInspection.pagePath} · Окно наблюдения: {networkInspection.durationSeconds} сек. · Событий: {networkInspection.events.length}</p>
+          {networkInspection.events.length === 0 ? (
+            <p>Подходящих запросов не поймано. Убедись, что окно AnimeGO открыто на странице тайтла, затем повтори наблюдение и выполни обычное действие на сайте.</p>
+          ) : (
+            networkInspection.events.map((event, index) => (
+              <p key={index}>
+                <strong>{event.method} {event.path}</strong>
+                <small>Транспорт: {event.transport} · HTTP: {event.status ?? "не получен"} · Поля: {event.fieldNames.join(", ") || "не определены"}</small>
+              </p>
+            ))
+          )}
+          <small>{networkInspection.note}</small>
         </div>
       )}
     </section>

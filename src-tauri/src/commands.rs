@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use uuid::Uuid;
+use crate::animego_script_inspector::{inspect_animego_script, AnimeGoScriptRouteCandidate};
 
 const KEYRING_SERVICE: &str = "com.mido-anime-sync.streaming";
 const SESSION_KEY_PREFIX: &str = "mido-anime-sync:streaming-session:v1:";
@@ -833,11 +834,27 @@ async fn animego_fetch_account_page(
         return Err("Сохранённая сессия AnimeGO пуста или превышает допустимый размер.".to_string());
     }
 
+    let is_player_request = path.starts_with("/player/");
+
     let mut outgoing = client.get(url.clone())
-        .header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
-        .header(reqwest::header::USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36")
+        .header(
+            reqwest::header::ACCEPT,
+            if is_player_request {
+                "application/json"
+            } else {
+                "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8"
+            },
+        )
+        .header(
+            reqwest::header::USER_AGENT,
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36",
+        )
         .header(reqwest::header::REFERER, referer)
         .header(reqwest::header::COOKIE, cookie_header);
+
+    if is_player_request {
+        outgoing = outgoing.header("X-Requested-With", "XMLHttpRequest");
+    }
     if let Some(frame_id) = turbo_frame {
         if frame_id.len() > 80 || !frame_id.starts_with("profile-my-list-page-") ||
             !frame_id["profile-my-list-page-".len()..].chars().all(|character| character.is_ascii_digit()) {
@@ -995,9 +1012,678 @@ pub async fn animego_account_list_fetch() -> Result<AnimeGoAccountListResponse, 
     })
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeGoWriteFieldInspection {
+    name: String,
+    tag: String,
+    input_type: String,
+    required: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeGoWriteFormInspection {
+    method: String,
+    action_path: String,
+    enctype: String,
+    purpose: String,
+    field_names: Vec<String>,
+    fields: Vec<AnimeGoWriteFieldInspection>,
+    has_csrf_field: bool,
+    has_inline_event_handler: bool,
+    has_data_action: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeGoInteractiveControlInspection {
+    tag: String,
+    name: Option<String>,
+    input_type: Option<String>,
+    id: Option<String>,
+    class_names: Vec<String>,
+    required: bool,
+    has_inline_event_handler: bool,
+    has_data_action: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeGoWriteInspection {
+    provider: &'static str,
+    title_url: String,
+    http_status: u16,
+    forms: Vec<AnimeGoWriteFormInspection>,
+    csrf_meta_names: Vec<String>,
+    interactive_controls: Vec<AnimeGoInteractiveControlInspection>,
+    same_origin_script_paths: Vec<String>,
+    inline_script_hints: Vec<String>,
+    scripts_inspected: usize,
+    scripts_skipped: usize,
+    script_route_candidates: Vec<AnimeGoScriptRouteCandidate>,
+    note: &'static str,
+}
+
+/// Inspect authenticated title-page forms without submitting them or exposing
+/// cookies, hidden field values, CSRF values, or authenticated HTML to the UI.
+fn parse_animego_write_forms(
+    html: &str,
+    base_url: &reqwest::Url,
+) -> Result<(
+    Vec<AnimeGoWriteFormInspection>,
+    Vec<String>,
+    Vec<AnimeGoInteractiveControlInspection>,
+    Vec<String>,
+    Vec<String>,
+), String> {
+    use scraper::{Html, Selector};
+
+    if html.len() > 2 * 1024 * 1024 {
+        return Err("Страница AnimeGO превышает лимит 2 МБ.".to_string());
+    }
+    if base_url.scheme() != "https" || base_url.host_str() != Some("animego.me") {
+        return Err("Инспектор принимает только страницы animego.me.".to_string());
+    }
+
+    let document = Html::parse_document(html);
+    let form_selector = Selector::parse("form")
+        .map_err(|_| "Не удалось подготовить анализатор форм AnimeGO.".to_string())?;
+    let field_selector = Selector::parse("input[name], select[name], textarea[name], button[name]")
+        .map_err(|_| "Не удалось подготовить анализатор полей AnimeGO.".to_string())?;
+    let meta_selector = Selector::parse("meta[name]")
+        .map_err(|_| "Не удалось подготовить анализатор meta-тегов AnimeGO.".to_string())?;
+    let control_selector = Selector::parse("input, select, textarea, button, a, [role='button']")
+        .map_err(|_| "Не удалось подготовить анализатор интерактивных элементов AnimeGO.".to_string())?;
+    let script_selector = Selector::parse("script")
+        .map_err(|_| "Не удалось подготовить анализатор скриптов AnimeGO.".to_string())?;
+
+    let safe_identifier = |value: &str| -> Option<String> {
+        let value = value.trim();
+        if value.is_empty() || value.len() > 100 { return None; }
+        let safe = value.chars()
+            .filter(|ch| ch.is_ascii_alphanumeric() || "_-[]:.".contains(*ch))
+            .take(100)
+            .collect::<String>();
+        if safe.is_empty() { None } else { Some(safe) }
+    };
+
+    let mut forms = Vec::new();
+    for form in document.select(&form_selector).take(100) {
+        let method = form.value().attr("method").unwrap_or("GET").trim().to_ascii_uppercase();
+        if !matches!(method.as_str(), "GET" | "POST") { continue; }
+        let raw_action = form.value().attr("action").unwrap_or(base_url.path());
+        let Ok(action) = base_url.join(raw_action) else { continue; };
+        if action.scheme() != "https" || action.host_str() != Some("animego.me") { continue; }
+
+        let enctype = match form.value().attr("enctype").unwrap_or("application/x-www-form-urlencoded").trim().to_ascii_lowercase().as_str() {
+            "application/x-www-form-urlencoded" => "application/x-www-form-urlencoded",
+            "multipart/form-data" => "multipart/form-data",
+            "text/plain" => "text/plain",
+            _ => "other",
+        }.to_string();
+        let action_path = action.path().to_string();
+        let purpose = if action_path.to_ascii_lowercase().contains("logout") {
+            "logout"
+        } else if action_path.to_ascii_lowercase().contains("rating") || action_path.to_ascii_lowercase().contains("vote") {
+            "rating"
+        } else if action_path.to_ascii_lowercase().contains("mylist") {
+            "list"
+        } else {
+            "unknown"
+        }.to_string();
+
+        let mut field_names: Vec<String> = Vec::new();
+        let mut fields = Vec::new();
+        let mut has_csrf_field = false;
+        for field in form.select(&field_selector).take(100) {
+            let Some(raw_name) = field.value().attr("name") else { continue; };
+            let Some(name) = safe_identifier(raw_name) else { continue; };
+            let lower = name.to_ascii_lowercase();
+            if lower.contains("csrf") || lower == "token" || lower.contains("xsrf") {
+                has_csrf_field = true;
+            }
+            if !field_names.iter().any(|existing| existing == &name) {
+                field_names.push(name.clone());
+                let tag = field.value().name().to_ascii_lowercase();
+                let input_type = if tag == "input" {
+                    match field.value().attr("type").unwrap_or("text").trim().to_ascii_lowercase().as_str() {
+                        "hidden" | "text" | "number" | "submit" | "button" | "checkbox" | "radio" |
+                        "email" | "password" | "search" | "url" | "file" | "date" | "datetime-local" |
+                        "time" | "range" | "color" => field.value().attr("type").unwrap_or("text").to_ascii_lowercase(),
+                        _ => "other".to_string(),
+                    }
+                } else {
+                    tag.clone()
+                };
+                fields.push(AnimeGoWriteFieldInspection {
+                    name,
+                    tag,
+                    input_type,
+                    required: field.value().attr("required").is_some(),
+                });
+            }
+        }
+        let has_inline_event_handler = ["onsubmit", "onclick", "onchange", "oninput"]
+            .iter().any(|name| form.value().attr(name).is_some());
+        let has_data_action = form.value().attr("data-action").is_some();
+        forms.push(AnimeGoWriteFormInspection {
+            method,
+            action_path,
+            enctype,
+            purpose,
+            field_names,
+            fields,
+            has_csrf_field,
+            has_inline_event_handler,
+            has_data_action,
+        });
+    }
+
+    let mut csrf_meta_names = Vec::new();
+    for meta in document.select(&meta_selector).take(100) {
+        let name = meta.value().attr("name").unwrap_or("").trim();
+        let lower = name.to_ascii_lowercase();
+        if (lower.contains("csrf") || lower.contains("xsrf")) && name.len() <= 100 {
+            if let Some(name) = safe_identifier(name) { csrf_meta_names.push(name); }
+        }
+    }
+    csrf_meta_names.sort();
+    csrf_meta_names.dedup();
+
+    let relevant_words = ["status", "progress", "episode", "mylist", "rating", "vote", "watch"];
+    let mut interactive_controls = Vec::new();
+    for control in document.select(&control_selector).take(500) {
+        let tag = control.value().name().to_ascii_lowercase();
+        let name = control.value().attr("name").and_then(safe_identifier);
+        let id = control.value().attr("id").and_then(safe_identifier);
+        let class_names = control.value().attr("class").unwrap_or("")
+            .split_whitespace()
+            .filter_map(safe_identifier)
+            .take(12)
+            .collect::<Vec<_>>();
+        let searchable = format!(
+            "{} {} {} {}",
+            name.as_deref().unwrap_or(""),
+            id.as_deref().unwrap_or(""),
+            class_names.join(" "),
+            control.value().attr("data-action").unwrap_or("")
+        ).to_ascii_lowercase();
+        if !relevant_words.iter().any(|word| searchable.contains(word)) { continue; }
+        let input_type = if tag == "input" {
+            Some(control.value().attr("type").unwrap_or("text").to_ascii_lowercase())
+        } else { None };
+        interactive_controls.push(AnimeGoInteractiveControlInspection {
+            tag,
+            name,
+            input_type,
+            id,
+            class_names,
+            required: control.value().attr("required").is_some(),
+            has_inline_event_handler: ["onclick", "onchange", "oninput", "onsubmit"]
+                .iter().any(|name| control.value().attr(name).is_some()),
+            has_data_action: control.value().attr("data-action").is_some(),
+        });
+        if interactive_controls.len() >= 100 { break; }
+    }
+
+    let mut same_origin_script_paths = Vec::new();
+    let mut inline_script_hints = Vec::new();
+    let script_hint_tokens = [
+        ("addEventListener", "addEventListener"),
+        ("onchange", "onchange"),
+        ("oninput", "oninput"),
+        ("fetch(", "fetch"),
+        ("XMLHttpRequest", "XMLHttpRequest"),
+        ("mylist", "mylist"),
+        ("progress", "progress"),
+        ("episode", "episode"),
+        ("status", "status"),
+        ("rating", "rating"),
+        ("vote", "vote"),
+    ];
+    for script in document.select(&script_selector).take(100) {
+        if let Some(src) = script.value().attr("src") {
+            if let Ok(url) = base_url.join(src) {
+                if url.scheme() == "https" && url.host_str() == Some("animego.me") {
+                    same_origin_script_paths.push(url.path().to_string());
+                }
+            }
+        } else {
+            let source = script.text().collect::<String>().to_ascii_lowercase();
+            for &(needle, label) in &script_hint_tokens {
+                if source.contains(&needle.to_ascii_lowercase()) && !inline_script_hints.iter().any(|item| item == label) {
+                    inline_script_hints.push(label.to_string());
+                }
+            }
+        }
+    }
+    same_origin_script_paths.sort();
+    same_origin_script_paths.dedup();
+    inline_script_hints.sort();
+
+    Ok((forms, csrf_meta_names, interactive_controls, same_origin_script_paths, inline_script_hints))
+}
+
+#[tauri::command]
+pub async fn animego_account_write_inspect(title_url: String) -> Result<AnimeGoWriteInspection, String> {
+    let requested = reqwest::Url::parse(&title_url)
+        .map_err(|_| "Некорректная ссылка на тайтл AnimeGO.".to_string())?;
+    let origin = reqwest::Url::parse(ANIMEGO_ORIGIN)
+        .map_err(|_| "Некорректный адрес AnimeGO.".to_string())?;
+    let safe_title = safe_animego_title_url(requested.as_str(), &origin)
+        .ok_or_else(|| "Для проверки нужна HTTPS-ссылка на карточку AnimeGO вида /anime/slug-ID.".to_string())?;
+
+    let raw = streaming_secret_get(ANIMEGO_SESSION_KEY.to_string())?
+        .ok_or_else(|| "Сначала подключи аккаунт AnimeGO.".to_string())?;
+    let session: AnimeGoStoredSession = serde_json::from_str(&raw)
+        .map_err(|_| "Сохранённая сессия AnimeGO повреждена. Подключи аккаунт заново.".to_string())?;
+    if session.cookies.is_empty() || session.user_id.is_empty() ||
+        !session.user_id.chars().all(|character| character.is_ascii_digit()) {
+        return Err("Сохранённая сессия AnimeGO неполная. Подключи аккаунт заново.".to_string());
+    }
+
+    let mut cookies = session.cookies.iter().cloned().collect::<HashMap<_, _>>();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 5 { attempt.stop() }
+            else if attempt.url().scheme() == "https" && attempt.url().host_str() == Some("animego.me") { attempt.follow() }
+            else { attempt.stop() }
+        }))
+        .build()
+        .map_err(|_| "Не удалось запустить защищённый HTTP-клиент AnimeGO.".to_string())?;
+
+    let mut path = safe_title.path().to_string();
+    if let Some(query) = safe_title.query() { path.push('?'); path.push_str(query); }
+    let page = animego_fetch_account_page(&client, &mut cookies, &path, ANIMEGO_ORIGIN, None).await?;
+    if !(200..300).contains(&page.status) {
+        return Err(format!("AnimeGO не смог открыть карточку тайтла (HTTP {}).", page.status));
+    }
+    let (confirmed_user_id, _) = animego_user_from_html(&page.text)
+        .ok_or_else(|| "AnimeGO не подтвердил авторизованный профиль на странице тайтла. Повтори вход.".to_string())?;
+    if confirmed_user_id != session.user_id {
+        return Err("Страница AnimeGO принадлежит другому аккаунту или сессия истекла. Проверка остановлена.".to_string());
+    }
+
+    let (forms, csrf_meta_names, interactive_controls, same_origin_script_paths, inline_script_hints) =
+        parse_animego_write_forms(&page.text, &safe_title)?;
+
+    // Fetch a small, bounded set of first-party bundles. Never execute them and
+    // never return their source, response headers, cookies, or token values.
+    let mut scripts_inspected = 0usize;
+    let mut scripts_skipped = 0usize;
+    let mut script_route_candidates: Vec<AnimeGoScriptRouteCandidate> = Vec::new();
+    for script_path in same_origin_script_paths.iter()
+        .filter(|path| path.starts_with("/build/") && !path.contains('?'))
+        .take(8) {
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+        let script_page = match animego_fetch_account_page(
+            &client, &mut cookies, script_path, safe_title.as_str(), None
+        ).await {
+            Ok(result) if (200..300).contains(&result.status) => result,
+            _ => { scripts_skipped += 1; continue; }
+        };
+        if script_page.text.trim_start().starts_with("<") {
+            scripts_skipped += 1;
+            continue;
+        }
+        scripts_inspected += 1;
+        for candidate in inspect_animego_script(&script_page.text) {
+            if let Some(existing) = script_route_candidates.iter_mut().find(|item| item.path == candidate.path) {
+                for method in candidate.methods {
+                    if !existing.methods.contains(&method) { existing.methods.push(method); }
+                }
+                for capability in candidate.capabilities {
+                    if !existing.capabilities.contains(&capability) { existing.capabilities.push(capability); }
+                }
+                for field in candidate.field_hints {
+                    if !existing.field_hints.contains(&field) { existing.field_hints.push(field); }
+                }
+                for signal in candidate.signals {
+                    if !existing.signals.contains(&signal) { existing.signals.push(signal); }
+                }
+            } else if script_route_candidates.len() < 80 {
+                script_route_candidates.push(candidate);
+            }
+        }
+    }
+
+    Ok(AnimeGoWriteInspection {
+        provider: "animego",
+        title_url: safe_title.to_string(),
+        http_status: page.status,
+        forms,
+        csrf_meta_names,
+        interactive_controls,
+        same_origin_script_paths,
+        inline_script_hints,
+        scripts_inspected,
+        scripts_skipped,
+        script_route_candidates,
+        note: "Только чтение. JavaScript-бандлы анализируются статически и не выполняются. Возвращаются только кандидаты путей и фиксированные подсказки; исходный код, значения полей, токены и cookies не возвращаются. Кандидаты не являются подтверждённым API-контрактом.",
+    })
+}
+
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeGoNetworkEvent {
+    method: String,
+    path: String,
+    transport: String,
+    field_names: Vec<String>,
+    status: Option<u16>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimeGoNetworkInspection {
+    provider: &'static str,
+    page_path: String,
+    duration_seconds: u8,
+    events: Vec<AnimeGoNetworkEvent>,
+    note: &'static str,
+}
+
+async fn animego_eval_json(
+    window: &tauri::WebviewWindow,
+    script: &str,
+) -> Result<Value, String> {
+    let (sender, receiver) = std::sync::mpsc::channel::<String>();
+    window.eval_with_callback(script.to_string(), move |result| {
+        let _ = sender.send(result);
+    }).map_err(|_| "Не удалось выполнить безопасную проверку окна AnimeGO.".to_string())?;
+
+    let raw = tauri::async_runtime::spawn_blocking(move || {
+        receiver.recv_timeout(std::time::Duration::from_secs(5))
+    }).await.map_err(|_| "Проверка окна AnimeGO завершилась с ошибкой.".to_string())?
+        .map_err(|_| "Окно AnimeGO не ответило на проверку.".to_string())?;
+
+    let mut value: Value = serde_json::from_str(&raw)
+        .map_err(|_| "Окно AnimeGO вернуло некорректные метаданные.".to_string())?;
+    if let Some(serialized) = value.as_str() {
+        value = serde_json::from_str(serialized)
+            .map_err(|_| "Окно AnimeGO вернуло некорректный JSON.".to_string())?;
+    }
+    Ok(value)
+}
+
+const ANIMEGO_NETWORK_INSPECT_INSTALL: &str = r#"(() => {
+  const key = "__midoAnimeGoNetworkInspector";
+  if (window[key]?.active) return JSON.stringify({ installed: true, alreadyActive: true });
+  const queue = [];
+  const maxEvents = 100;
+  const relevant = /mylist|rating|vote|progress|episode|watch|status|bookmark/i;
+  const safePath = (raw) => {
+    try {
+      const url = new URL(raw, window.location.href);
+      const trustedHost = url.hostname === "animego.me" || url.hostname.endsWith(".animego.me");
+      if (url.protocol !== "https:" || !trustedHost || (url.port && url.port !== "443")) return null;
+      if (!url.pathname.startsWith("/") || url.pathname === "/logout") return null;
+      return url.pathname.slice(0, 180);
+    } catch { return null; }
+  };
+  const fieldNames = (body) => {
+    try {
+      let names = [];
+      if (body instanceof FormData) names = Array.from(body.keys());
+      else if (body instanceof URLSearchParams) names = Array.from(body.keys());
+      else if (typeof body === "string" && !body.trim().startsWith("{")) {
+        names = Array.from(new URLSearchParams(body).keys());
+      }
+      return Array.from(new Set(names.filter((name) =>
+        typeof name === "string" && /^[A-Za-z0-9_.\[\]-]{1,64}$/.test(name)
+      ))).slice(0, 30);
+    } catch { return []; }
+  };
+  const record = (method, rawUrl, transport, fields, status) => {
+    const path = safePath(rawUrl);
+    const normalizedMethod = String(method || "UNKNOWN").toUpperCase().slice(0, 12);
+    if (!path || normalizedMethod === "GET" && !relevant.test(path)) return;
+    if (queue.length >= maxEvents) queue.shift();
+    queue.push({
+      method: normalizedMethod,
+      path,
+      transport,
+      fieldNames: Array.from(new Set(fields || [])).slice(0, 30),
+      status: Number.isInteger(status) && status >= 100 && status <= 599 ? status : null
+    });
+  };
+
+  const originalFetch = window.fetch;
+  const originalOpen = XMLHttpRequest.prototype.open;
+  const originalSend = XMLHttpRequest.prototype.send;
+  const originalBeacon = navigator.sendBeacon;
+  const originalFormSubmit = HTMLFormElement.prototype.submit;
+  const formFieldNames = (form) => Array.from(form.elements)
+    .map((element) => element.name).filter(Boolean);
+  const recordForm = (form) => {
+    if (!(form instanceof HTMLFormElement)) return;
+    record(form.method || "GET", form.action, "form", formFieldNames(form), null);
+  };
+  const formListener = (event) => recordForm(event.target);
+
+  if (typeof originalFetch === "function") {
+    window.fetch = function(input, init) {
+      const rawUrl = typeof input === "string" || input instanceof URL ? String(input) : input?.url;
+      const method = init?.method || input?.method || "GET";
+      const fields = fieldNames(init?.body);
+      const request = originalFetch.apply(this, arguments);
+      request.then((response) => record(method, rawUrl, "fetch", fields, response.status))
+        .catch(() => record(method, rawUrl, "fetch", fields, null));
+      return request;
+    };
+  }
+  XMLHttpRequest.prototype.open = function(method, url) {
+    this.__midoAnimeGoRequest = { method, url: String(url) };
+    return originalOpen.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.send = function(body) {
+    const meta = this.__midoAnimeGoRequest;
+    if (meta) {
+      const fields = fieldNames(body);
+      this.addEventListener("loadend", () => record(meta.method, meta.url, "xhr", fields, this.status), { once: true });
+    }
+    return originalSend.apply(this, arguments);
+  };
+  if (typeof originalBeacon === "function") {
+    navigator.sendBeacon = function(url, body) {
+      record("POST", url, "beacon", fieldNames(body), null);
+      return originalBeacon.apply(this, arguments);
+    };
+  }
+  document.addEventListener("submit", formListener, true);
+  // HTMLFormElement.submit() bypasses the DOM submit event, so observe that
+  // invocation separately. requestSubmit() is already covered by formListener.
+  HTMLFormElement.prototype.submit = function() {
+    recordForm(this);
+    return originalFormSubmit.apply(this, arguments);
+  };
+
+  window[key] = {
+    active: true,
+    drain: () => queue.splice(0, queue.length),
+    stop: () => {
+      if (!window[key]?.active) return;
+      window.fetch = originalFetch;
+      XMLHttpRequest.prototype.open = originalOpen;
+      XMLHttpRequest.prototype.send = originalSend;
+      if (originalBeacon) navigator.sendBeacon = originalBeacon;
+      HTMLFormElement.prototype.submit = originalFormSubmit;
+      document.removeEventListener("submit", formListener, true);
+      window[key].active = false;
+    }
+  };
+  return JSON.stringify({ installed: true, alreadyActive: false });
+})()"#;
+
+const ANIMEGO_NETWORK_INSPECT_DRAIN: &str =
+    "JSON.stringify({ active: !!window.__midoAnimeGoNetworkInspector?.active, events: window.__midoAnimeGoNetworkInspector?.drain?.() ?? [] })";
+const ANIMEGO_NETWORK_INSPECT_STOP: &str =
+    "window.__midoAnimeGoNetworkInspector?.stop?.(); JSON.stringify({ stopped: true })";
+
+#[tauri::command]
+pub async fn animego_network_inspect(
+    app: tauri::AppHandle,
+) -> Result<AnimeGoNetworkInspection, String> {
+    use tauri::Manager;
+
+    const DURATION_SECONDS: u8 = 90;
+    let window = app.get_webview_window(ANIMEGO_AUTH_WINDOW)
+        .ok_or_else(|| "Сначала открой встроенное окно AnimeGO и перейди на страницу тайтла.".to_string())?;
+    let current_url = window.url()
+        .map_err(|_| "Не удалось проверить адрес окна AnimeGO.".to_string())?;
+    if current_url.scheme() != "https" || current_url.host_str() != Some("animego.me") {
+        return Err("Для наблюдения открой страницу на https://animego.me.".to_string());
+    }
+
+    let raw_session = streaming_secret_get(ANIMEGO_SESSION_KEY.to_string())?
+        .ok_or_else(|| "Сначала подключи аккаунт AnimeGO.".to_string())?;
+    let session: AnimeGoStoredSession = serde_json::from_str(&raw_session)
+        .map_err(|_| "Сохранённая сессия AnimeGO повреждена.".to_string())?;
+    let (user_id, _) = animego_user_from_webview(&window).await?;
+    if user_id != session.user_id {
+        return Err("Окно AnimeGO не соответствует подключённому аккаунту. Проверка остановлена.".to_string());
+    }
+
+    let page_path = current_url.path().chars().take(180).collect::<String>();
+    let installed = animego_eval_json(&window, ANIMEGO_NETWORK_INSPECT_INSTALL).await?;
+    if installed.get("installed").and_then(Value::as_bool) != Some(true) {
+        return Err("Не удалось включить пассивное наблюдение AnimeGO.".to_string());
+    }
+
+    let deadline = std::time::Instant::now()
+        + std::time::Duration::from_secs(DURATION_SECONDS as u64);
+    let mut events: Vec<AnimeGoNetworkEvent> = Vec::new();
+
+    while std::time::Instant::now() < deadline && events.len() < 100 {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let observed_url = match window.url() {
+            Ok(url) if url.scheme() == "https" && url.host_str() == Some("animego.me") => url,
+            _ => break,
+        };
+        let _ = observed_url;
+        let batch = match animego_eval_json(&window, ANIMEGO_NETWORK_INSPECT_DRAIN).await {
+            Ok(value) => value,
+            Err(_) => break,
+        };
+        if batch.get("active").and_then(Value::as_bool) != Some(true) {
+            break;
+        }
+        let parsed: Vec<AnimeGoNetworkEvent> = match batch.get("events").cloned()
+            .and_then(|value| serde_json::from_value(value).ok()) {
+            Some(value) => value,
+            None => continue,
+        };
+        for event in parsed {
+            if event.path.starts_with('/')
+                && !event.path.starts_with("//")
+                && event.path != "/logout"
+                && matches!(event.method.as_str(), "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "UNKNOWN")
+                && matches!(event.transport.as_str(), "fetch" | "xhr" | "form" | "beacon")
+            {
+                events.push(event);
+                if events.len() >= 100 { break; }
+            }
+        }
+    }
+
+    if window.url().map(|url| url.scheme() == "https" && url.host_str() == Some("animego.me")).unwrap_or(false) {
+        let _ = animego_eval_json(&window, ANIMEGO_NETWORK_INSPECT_STOP).await;
+    }
+
+    Ok(AnimeGoNetworkInspection {
+        provider: "animego",
+        page_path,
+        duration_seconds: DURATION_SECONDS,
+        events,
+        note: "Пассивное наблюдение завершено. Собирались только метод, путь без query-параметров, названия полей без значений, транспорт и HTTP-статус. Значения полей, тело запросов/ответов, cookies и токены не сохранялись. Запросы не создавались и не изменялись инспектором.",
+    })
+}
+
 #[cfg(test)]
 mod animego_account_list_tests {
     use super::{parse_animego_mylist_page, parse_animego_progress, parse_animego_score};
+
+
+    #[test]
+    fn inspects_same_origin_forms_without_exposing_hidden_values() {
+        use super::parse_animego_write_forms;
+        let html = r#"<html><head><meta name="csrf-token" content="SECRET-META"></head>
+          <body><form method="post" action="/mylist/anime/123/1/add">
+            <input type="hidden" name="token" value="SECRET-FORM">
+            <input name="rate" value="8">
+          </form>
+          <form method="post" action="https://evil.example/steal"><input name="x"></form>
+          </body></html>"#;
+        let base = reqwest::Url::parse("https://animego.me/anime/example-123").unwrap();
+        let (forms, meta, controls, script_paths, script_hints) = parse_animego_write_forms(html, &base).unwrap();
+        assert_eq!(forms.len(), 1);
+        assert_eq!(forms[0].method, "POST");
+        assert_eq!(forms[0].action_path, "/mylist/anime/123/1/add");
+        assert_eq!(forms[0].enctype, "application/x-www-form-urlencoded");
+        assert_eq!(forms[0].purpose, "list");
+        assert!(forms[0].has_csrf_field);
+        assert_eq!(forms[0].field_names, vec!["token", "rate"]);
+        assert_eq!(forms[0].fields[0].input_type, "hidden");
+        assert_eq!(forms[0].fields[1].input_type, "text");
+        assert_eq!(meta, vec!["csrf-token"]);
+        assert!(controls.is_empty());
+        assert!(script_paths.is_empty());
+        assert!(script_hints.is_empty());
+        let serialized = serde_json::to_string(&(forms, meta, controls, script_paths, script_hints)).unwrap();
+        assert!(!serialized.contains("SECRET"));
+    }
+
+    #[test]
+    fn inspects_form_encoding_required_fields_and_static_control_hints() {
+        use super::parse_animego_write_forms;
+        let html = r#"<html><body>
+          <form method="post" action="/rating/anime/694/vote" enctype="multipart/form-data">
+            <input type="hidden" name="token" value="DO_NOT_RETURN">
+            <input type="number" name="rate" required>
+            <button name="submit" onclick="sendVote()">Vote</button>
+          </form>
+          <select id="watch-status" class="mylist-status" name="status" data-action="change->list#status">
+            <option value="1">Watching</option>
+          </select>
+          <script>document.addEventListener('change', updateProgress); fetch('/mylist/progress');</script>
+          <script src="/assets/title-controls.js"></script>
+        </body></html>"#;
+        let base = reqwest::Url::parse("https://animego.me/anime/example-694").unwrap();
+        let (forms, _, controls, script_paths, script_hints) = parse_animego_write_forms(html, &base).unwrap();
+
+        assert_eq!(forms.len(), 1);
+        assert_eq!(forms[0].enctype, "multipart/form-data");
+        assert_eq!(forms[0].purpose, "rating");
+        assert_eq!(forms[0].fields[0].input_type, "hidden");
+        assert!(forms[0].fields[1].required);
+        assert!(forms[0].has_inline_event_handler);
+        assert!(controls.iter().any(|control| control.name.as_deref() == Some("status") && control.has_data_action));
+        assert_eq!(script_paths, vec!["/assets/title-controls.js"]);
+        assert!(script_hints.contains(&"addEventListener".to_string()));
+        assert!(script_hints.contains(&"fetch".to_string()));
+        assert!(script_hints.contains(&"progress".to_string()));
+        let serialized = serde_json::to_string(&(forms, controls, script_paths, script_hints)).unwrap();
+        assert!(!serialized.contains("DO_NOT_RETURN"));
+        assert!(!serialized.contains("sendVote"));
+        assert!(!serialized.contains("updateProgress"));
+    }
+
+    #[test]
+    fn ignores_off_origin_scripts_and_unrelated_controls() {
+        use super::parse_animego_write_forms;
+        let html = r#"<html><body>
+          <input name="search" id="global-search">
+          <script src="https://evil.example/steal.js"></script>
+        </body></html>"#;
+        let base = reqwest::Url::parse("https://animego.me/anime/example-694").unwrap();
+        let (_, _, controls, script_paths, _) = parse_animego_write_forms(html, &base).unwrap();
+        assert!(controls.is_empty());
+        assert!(script_paths.is_empty());
+    }
 
     #[test]
     fn parses_account_list_card_and_episode_progress() {

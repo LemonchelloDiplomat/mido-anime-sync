@@ -99,6 +99,45 @@ describe("streaming account manager", () => {
     expect(await vault.read("animego")).toBeNull();
     expect(manager.getStatus("animego").state).toBe("disconnected");
   });
+  it("inspects AnimeGO write forms only through a connected adapter", async () => {
+    const manager = new StreamingAccountManager(new StreamingAccountSessionVault(createStore()));
+    const expected = {
+      provider: "animego" as const,
+      titleUrl: "https://animego.me/anime/example-123",
+      httpStatus: 200,
+      forms: [{
+        method: "POST",
+        actionPath: "/mylist/anime/123/1/add",
+        enctype: "application/x-www-form-urlencoded",
+        purpose: "list",
+        fieldNames: ["token"],
+        fields: [{ name: "token", tag: "input", inputType: "hidden", required: false }],
+        hasCsrfField: true,
+        hasInlineEventHandler: false,
+        hasDataAction: false,
+      }],
+      csrfMetaNames: ["csrf-token"],
+      interactiveControls: [],
+      sameOriginScriptPaths: [],
+      inlineScriptHints: [],
+      scriptsInspected: 2,
+      scriptsSkipped: 1,
+      scriptRouteCandidates: [{ path: "/mylist/anime/", methods: ["POST"], capabilities: ["list-membership"], fieldHints: ["token"], signals: ["fetch"] }],
+      note: "read-only",
+    };
+    let inspectedUrl = "";
+    manager.register({
+      provider: "animego",
+      async connect() { return { sessionPayload: "native-session" }; },
+      async validateSession() { return true; },
+      async inspectWriteCapabilities(url) { inspectedUrl = url; return expected; },
+    });
+    await manager.connect("animego", {});
+    const result = await manager.inspectWriteCapabilities("animego", expected.titleUrl);
+    expect(result).toEqual(expected);
+    expect(inspectedUrl).toBe(expected.titleUrl);
+  });
+
   it("fetches a read-only provider list only through the registered native adapter", async () => {
     const manager = new StreamingAccountManager(new StreamingAccountSessionVault(createStore()));
     const expected = {
