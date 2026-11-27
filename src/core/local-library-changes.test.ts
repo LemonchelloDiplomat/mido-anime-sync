@@ -31,6 +31,18 @@ describe("local library field history", () => {
     ]);
   });
 
+  it("stores the episode total with progress changes", () => {
+    const changes = createLocalLibraryFieldChanges(
+      entry(),
+      entry({ progress: 8 }),
+      12,
+    );
+
+    expect(changes).toEqual([
+      { field: "progress", before: 7, after: 8, total: 12 },
+    ]);
+  });
+
   it("records initial values when a title is added", () => {
     const changes = createLocalLibraryFieldChanges(undefined, entry());
 
