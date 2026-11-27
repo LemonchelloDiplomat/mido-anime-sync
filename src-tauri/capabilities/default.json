@@ -1,9 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main Mido Anime Sync window",
+  "description": "Trusted main Mido Anime Sync window",
   "windows": ["main"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "allow-main-commands"
   ]
 }
