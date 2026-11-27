@@ -2500,9 +2500,11 @@ async fn animego_progress_webview_operation(
       }}
     }})()"#);
 
-    let payload = crate::animego_event_bridge::evaluate(
+    let evaluation = crate::animego_event_bridge::evaluate(
         app, script, std::time::Duration::from_secs(90)
-    ).await?;
+    ).await;
+    let _ = window.hide();
+    let payload = evaluation?;
     if payload.get("ok").and_then(Value::as_bool) != Some(true) {
         let message = payload.get("error").and_then(Value::as_str)
             .unwrap_or("Не удалось прочитать прогресс через авторизованный WebView2 AnimeGO.");
