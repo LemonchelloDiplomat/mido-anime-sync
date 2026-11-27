@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { StreamingProviderId } from "../services/streaming-provider.js";
 import type { AnimeGoNetworkInspection, AnimeGoWriteInspection, StreamingAccountStatus } from "../services/streaming-account-manager.js";
 import type { StreamingRuntime } from "../services/platform/streaming-runtime.js";
 import type { AnimeGoAccountListResponse } from "../services/platform/web-streaming-account-manager.js";
+import type { AnimeGoConflictChoice, AnimeGoSyncConflict } from "../services/animego-sync-state.js";
 
 interface ProviderCard {
   id: StreamingProviderId;
@@ -16,7 +17,7 @@ const PROVIDERS: ProviderCard[] = [
     id: "animego",
     name: "AnimeGO",
     description: "Аккаунт и личный список просмотра",
-    limitation: "Вход через встроенное окно Windows. Личный список читается через защищённую нативную сессию. Запись оценки поддерживается с проверкой результата и офлайн-очередью; статус, прогресс и удаление пока не записываются.",
+    limitation: "Вход через встроенное окно Windows. Список читается через защищённую нативную сессию. Работают двусторонняя сверка статуса, прогресса и оценки, очередь подтверждаемых записей и выбор версии при конфликте. Сброс оценки и конфликты удаления пока не поддерживаются.",
   },
   {
     id: "anixart",
@@ -32,6 +33,9 @@ interface Props {
   runtimeRefreshing?: boolean;
   runtimeRefreshError?: string;
   onImportAnimeGoList?: (result: AnimeGoAccountListResponse) => Promise<void>;
+  onSyncAnimeGo?: () => Promise<{ imported: number; queued: number; deleted?: number; conflicts?: number }>;
+  onGetAnimeGoConflicts?: () => Promise<AnimeGoSyncConflict[]>;
+  onResolveAnimeGoConflict?: (conflictId: string, choice: AnimeGoConflictChoice) => Promise<AnimeGoSyncConflict[]>;
 }
 
 export function StreamingAccountManagerPanel({
@@ -40,12 +44,21 @@ export function StreamingAccountManagerPanel({
   runtimeRefreshing = false,
   runtimeRefreshError = "",
   onImportAnimeGoList,
+  onSyncAnimeGo,
+  onGetAnimeGoConflicts,
+  onResolveAnimeGoConflict,
 }: Props) {
   const [statuses, setStatuses] = useState<Partial<Record<StreamingProviderId, StreamingAccountStatus>>>({});
   const [loading, setLoading] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState<StreamingProviderId | null>(null);
   const [listLoading, setListLoading] = useState(false);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncMessage, setSyncMessage] = useState("");
+  const [syncConflicts, setSyncConflicts] = useState<AnimeGoSyncConflict[]>([]);
+  const [resolvingConflict, setResolvingConflict] = useState<string | null>(null);
+  const syncCallbackRef = useRef(onSyncAnimeGo);
+  const syncInFlightRef = useRef(false);
   const [listImporting, setListImporting] = useState(false);
   const [listImportMessage, setListImportMessage] = useState("");
   const [authWindowOpened, setAuthWindowOpened] = useState(false);
@@ -198,6 +211,76 @@ export function StreamingAccountManagerPanel({
     }
   }
 
+  async function syncAnimeGo() {
+    if (!onSyncAnimeGo || syncInFlightRef.current) return;
+    syncInFlightRef.current = true;
+    setSyncLoading(true);
+    setError("");
+    setSyncMessage("");
+    try {
+      const result = await onSyncAnimeGo();
+      if (onGetAnimeGoConflicts) setSyncConflicts(await onGetAnimeGoConflicts());
+      setSyncMessage(
+        `Синхронизация завершена. Получено/обновлено: ${result.imported}. Удалено из библиотеки: ${result.deleted ?? 0}. В очереди отправки: ${result.queued}. Конфликты: ${result.conflicts === undefined ? "пока не проверяются" : result.conflicts}.`,
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось синхронизировать AnimeGO.");
+    } finally {
+      syncInFlightRef.current = false;
+      setSyncLoading(false);
+    }
+  }
+
+  useEffect(() => { syncCallbackRef.current = onSyncAnimeGo; }, [onSyncAnimeGo]);
+
+  useEffect(() => {
+    if (!onGetAnimeGoConflicts) return;
+    void onGetAnimeGoConflicts().then(setSyncConflicts).catch(() => undefined);
+  }, [onGetAnimeGoConflicts]);
+
+  async function resolveConflict(conflictId: string, choice: AnimeGoConflictChoice) {
+    if (!onResolveAnimeGoConflict || resolvingConflict) return;
+    setResolvingConflict(conflictId);
+    setError("");
+    try {
+      setSyncConflicts(await onResolveAnimeGoConflict(conflictId, choice));
+      setSyncMessage(choice === "local"
+        ? "Выбрана локальная версия. Изменение отправлено в очередь AnimeGO."
+        : "Применена версия AnimeGO к локальной библиотеке.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось разрешить конфликт.");
+    } finally {
+      setResolvingConflict(null);
+    }
+  }
+
+  useEffect(() => {
+    if (!onSyncAnimeGo || !statuses.animego?.connected) return;
+    let disposed = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const run = () => {
+      if (disposed || document.visibilityState !== "visible" || !navigator.onLine) return;
+      if (syncInFlightRef.current) return;
+      syncInFlightRef.current = true;
+      void syncCallbackRef.current?.()
+        .then(async () => {
+          if (onGetAnimeGoConflicts) setSyncConflicts(await onGetAnimeGoConflicts());
+        })
+        .catch(() => undefined)
+        .finally(() => { syncInFlightRef.current = false; });
+    };
+    timer = setInterval(run, 5 * 60 * 1000);
+    window.addEventListener("online", run);
+    document.addEventListener("visibilitychange", run);
+    run();
+    return () => {
+      disposed = true;
+      if (timer) clearInterval(timer);
+      window.removeEventListener("online", run);
+      document.removeEventListener("visibilitychange", run);
+    };
+  }, [Boolean(onSyncAnimeGo), statuses.animego?.connected, onGetAnimeGoConflicts]);
+
   async function importAnimeGoList() {
     if (!listPreview || !onImportAnimeGoList) return;
     setListImporting(true);
@@ -307,34 +390,14 @@ export function StreamingAccountManagerPanel({
               {connected && runtime ? (
                 <>
                 <div className="native-account-actions">
-                  {provider.id === "animego" && runtime.platform === "windows-native" && runtime.accounts.openSessionWindow && (
+                  {provider.id === "animego" && onSyncAnimeGo && (
                     <button
-                      className="secondary-button"
+                      className="primary-button"
                       type="button"
-                      onClick={() => void openAnimeGoSessionWindow()}
-                      disabled={networkWindowOpening || networkInspectionLoading || disconnecting !== null}
+                      onClick={() => void syncAnimeGo()}
+                      disabled={syncLoading || listLoading || disconnecting !== null}
                     >
-                      {networkWindowOpening ? "Открываем..." : "Открыть окно AnimeGO"}
-                    </button>
-                  )}
-                  {provider.id === "animego" && runtime.platform === "windows-native" && runtime.accounts.inspectNetwork && (
-                    <button
-                      className="secondary-button"
-                      type="button"
-                      onClick={() => void inspectAnimeGoNetwork()}
-                      disabled={networkInspectionLoading || networkWindowOpening || disconnecting !== null}
-                    >
-                      {networkInspectionLoading ? "Наблюдаем 90 секунд..." : "Начать пассивное наблюдение"}
-                    </button>
-                  )}
-                  {provider.id === "animego" && runtime.accounts.fetchList && (
-                    <button
-                      className="secondary-button"
-                      type="button"
-                      onClick={() => void loadAnimeGoList()}
-                      disabled={listLoading || disconnecting !== null}
-                    >
-                      {listLoading ? "Загружаем..." : "Получить список"}
+                      {syncLoading ? "Синхронизируем..." : "Синхронизировать сейчас"}
                     </button>
                   )}
                   <button
@@ -346,8 +409,31 @@ export function StreamingAccountManagerPanel({
                     {disconnecting === provider.id ? "Отключаем..." : "Отключить"}
                   </button>
                 </div>
+                {provider.id === "animego" && syncMessage && <small role="status">{syncMessage}</small>}
+                {provider.id === "animego" && syncConflicts.length > 0 && (
+                  <div className="animego-sync-conflicts" aria-live="polite">
+                    <h4>Конфликты синхронизации ({syncConflicts.length})</h4>
+                    {syncConflicts.map((conflict) => (
+                      <div className="animego-sync-conflict" key={conflict.id}>
+                        <strong>{conflict.title}</strong>
+                        <small>
+                          {conflict.field === "status" ? "Статус" : conflict.field === "progress" ? "Прогресс" : "Оценка"}:
+                          {" "}локально: {String(conflict.localValue ?? "нет")}; AnimeGO: {String(conflict.remoteValue ?? "нет")}
+                        </small>
+                        <div className="native-account-actions">
+                          <button className="secondary-button" type="button" onClick={() => void resolveConflict(conflict.id, "local")} disabled={resolvingConflict !== null}>
+                            {resolvingConflict === conflict.id ? "Сохраняем..." : "Оставить локальную"}
+                          </button>
+                          <button className="secondary-button" type="button" onClick={() => void resolveConflict(conflict.id, "remote")} disabled={resolvingConflict !== null}>
+                            {resolvingConflict === conflict.id ? "Сохраняем..." : "Принять AnimeGO"}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {provider.id === "animego" && runtime.platform === "windows-native" && (
-                  <small>Открой окно AnimeGO, перейди на страницу нужного тайтла и только затем запусти наблюдение. Во время 90 секунд выполни обычные действия на сайте. Инспектор не нажимает кнопки и не меняет данные.</small>
+                  <small>Автосинхронизация выполняется при открытом приложении: каждые 5 минут, при возвращении в окно и после восстановления сети. Очередь локальных изменений сохраняется офлайн.</small>
                 )}
                 </>
               ) : provider.id !== "animego" ? (
@@ -365,131 +451,6 @@ export function StreamingAccountManagerPanel({
         })}
       </div>
 
-      {listPreview && (
-        <div className="native-account-list-preview">
-          <h3>Личный список AnimeGO получен</h3>
-          <p>Найдено записей: <strong>{listPreview.total}</strong>. Проверь результат перед импортом. Удаления из локальной библиотеки не выполняются.</p>
-          <div className="native-account-list-counts">
-            {listPreview.lists.map((list) => (
-              <span key={list.listType}>Тип {list.listType}: {list.itemCount}</span>
-            ))}
-          </div>
-          <ul>
-            {listPreview.items.slice(0, 12).map((item) => (
-              <li key={item.listEntryId}>
-                {item.title}
-                <small>Тип {item.listType}{item.episodesWatched !== null ? " · просмотрено " + item.episodesWatched : ""}</small>
-              </li>
-            ))}
-          </ul>
-          {listPreview.total > 12 && <small>И ещё {listPreview.total - 12} записей.</small>}
-          {onImportAnimeGoList && <button className="secondary-button" type="button" onClick={() => void importAnimeGoList()} disabled={listImporting || listLoading}>{listImporting ? "Импортируем..." : "Импортировать в библиотеку"}</button>}
-          {runtime?.accounts.inspectWriteCapabilities && listPreview.items.length > 0 && (
-            <button className="secondary-button" type="button" onClick={() => void inspectAnimeGoWriteCapabilities()} disabled={inspectionLoading || listLoading || listImporting}>
-              {inspectionLoading ? "Изучаем страницу..." : "Исследовать формы и скрипты (без изменений)"}
-            </button>
-          )}
-          {writeInspection && (
-            <div className="native-account-write-inspection" role="status">
-              <strong>Проверка страницы завершена. Изменения не отправлялись.</strong>
-              <p>Найдено форм: {writeInspection.forms.length}. CSRF meta-поля: {writeInspection.csrfMetaNames.join(", ") || "не найдены"}.</p>
-              {writeInspection.forms.map((form, index) => (
-                <div key={index}>
-                  <p>
-                    <strong>{form.method} {form.actionPath}</strong>
-                    <small>Назначение: {form.purpose} · Кодировка: {form.enctype}</small>
-                    <small>Поля: {form.fieldNames.join(", ") || "нет"}{form.hasCsrfField ? " · CSRF-поле обнаружено" : ""}</small>
-                    <small>{form.fields.map((field) => `${field.name} (${field.tag}/${field.inputType}${field.required ? ", обязательно" : ""})`).join(" · ")}</small>
-                    {(form.hasInlineEventHandler || form.hasDataAction) && (
-                      <small>Обработчики: {form.hasInlineEventHandler ? "inline JS" : ""}{form.hasInlineEventHandler && form.hasDataAction ? " · " : ""}{form.hasDataAction ? "data-action" : ""}</small>
-                    )}
-                  </p>
-                </div>
-              ))}
-              {writeInspection.interactiveControls.length > 0 && (
-                <div>
-                  <strong>Интерактивные элементы, похожие на управление списком</strong>
-                  {writeInspection.interactiveControls.map((control, index) => (
-                    <p key={index}>
-                      {control.tag}{control.name ? ` name=${control.name}` : ""}{control.id ? ` #${control.id}` : ""}
-                      <small>{control.classNames.join(" ")}{control.required ? " · обязательно" : ""}{control.hasInlineEventHandler ? " · inline JS" : ""}{control.hasDataAction ? " · data-action" : ""}</small>
-                      {control.hrefPath && <small>Ссылка действия: {control.hrefPath}</small>}
-                      {control.ajaxUrlPath && <small>AJAX-путь: {control.ajaxUrlPath}</small>}
-                      {control.controllerNames.length > 0 && <small>Контроллеры: {control.controllerNames.join(", ")}</small>}
-                      {control.actionHints.length > 0 && <small>Действия: {control.actionHints.join(" · ")}</small>}
-                    </p>
-                  ))}
-                </div>
-              )}
-              {writeInspection.accountLists.length > 0 && (
-                <div>
-                  <strong>Элементы личного списка по категориям AnimeGO</strong>
-                  {writeInspection.accountLists.map((list) => (
-                    <div key={list.listType}>
-                      <p><strong>Категория {list.listType} · HTTP {list.httpStatus}</strong></p>
-                      {list.forms.map((form, index) => (
-                        <p key={index}>
-                          <strong>{form.method} {form.actionPath}</strong>
-                          <small>Поля: {form.fieldNames.join(", ") || "нет"}</small>
-                        </p>
-                      ))}
-                      {list.interactiveControls.map((control, index) => (
-                        <p key={index}>
-                          {control.tag}{control.name ? " name=" + control.name : ""}{control.id ? " #" + control.id : ""}
-                          <small>{control.hrefPath ? "Путь: " + control.hrefPath : ""}{control.ajaxUrlPath ? " · AJAX: " + control.ajaxUrlPath : ""}</small>
-                          {control.controllerNames.length > 0 && <small>Контроллеры: {control.controllerNames.join(", ")}</small>}
-                          {control.actionHints.length > 0 && <small>Действия: {control.actionHints.join(" · ")}</small>}
-                        </p>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {writeInspection.sameOriginScriptPaths.length > 0 && (
-                <p><strong>Скрипты AnimeGO:</strong><small>{writeInspection.sameOriginScriptPaths.join(", ")}</small></p>
-              )}
-              {writeInspection.inlineScriptHints.length > 0 && (
-                <p><strong>Подсказки из inline JS:</strong><small>{writeInspection.inlineScriptHints.join(", ")}</small></p>
-              )}
-              <p>
-                <strong>Анализ JavaScript-бандлов:</strong>
-                <small>Изучено: {writeInspection.scriptsInspected} · пропущено: {writeInspection.scriptsSkipped}</small>
-              </p>
-              {writeInspection.scriptRouteCandidates.length > 0 && (
-                <div>
-                  <strong>Кандидаты запросов из скриптов (не подтверждённые API)</strong>
-                  {writeInspection.scriptRouteCandidates.map((candidate, index) => (
-                    <p key={index}>
-                      <strong>{candidate.path}</strong>
-                      <small>Методы: {candidate.methods.join(", ")} · Возможности: {candidate.capabilities.join(", ") || "не определены"}</small>
-                      <small>Поля: {candidate.fieldHints.join(", ") || "не обнаружены"}{candidate.signals.length ? " · Сигналы: " + candidate.signals.join(", ") : ""}</small>
-                    </p>
-                  ))}
-                </div>
-              )}
-              <small>{writeInspection.note}</small>
-            </div>
-          )}
-          {listImportMessage && <p role="status">{listImportMessage}</p>}
-        </div>
-      )}
-      {networkInspection && (
-        <div className="native-account-write-inspection" role="status">
-          <strong>Пассивное наблюдение завершено. Запросы не отправлялись инспектором.</strong>
-          <p>Страница: {networkInspection.pagePath} · Окно наблюдения: {networkInspection.durationSeconds} сек. · Событий: {networkInspection.events.length}</p>
-          {networkInspection.events.length === 0 ? (
-            <p>Подходящих запросов не поймано. Убедись, что окно AnimeGO открыто на странице тайтла, затем повтори наблюдение и выполни обычное действие на сайте.</p>
-          ) : (
-            networkInspection.events.map((event, index) => (
-              <p key={index}>
-                <strong>{event.method} {event.path}</strong>
-                <small>Транспорт: {event.transport} · HTTP: {event.status ?? "не получен"} · Поля: {event.fieldNames.join(", ") || "не определены"}</small>
-              </p>
-            ))
-          )}
-          <small>{networkInspection.note}</small>
-        </div>
-      )}
     </section>
   );
 }
