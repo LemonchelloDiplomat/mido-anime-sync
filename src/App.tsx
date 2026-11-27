@@ -2563,6 +2563,21 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
     return sessions.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [historyOperations, historySessionRecords, filteredHistoryOperations, historyProviderFilter, historyStatusFilter]);
 
+  const historyTimeline = [
+    ...historySessions.map((session) => ({
+      type: "session" as const,
+      id: session.sessionId,
+      createdAt: session.createdAt,
+      session,
+    })),
+    ...filteredProviderWriteHistory.map((job) => ({
+      type: "animego" as const,
+      id: job.id,
+      createdAt: job.updatedAt || job.createdAt,
+      job,
+    })),
+  ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
   function formatHistoryDate(value: string) {
     const date = new Date(value);
     return Number.isNaN(date.getTime())
@@ -3030,6 +3045,42 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                   </div>
                 )}
               </section>
+              <section className="history-session" aria-label="Общая хронология активности">
+                <header className="history-session-header">
+                  <div>
+                    <span className="history-session-date">ОБЩАЯ ХРОНОЛОГИЯ</span>
+                    <h2>Последняя активность</h2>
+                    <small>Сеансы синхронизации и изменения AnimeGO в одном порядке по времени</small>
+                  </div>
+                  <div className="history-session-summary"><span>{historyTimeline.length} событий</span></div>
+                </header>
+                {historyTimeline.length === 0 ? (
+                  <p className="history-operation-details">Нет событий для выбранных фильтров.</p>
+                ) : (
+                  <div className="history-operation-list">
+                    {historyTimeline.map((event) => event.type === "session" ? (
+                      <div className="history-operation" key={"session:" + event.id}>
+                        <div className="history-operation-title">
+                          <strong>{getProviderLabel(event.session.provider)} · сеанс синхронизации</strong>
+                          <small>{event.session.operationCount} операций · {event.session.unchangedCount} без изменений</small>
+                        </div>
+                        <span className={"history-status-label " + event.session.status}>{event.session.status === "running" ? "Выполняется" : event.session.status === "succeeded" ? "Успешно" : event.session.status === "failed" ? "Ошибка" : "Отменено"}</span>
+                        <span className="history-operation-time">{formatHistoryDate(event.createdAt)}</span>
+                      </div>
+                    ) : (
+                      <div className="history-operation" key={"animego:" + event.id}>
+                        <div className="history-operation-title">
+                          <strong>AnimeGO · {event.job.kind === "status" ? "Статус" : event.job.kind === "progress" ? "Прогресс" : event.job.kind === "rating" ? "Оценка" : "Удаление"}</strong>
+                          <small>ID {event.job.externalId} · {event.job.attempts} попыток</small>
+                        </div>
+                        <span className={"history-status-label " + (event.job.state === "succeeded" ? "succeeded" : event.job.state === "failed" ? "failed" : "pending")}>{event.job.state === "succeeded" ? (event.job.verification === "submitted" ? "Отправлено" : "Подтверждено") : event.job.state === "failed" ? "Ошибка" : event.job.state === "processing" ? "Выполняется" : "В очереди"}</span>
+                        <span className="history-operation-time">{formatHistoryDate(event.createdAt)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
               <div className="history-overview">
                 <article><span>Всего сеансов</span><strong>{historySessionRecords.length}</strong></article>
                 <article><span>Без изменений</span><strong>{historySessionRecords.filter((session) => session.status === "succeeded" && session.operationCount === 0).length}</strong></article>
