@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "animego-bridge",
+  "description": "Minimal IPC bridge for the authenticated AnimeGO webview.",
+  "windows": ["animego-auth"],
+  "remote": {
+    "urls": [
+      "https://animego.me",
+      "https://*.animego.me"
+    ]
+  },
+  "permissions": [
+    "core:default",
+    "allow-animego-bridge"
+  ]
+}

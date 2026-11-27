@@ -180,8 +180,14 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       }
       if (job.kind === "status" && job.payload.status && accounts.setStatus) {
         const result = await accounts.setStatus("animego", job.titleUrl, job.payload.status);
-        if (!result.verified) throw new Error("AnimeGO has not confirmed the saved list status yet.");
-        await commitAnimeGoWrite(job.externalId, "status", job.payload.status);
+        if (!result.submitted) throw new Error("AnimeGO did not accept the list status request.");
+        // The native command confirms that the POST was submitted. Do not
+        // advance the three-way baseline until a later full account snapshot
+        // actually contains the requested status. If the site ignored the
+        // mutation, the unchanged baseline makes the next sync enqueue it again.
+        if (result.verified) {
+          await commitAnimeGoWrite(job.externalId, "status", job.payload.status);
+        }
         return;
       }
       if (job.kind === "delete" && accounts.deleteFromList) {
@@ -778,14 +784,15 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       if (!externalId) continue;
       const localItem = localByAnimeGoId.get(externalId);
       const titleUrl = row.anime.providerMetadata?.animego?.titleUrl ?? localItem?.anime.providerMetadata?.animego?.titleUrl;
-      const sourceEntry = localItem && repository
-        ? (await repository.getSourceEntries(localItem.anime.id)).find((entry) => entry.source === "animego")
-        : undefined;
       if (!options.reconcile) continue;
-      const localValues = sourceEntry ? {
-        status: sourceEntry.status,
-        progress: sourceEntry.progress,
-        score: sourceEntry.score,
+      // Compare against the user's current library entry, not the persisted
+      // AnimeGO source entry. The latter is the last imported remote snapshot
+      // and therefore cannot reveal edits made locally since that snapshot.
+      const localEntry = localItem?.entry;
+      const localValues = localEntry ? {
+        status: localEntry.status,
+        progress: localEntry.progress,
+        score: localEntry.score,
       } : null;
       const remoteValues = {
         status: row.entry.status,
@@ -2807,11 +2814,23 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                   const sourceEntry = sourceEntries.find((entry) => entry.source === "animego");
                   if (!sourceEntry) throw new Error("Запись AnimeGO не найдена в локальной библиотеке.");
                   if (choice === "remote") {
-                    if (conflict.field === "status") sourceEntry.status = conflict.remoteValue as AnimeStatus;
-                    else if (conflict.field === "progress") sourceEntry.progress = Number(conflict.remoteValue);
-                    else sourceEntry.score = conflict.remoteValue == null ? null : Number(conflict.remoteValue);
-                    sourceEntry.updatedAt = new Date().toISOString();
+                    const timestamp = new Date().toISOString();
+                    const localEntry = await repository.getEntry(conflict.animeId);
+                    if (!localEntry) throw new Error("Локальная запись аниме не найдена.");
+                    if (conflict.field === "status") {
+                      sourceEntry.status = conflict.remoteValue as AnimeStatus;
+                      localEntry.status = conflict.remoteValue as AnimeStatus;
+                    } else if (conflict.field === "progress") {
+                      sourceEntry.progress = Number(conflict.remoteValue);
+                      localEntry.progress = Number(conflict.remoteValue);
+                    } else {
+                      sourceEntry.score = conflict.remoteValue == null ? null : Number(conflict.remoteValue);
+                      localEntry.score = conflict.remoteValue == null ? null : Number(conflict.remoteValue);
+                    }
+                    sourceEntry.updatedAt = timestamp;
+                    localEntry.updatedAt = timestamp;
                     await repository.saveSourceEntry(sourceEntry);
+                    await repository.saveEntry(localEntry);
                   } else {
                     if (!conflict.titleUrl) throw new Error("Не удалось определить ссылку тайтла AnimeGO для отправки локальной версии.");
                     if (conflict.field === "status") {
