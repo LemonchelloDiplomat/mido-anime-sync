@@ -1630,6 +1630,85 @@ describe("BrowserAnimeRepository catalog metadata", () => {
 
 
 describe("BrowserAnimeRepository sync operation journal", () => {
+  it("atomically saves streaming import sessions and their title operations", async () => {
+    const repo = await createRepository();
+    const now = "2026-11-27T12:00:00.000Z";
+    const session: SyncSession = {
+      sessionId: "animego-import-session",
+      provider: "animego",
+      status: "succeeded",
+      startedAt: now,
+      finishedAt: now,
+      operationCount: 1,
+      succeededCount: 1,
+      failedCount: 0,
+      pendingCount: 0,
+      unchangedCount: 0,
+      conflictCount: 0,
+      recoveredCount: 0,
+    };
+    const operation: SyncOperation = {
+      id: "animego-import-operation",
+      sessionId: session.sessionId,
+      provider: "animego",
+      direction: "local",
+      kind: "create",
+      animeId: "animego-692",
+      externalId: "692",
+      anime: {
+        ...makeAnime("animego-692"),
+        externalIds: { animego: "692" },
+      },
+      entry: makeEntry("animego-692", 3, now),
+      status: "succeeded",
+      attempts: 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await repo.saveSyncJournal(session, [operation]);
+
+    expect(await repo.getSyncSessions()).toEqual([session]);
+    expect(await repo.getSyncOperations()).toEqual([operation]);
+  });
+
+  it("rejects journal operations that do not belong to the session", async () => {
+    const repo = await createRepository();
+    const now = "2026-11-27T12:00:00.000Z";
+    const session: SyncSession = {
+      sessionId: "animego-import-session-mismatch",
+      provider: "animego",
+      status: "succeeded",
+      startedAt: now,
+      operationCount: 0,
+      succeededCount: 0,
+      failedCount: 0,
+      pendingCount: 0,
+      unchangedCount: 0,
+      conflictCount: 0,
+      recoveredCount: 0,
+    };
+    const operation: SyncOperation = {
+      id: "wrong-provider-operation",
+      sessionId: session.sessionId,
+      provider: "yummyanime",
+      direction: "local",
+      kind: "create",
+      animeId: "animego-692",
+      entry: makeEntry("animego-692", 1, now),
+      status: "succeeded",
+      attempts: 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await expect(repo.saveSyncJournal(session, [operation])).rejects.toThrow(
+      "Sync journal operations must match their parent session",
+    );
+    expect(await repo.getSyncSessions()).toEqual([]);
+    expect(await repo.getSyncOperations()).toEqual([]);
+  });
+
 
   it("atomically creates an anime with its first provider entry", async () => {
     const repo = await createRepository();
