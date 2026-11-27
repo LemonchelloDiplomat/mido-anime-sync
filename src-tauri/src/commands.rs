@@ -2391,17 +2391,33 @@ async fn animego_progress_webview_operation(
         if (titleHtml.length > 2 * 1024 * 1024)
           throw new Error("HTML карточки AnimeGO превышает лимит 2 МБ.");
         stage("progress_title_parse");
-        const doc = new DOMParser().parseFromString(titleHtml, "text/html");
-        const player = doc.querySelector(
-          ".player-video[data-anime-player-episodes-url-value][data-anime-episode-watched-url-value]"
-        );
+        // Prefer the fully hydrated page DOM. AnimeGO may omit Stimulus data
+        // attributes from the HTML fetch response while adding them client-side.
+        const isCurrentTitle = location.origin === origin
+          && location.pathname.replace(/\\/$/, "") === expectedTitleUrl.pathname.replace(/\\/$/, "");
+        const doc = isCurrentTitle
+          ? document
+          : new DOMParser().parseFromString(titleHtml, "text/html");
+        const player = doc.querySelector(".player-video");
         if (!player) {{
-          const hasPlayer = titleHtml.includes("player-video");
-          const hasEpisodesUrl = titleHtml.includes("data-anime-player-episodes-url-value");
+          const hasPlayerInResponse = titleHtml.includes("player-video");
+          const hasEpisodesUrlInResponse = titleHtml.includes("data-anime-player-episodes-url-value");
           throw new Error(
-            "В загруженной карточке AnimeGO не найден блок плеера (HTTP " +
-            titleResponse.status + "; player-video=" + hasPlayer +
-            "; episodes-url=" + hasEpisodesUrl + ")."
+            "В карточке AnimeGO не найден DOM-блок плеера (HTTP " +
+            titleResponse.status + "; live-title=" + isCurrentTitle +
+            "; player-in-response=" + hasPlayerInResponse +
+            "; episodes-url-in-response=" + hasEpisodesUrlInResponse + ")."
+          );
+        }}
+        const episodesPathValue = player.getAttribute("data-anime-player-episodes-url-value");
+        const watchedPathValue = player.getAttribute("data-anime-episode-watched-url-value");
+        if (!episodesPathValue || !watchedPathValue) {{
+          const attributes = Array.from(player.attributes).map((attribute) => attribute.name).join(", ");
+          throw new Error(
+            "AnimeGO нашёл блок плеера, но не инициализировал адреса серий (live-title=" +
+            isCurrentTitle + "; episodes-url=" + Boolean(episodesPathValue) +
+            "; watched-url=" + Boolean(watchedPathValue) +
+            "; attributes=" + attributes.slice(0, 300) + ")."
           );
         }}
 
@@ -2415,8 +2431,8 @@ async fn animego_progress_webview_operation(
         const playerId = player.getAttribute("data-anime-player-anime-id-value") ?? "";
         if (playerId !== animeId || !/^\d+$/.test(playerId))
           throw new Error("ID плеера AnimeGO не совпадает с ID выбранного тайтла.");
-        const episodesPath = player.getAttribute("data-anime-player-episodes-url-value") ?? "";
-        const watchedPath = player.getAttribute("data-anime-episode-watched-url-value") ?? "";
+        const episodesPath = episodesPathValue;
+        const watchedPath = watchedPathValue;
         if (watchedPath !== "/anime/episode/watched") throw new Error("Адрес изменения прогресса AnimeGO не прошёл проверку.");
         const episodesUrl = safeUrl(episodesPath);
         if (episodesUrl.pathname !== "/player/" + playerId + "/episodes" || episodesUrl.search)
