@@ -2274,7 +2274,7 @@ async fn animego_progress_webview_operation(
     expected_user_id: &str,
     desired_progress: Option<u32>,
 ) -> Result<(String, String, Vec<AnimeGoEpisodeProgressItem>, u16, u32), String> {
-    let window = crate::animego_event_bridge::ensure_auth_window(app).await?;
+    let window = crate::animego_event_bridge::ensure_auth_window_for_polling(app).await?;
     let current_url = window.url()
         .map_err(|_| "Не удалось проверить адрес окна AnimeGO.".to_string())?;
     if current_url.scheme() != "https" || current_url.host_str() != Some("animego.me") {
