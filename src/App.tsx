@@ -302,7 +302,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
   const [providerWriteHistory, setProviderWriteHistory] = useState<ProviderWriteJob[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
-  const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | SyncProvider>("all");
+  const [historyProviderFilter, setHistoryProviderFilter] = useState<"all" | SyncProvider | "animego">("all");
   const [historyStatusFilter, setHistoryStatusFilter] = useState<"all" | SyncOperation["status"]>("all");
 
   useEffect(() => {
@@ -2498,6 +2498,14 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
     (historyProviderFilter === "all" || operation.provider === historyProviderFilter) &&
     (historyStatusFilter === "all" || operation.status === historyStatusFilter),
   );
+  const filteredProviderWriteHistory = providerWriteHistory.filter((job) =>
+    (historyProviderFilter === "all" || historyProviderFilter === "animego") &&
+    (historyStatusFilter === "all" ||
+      (historyStatusFilter === "pending" && job.state === "pending") ||
+      (historyStatusFilter === "in_progress" && job.state === "processing") ||
+      (historyStatusFilter === "succeeded" && job.state === "succeeded") ||
+      (historyStatusFilter === "failed" && job.state === "failed")),
+  );
   const historySessions = useMemo(() => {
     const operationsBySession = new Map<string, SyncOperation[]>();
     for (const operation of historyOperations) {
@@ -2983,17 +2991,17 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                     <small>Локальные изменения, отправка и подтверждение на стороне сервиса</small>
                   </div>
                   <div className="history-session-summary">
-                    <span>{providerWriteHistory.length} записей</span>
-                    <span className="history-count-pending">{providerWriteHistory.filter((job) => job.state === "pending" || job.state === "processing").length} ожидают</span>
-                    <span className="history-count-failed">{providerWriteHistory.filter((job) => job.state === "failed").length} ошибок</span>
-                    <span className="history-count-success">{providerWriteHistory.filter((job) => job.state === "succeeded").length} успешно</span>
+                    <span>{filteredProviderWriteHistory.length} записей</span>
+                    <span className="history-count-pending">{filteredProviderWriteHistory.filter((job) => job.state === "pending" || job.state === "processing").length} ожидают</span>
+                    <span className="history-count-failed">{filteredProviderWriteHistory.filter((job) => job.state === "failed").length} ошибок</span>
+                    <span className="history-count-success">{filteredProviderWriteHistory.filter((job) => job.state === "succeeded").length} успешно</span>
                   </div>
                 </header>
-                {providerWriteHistory.length === 0 ? (
+                {filteredProviderWriteHistory.length === 0 ? (
                   <p className="history-operation-details">Операций отправки AnimeGO пока нет. После изменения статуса, прогресса или оценки запись появится здесь.</p>
                 ) : (
                   <div className="history-operation-list">
-                    {[...providerWriteHistory].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((job) => {
+                    {[...filteredProviderWriteHistory].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((job) => {
                       const anime = library.find((item) => item.anime.externalIds.animego === job.externalId)?.anime;
                       const title = anime?.titles.english ?? anime?.titles.romaji ?? anime?.titles.native ?? ("AnimeGO ID: " + job.externalId);
                       const stateLabel = job.state === "succeeded" ? (job.verification === "submitted" ? "Отправлено, не подтверждено" : "Подтверждено") : job.state === "failed" ? "Ошибка" : job.state === "processing" ? "Отправляется" : "В очереди";
@@ -3038,6 +3046,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                     <option value="mal">MyAnimeList</option>
                     <option value="anilist">AniList</option>
                     <option value="shikimori">Shikimori</option>
+                    <option value="animego">AnimeGO</option>
                   </select>
                 </label>
                 <label>
