@@ -599,6 +599,24 @@ export class BrowserAnimeRepository {
     await this.db.put("syncSessions", structuredClone(session));
   }
 
+  /** Persist an import session and all of its title operations atomically. */
+  async saveSyncJournal(session: SyncSession, operations: SyncOperation[]): Promise<void> {
+    if (operations.some((operation) =>
+      operation.sessionId !== session.sessionId || operation.provider !== session.provider
+    )) {
+      throw new Error("Sync journal operations must match their parent session");
+    }
+
+    const transaction = this.db.transaction(["syncSessions", "syncOperations"], "readwrite");
+    const sessionsStore = transaction.objectStore("syncSessions");
+    const operationsStore = transaction.objectStore("syncOperations");
+    await sessionsStore.put(structuredClone(session));
+    for (const operation of operations) {
+      await operationsStore.put(structuredClone(operation));
+    }
+    await transaction.done;
+  }
+
   async updateSyncSession(
     sessionId: string,
     changes: Partial<Omit<SyncSession, "sessionId" | "provider" | "startedAt">>,
