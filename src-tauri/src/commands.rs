@@ -2221,7 +2221,9 @@ fn animego_parse_player_metadata(
                 || ancestor.value().classes().any(|class_name| class_name == "d-none")))
         .filter_map(|element| element.value().attr("data-translation-id"))
         .find(|value| !value.is_empty() && value.chars().all(|ch| ch.is_ascii_digit()))
-        .ok_or_else(|| "Не удалось определить активный видимый перевод AnimeGO.".to_string())?.to_string();
+        .or_else(|| player.value().attr("data-anime-player-default-translation-id-value"))
+        .filter(|value| !value.is_empty() && value.chars().all(|ch| ch.is_ascii_digit()))
+        .ok_or_else(|| "Не удалось определить активный или стандартный перевод AnimeGO.".to_string())?.to_string();
     Ok((player_id, episodes_path, watched_path, translation_id))
 }
 
@@ -2231,21 +2233,16 @@ async fn animego_load_episode_state(
     title_url: &reqwest::Url,
     anime_id: &str,
 ) -> Result<AnimeGoEpisodePageState, String> {
-    let player_page = animego_fetch_account_page(
-        client, cookies, &format!("/player/{anime_id}"), title_url.as_str(), None
+    // AnimeGO renders the .player-video controller directly inside the title page.
+    // /player/{anime_id} is not a standalone page and returns 404.
+    let title_page = animego_fetch_account_page(
+        client, cookies, title_url.path(), title_url.as_str(), None
     ).await?;
-    if !(200..300).contains(&player_page.status) {
-        return Err(format!("AnimeGO не смог открыть плеер (HTTP {}).", player_page.status));
+    if !(200..300).contains(&title_page.status) {
+        return Err(format!("AnimeGO не смог открыть страницу тайтла для чтения серий (HTTP {}).", title_page.status));
     }
-    let player_json: Value = serde_json::from_str(&player_page.text)
-        .map_err(|_| "AnimeGO вернул некорректный ответ плеера.".to_string())?;
-    if player_json.get("status").and_then(Value::as_str) != Some("success") {
-        return Err("AnimeGO не подтвердил загрузку плеера.".to_string());
-    }
-    let player_html = player_json.pointer("/data/content").and_then(Value::as_str)
-        .ok_or_else(|| "В ответе AnimeGO отсутствует HTML плеера.".to_string())?;
     let (player_id, episodes_path, watched_path, translation_id) =
-        animego_parse_player_metadata(player_html, anime_id)?;
+        animego_parse_player_metadata(&title_page.text, anime_id)?;
 
     let origin = reqwest::Url::parse(ANIMEGO_ORIGIN).map_err(|_| "Некорректный адрес AnimeGO.".to_string())?;
     let episodes_url = origin.join(&episodes_path)
