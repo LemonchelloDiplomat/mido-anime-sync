@@ -2394,7 +2394,7 @@ async fn animego_progress_webview_operation(
         // Prefer the fully hydrated page DOM. AnimeGO may omit Stimulus data
         // attributes from the HTML fetch response while adding them client-side.
         const isCurrentTitle = location.origin === origin
-          && location.pathname.replace(/\\/$/, "") === expectedTitleUrl.pathname.replace(/\\/$/, "");
+          && location.pathname.replace(/\/$/, "") === expectedTitleUrl.pathname.replace(/\/$/, "");
         const doc = isCurrentTitle
           ? document
           : new DOMParser().parseFromString(titleHtml, "text/html");
