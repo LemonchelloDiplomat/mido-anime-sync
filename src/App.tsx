@@ -3127,7 +3127,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                     ) : event.type === "import" ? (
                       <div className="history-operation" key={"import:" + event.id}>
                         <div className="history-operation-title">
-                          <strong>{event.event.provider === "animego" ? "AnimeGO" : "YummyAnime"} · импорт списка</strong>
+                          <strong>{({ animego: "AnimeGO", yummyanime: "YummyAnime", mal: "MyAnimeList", anilist: "AniList", shikimori: "Shikimori", file: "Файл / XML", restore: "Резервная копия" })[event.event.provider]} · импорт списка</strong>
                           <small>{event.event.importedCount} записей · {event.event.skippedCount} пропущено{event.event.error ? " · " + event.event.error : ""}</small>
                         </div>
                         <span className={"history-status-label " + event.event.status}>{event.event.status === "succeeded" ? "Импортировано" : "Ошибка"}</span>
