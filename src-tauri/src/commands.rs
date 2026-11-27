@@ -2428,7 +2428,7 @@ async fn animego_progress_webview_operation(
         const episodesUrl = safeUrl(episodesPath);
         // AnimeGO's Symfony endpoint may require an XMLHttpRequest request.
         // Trust the actual same-origin endpoint exposed by the hydrated player DOM;
-        // do not force it to match a guessed /player/{id}/episodes template.
+        // do not force it to match a guessed /player/{{id}}/episodes template.
         if (!episodesUrl.pathname.startsWith("/player/"))
           throw new Error("Неожиданный адрес списка серий AnimeGO: " + episodesUrl.pathname);
         const watchedUrl = safeUrl(watchedPath);
