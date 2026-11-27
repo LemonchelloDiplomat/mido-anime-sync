@@ -2814,11 +2814,23 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                   const sourceEntry = sourceEntries.find((entry) => entry.source === "animego");
                   if (!sourceEntry) throw new Error("Запись AnimeGO не найдена в локальной библиотеке.");
                   if (choice === "remote") {
-                    if (conflict.field === "status") sourceEntry.status = conflict.remoteValue as AnimeStatus;
-                    else if (conflict.field === "progress") sourceEntry.progress = Number(conflict.remoteValue);
-                    else sourceEntry.score = conflict.remoteValue == null ? null : Number(conflict.remoteValue);
-                    sourceEntry.updatedAt = new Date().toISOString();
+                    const timestamp = new Date().toISOString();
+                    const localEntry = await repository.getEntry(conflict.animeId);
+                    if (!localEntry) throw new Error("Локальная запись аниме не найдена.");
+                    if (conflict.field === "status") {
+                      sourceEntry.status = conflict.remoteValue as AnimeStatus;
+                      localEntry.status = conflict.remoteValue as AnimeStatus;
+                    } else if (conflict.field === "progress") {
+                      sourceEntry.progress = Number(conflict.remoteValue);
+                      localEntry.progress = Number(conflict.remoteValue);
+                    } else {
+                      sourceEntry.score = conflict.remoteValue == null ? null : Number(conflict.remoteValue);
+                      localEntry.score = conflict.remoteValue == null ? null : Number(conflict.remoteValue);
+                    }
+                    sourceEntry.updatedAt = timestamp;
+                    localEntry.updatedAt = timestamp;
                     await repository.saveSourceEntry(sourceEntry);
+                    await repository.saveEntry(localEntry);
                   } else {
                     if (!conflict.titleUrl) throw new Error("Не удалось определить ссылку тайтла AnimeGO для отправки локальной версии.");
                     if (conflict.field === "status") {
