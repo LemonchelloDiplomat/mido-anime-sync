@@ -49,6 +49,7 @@ import { reconcileInterruptedSyncSessions } from "./core/sync-session-recovery.j
 import { findExactIdentityDuplicatePairs } from "./core/identity-reconciliation.js";
 import { mergeAnimeMetadata } from "./core/anime-metadata.js";
 import { getProviderLabel, getProviderServiceId } from "./core/provider-capabilities.js";
+import { createLocalLibraryFieldChanges, formatLocalLibraryFieldChange } from "./core/local-library-changes.js";
 import { createWatchSourceEntry, findExactAnimeTitleMatches, validateWatchEvent, type WatchEvent } from "./core/watch-events.js";
 
 import {
@@ -593,6 +594,13 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
           source: "local",
         };
         await repository.saveEntry(newEntry);
+        await repository.saveImportHistoryEvent({
+          id: crypto.randomUUID(), provider: "local", kind: "local_library_change", status: "succeeded",
+          importedCount: 1, skippedCount: 0, startedAt: newEntry.updatedAt, finishedAt: new Date().toISOString(),
+          animeId: targetId,
+          animeTitle: mergedAnime.titles.english || mergedAnime.titles.romaji || targetId,
+          changes: createLocalLibraryFieldChanges(undefined, newEntry),
+        });
       }
 
       await refreshLibrary();
@@ -2322,12 +2330,16 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
           : {}),
       };
 
+      const fieldChanges = createLocalLibraryFieldChanges(previous?.entry, entry);
       await repository.saveAnime(anime);
       await repository.saveEntry(entry);
       if (!previous || JSON.stringify(previous.anime) !== JSON.stringify(anime) || JSON.stringify(previous.entry) !== JSON.stringify(entry)) {
         await repository.saveImportHistoryEvent({
           id: crypto.randomUUID(), provider: "local", kind: "local_library_change", status: "succeeded",
           importedCount: previous ? 0 : 1, skippedCount: 0, startedAt: entry.updatedAt, finishedAt: new Date().toISOString(),
+          animeId: id,
+          animeTitle: anime.titles.english || anime.titles.romaji || id,
+          ...(fieldChanges.length ? { changes: fieldChanges } : {}),
         });
       }
 
@@ -2474,10 +2486,16 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
       if (deletionIntents.length > 0) {
         downloadSnapshot(await repository.snapshot());
       }
+      const previousEntry = library.find((item) => item.anime.id === id)?.entry
+        ?? sourceEntries.find((entry) => entry.source === "local")
+        ?? sourceEntries[0];
       await repository.deleteAnime(id, deletionIntents);
       await repository.saveImportHistoryEvent({
         id: crypto.randomUUID(), provider: "local", kind: "local_library_change", status: "succeeded",
         importedCount: 0, skippedCount: 1, startedAt: createdAt, finishedAt: new Date().toISOString(),
+        animeId: id,
+        animeTitle: anime.titles.english || anime.titles.romaji || id,
+        ...(previousEntry ? { changes: createLocalLibraryFieldChanges(previousEntry, undefined) } : {}),
       });
       await refreshLibrary();
       if (deletionIntents.length > 0) {
@@ -3149,7 +3167,7 @@ function App({ streamingRuntime }: { streamingRuntime: StreamingRuntime | null }
                       <div className="history-operation" key={"import:" + event.id}>
                         <div className="history-operation-title">
                           <strong>{({ animego: "AnimeGO", yummyanime: "YummyAnime", mal: "MyAnimeList", anilist: "AniList", shikimori: "Shikimori", file: "Файл / XML", restore: "Резервная копия", local: "Локальная библиотека" })[event.event.provider]} · {event.event.kind === "local_library_change" ? "изменение библиотеки" : "импорт списка"}</strong>
-                          <small>{event.event.kind === "local_library_change" ? (event.event.provider === "local" && event.event.skippedCount > 0 ? event.event.skippedCount + " удалено / очищено" : event.event.importedCount > 0 ? event.event.importedCount + " добавлено" : "Изменения сохранены") : event.event.importedCount + " записей · " + event.event.skippedCount + " пропущено"}{event.event.error ? " · " + event.event.error : ""}</small>
+                          <small>{event.event.kind === "local_library_change" ? (event.event.provider === "local" && event.event.skippedCount > 0 ? event.event.skippedCount + " удалено / очищено" : event.event.importedCount > 0 ? event.event.importedCount + " добавлено" : "Изменения сохранены") : event.event.importedCount + " записей · " + event.event.skippedCount + " пропущено"}{event.event.animeTitle ? " · " + event.event.animeTitle : ""}{event.event.changes?.length ? " · " + event.event.changes.map(formatLocalLibraryFieldChange).join(" · ") : ""}{event.event.error ? " · " + event.event.error : ""}</small>
                         </div>
                         <span className={"history-status-label " + event.event.status}>{event.event.status === "succeeded" ? "Импортировано" : "Ошибка"}</span>
                         <span className="history-operation-time">{formatHistoryDate(event.createdAt)}</span>
